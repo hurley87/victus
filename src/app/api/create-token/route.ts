@@ -1,38 +1,10 @@
 import { NextResponse } from 'next/server';
-import { PrivyClient } from '@privy-io/server-auth';
-import { createViemAccount } from '@privy-io/server-auth/viem';
-import { createPublicClient, createWalletClient, http, parseEther } from 'viem';
-import { base } from 'viem/chains';
 import { createCoin } from '@zoralabs/coins-sdk';
-
-// It's best practice to initialize the Privy client outside the handler if it's reusable
-const privy = new PrivyClient(
-  process.env.PRIVY_APP_ID!,
-  process.env.PRIVY_APP_SECRET!
-);
+import { getWalletClients } from '@/utils/wallet/clients';
 
 export async function GET() {
   try {
-    // Create a new custodial wallet on Ethereum
-    // Create a viem account instance for a wallet
-    const account = await createViemAccount({
-      walletId: 'k12xh985fc59b5u7svln692a',
-      address: '0x6e8068F46082eDb44Ff1eE0D1570c8dC821281C3',
-      privy,
-    });
-
-    const walletClient = createWalletClient({
-      account,
-      chain: base,
-      transport: http(),
-    });
-
-    const publicClient = createPublicClient({
-      chain: base,
-      transport: http(),
-    }) as any;
-
-    console.log('account', account);
+    const { walletClient, publicClient } = await getWalletClients();
 
     const createCoinParams = {
       name: 'Arrows TEST',
@@ -57,9 +29,10 @@ export async function GET() {
     return NextResponse.json({
       tokenAddress,
     });
-  } catch {
+  } catch (error) {
+    console.error('Error creating token:', error);
     return NextResponse.json(
-      { error: 'Failed to create wallet' },
+      { error: 'Failed to create token' },
       { status: 500 }
     );
   }

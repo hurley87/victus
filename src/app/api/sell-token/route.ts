@@ -1,61 +1,119 @@
 import { NextResponse } from 'next/server';
-import { PrivyClient } from '@privy-io/server-auth';
-import { createViemAccount } from '@privy-io/server-auth/viem';
-import { createPublicClient, createWalletClient, http, parseUnits } from 'viem';
-import { base } from 'viem/chains';
+import { parseUnits } from 'viem';
+import type { PublicClient, WalletClient } from 'viem';
+import { getWalletClients } from '@/utils/wallet/clients';
 import { tradeCoin } from '@zoralabs/coins-sdk';
+import type { TradeParams } from '@zoralabs/coins-sdk';
 
-// It's best practice to initialize the Privy client outside the handler if it's reusable
-const privy = new PrivyClient(
-  process.env.PRIVY_APP_ID!,
-  process.env.PRIVY_APP_SECRET!
-);
+// Type definitions
+type TradeResponse = {
+  success: boolean;
+  data?: unknown;
+  error?: string;
+};
 
-export async function GET() {
+// BigInt serializer to convert BigInt to string
+function serializeBigInt(data: any): any {
+  if (data === null || data === undefined) {
+    return data;
+  }
+
+  if (typeof data === 'bigint') {
+    return data.toString();
+  }
+
+  if (Array.isArray(data)) {
+    return data.map(serializeBigInt);
+  }
+
+  if (typeof data === 'object') {
+    const result: Record<string, any> = {};
+    for (const key in data) {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        result[key] = serializeBigInt(data[key]);
+      }
+    }
+    return result;
+  }
+
+  return data;
+}
+
+// Trade execution logic
+async function executeTrade(
+  walletClient: WalletClient,
+  publicClient: PublicClient,
+  orderSize: string,
+  recipientAddress: `0x${string}`,
+  targetAddress: `0x${string}`
+): Promise<TradeResponse> {
   try {
-    // Create a new custodial wallet on Ethereum
-    // Create a viem account instance for a wallet
-    const account = await createViemAccount({
-      walletId: 'k12xh985fc59b5u7svln692a',
-      address: '0x6e8068F46082eDb44Ff1eE0D1570c8dC821281C3',
-      privy,
-    });
-
-    const walletClient = createWalletClient({
-      account,
-      chain: base,
-      transport: http(),
-    });
-
-    const publicClient = createPublicClient({
-      chain: base,
-      transport: http(),
-    }) as any;
-
-    console.log('account', account);
-
-    const tradeParams = {
-      direction: 'sell' as const,
-      target: '0xd89c4c827c152438a09294E7B299aD628c5aadD7' as `0x${string}`,
+    const tradeParams: TradeParams = {
+      direction: 'sell',
+      target: targetAddress,
       args: {
-        recipient:
-          '0x6e8068F46082eDb44Ff1eE0D1570c8dC821281C3' as `0x${string}`,
-        orderSize: parseUnits('444', 18),
+        recipient: recipientAddress,
+        orderSize: parseUnits(orderSize, 18),
       },
     };
 
-    console.log('tradeParams', tradeParams);
-
     const result = await tradeCoin(tradeParams, walletClient, publicClient);
-    console.log(result);
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('Trade execution failed:', error);
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : 'Unknown error during trade execution',
+    };
+  }
+}
+
+export async function GET() {
+  try {
+    // Constants - could be moved to environment variables or parameters
+    const TARGET_ADDRESS =
+      '0xd89c4c827c152438a09294E7B299aD628c5aadD7' as `0x${string}`;
+    const WALLET_ADDRESS =
+      '0x6e8068F46082eDb44Ff1eE0D1570c8dC821281C3' as `0x${string}`;
+    const ORDER_SIZE = '444';
+
+    // Initialize clients using the utility functions
+    const { walletClient, publicClient } = await getWalletClients();
+
+    // Execute trade
+    const tradeResult = await executeTrade(
+      walletClient,
+      publicClient,
+      ORDER_SIZE,
+      WALLET_ADDRESS,
+      TARGET_ADDRESS
+    );
+
+    if (!tradeResult.success) {
+      return NextResponse.json(
+        { error: tradeResult.error || 'Trade failed' },
+        { status: 400 }
+      );
+    }
+
+    // Serialize any BigInt values before returning the response
+    const serializedData = serializeBigInt(tradeResult.data);
 
     return NextResponse.json({
-      buy: 'success',
+      success: true,
+      message: 'Token sold successfully',
+      data: serializedData,
     });
-  } catch (e) {
-    console.log('error', e);
+  } catch (error) {
+    console.error('API route error:', error);
     return NextResponse.json(
-      { error: 'Failed to create wallet' },
+      {
+        error:
+          error instanceof Error ? error.message : 'Failed to process request',
+      },
       { status: 500 }
     );
   }
