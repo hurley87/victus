@@ -18,6 +18,8 @@ export const privy = new PrivyClient(
   process.env.PRIVY_APP_SECRET!
 );
 
+const rpcUrl = process.env.RPC_URL!;
+
 // Create a viem account instance for a wallet
 export async function getWalletAccount(
   walletId: string,
@@ -35,7 +37,7 @@ export function createClientForWallet(account: Account): WalletClient {
   return createWalletClient({
     account,
     chain: base,
-    transport: http(),
+    transport: http(rpcUrl),
   });
 }
 
@@ -43,7 +45,7 @@ export function createClientForWallet(account: Account): WalletClient {
 export function getPublicClient(): PublicClient<Transport, Chain> {
   return createPublicClient({
     chain: base,
-    transport: http(),
+    transport: http(rpcUrl),
   }) as PublicClient<Transport, Chain>;
 }
 
