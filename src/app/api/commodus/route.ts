@@ -80,10 +80,126 @@ const pinMetadataToIPFS = async (
   }
 };
 
+// Handle background tasks
+const handleCreateCoinInBackground = async (createParams: {
+  name: string;
+  symbol: string;
+  description: string;
+  image: string;
+  verifiedAddress: string;
+  reply: string;
+  parent: string;
+}) => {
+  try {
+    // First, publish an acknowledgment
+    await publishCast(
+      `Your request to create ${createParams.name} (${createParams.symbol}) coin is being processed...`,
+      createParams.parent
+    );
+
+    // Pin metadata to IPFS
+    const uri = await pinMetadataToIPFS(
+      createParams.name,
+      createParams.description,
+      createParams.image
+    );
+
+    // Get wallet clients
+    const { walletClient, publicClient } = await getWalletClients();
+
+    // Create coin
+    const createCoinParams = {
+      name: createParams.name,
+      symbol: createParams.symbol,
+      uri,
+      payoutRecipient: createParams.verifiedAddress as `0x${string}`,
+      platformReferrer:
+        '0xbD78783a26252bAf756e22f0DE764dfDcDa7733c' as `0x${string}`,
+    };
+
+    const result = await createCoin(
+      createCoinParams,
+      walletClient,
+      publicClient
+    );
+
+    const tokenAddress = result.address;
+
+    // Publish the final response with the token address
+    await publishCast(
+      createParams.reply,
+      createParams.parent,
+      `https://zora.co/coin/base:${tokenAddress}`
+    );
+
+    console.log('CREATE operation completed successfully');
+  } catch (error) {
+    console.error('Error in background CREATE task:', error);
+
+    // Notify about the error
+    await publishCast(
+      `Failed to create coin: ${(error as Error).message}`,
+      createParams.parent
+    );
+  }
+};
+
+const handleTradeInBackground = async (tradeParams: {
+  tokenAddress: string;
+  size: string;
+  direction: 'BUY' | 'SELL';
+  verifiedAddress: string;
+  reply: string;
+  parent: string;
+}) => {
+  try {
+    // First, publish an acknowledgment
+    await publishCast(
+      `Your request to ${tradeParams.direction.toLowerCase()} ${
+        tradeParams.size
+      } tokens is being processed...`,
+      tradeParams.parent
+    );
+
+    // Get wallet clients
+    const { walletClient, publicClient } = await getWalletClients();
+
+    // Create trade parameters
+    const params = {
+      direction: tradeParams.direction.toLowerCase() as 'buy' | 'sell',
+      target: tradeParams.tokenAddress as `0x${string}`,
+      args: {
+        recipient: tradeParams.verifiedAddress as `0x${string}`,
+        orderSize: parseUnits(tradeParams.size, 18), // Assuming 18 decimals for the token
+      },
+    };
+
+    // Execute the trade
+    const tradeResult = await tradeCoin(params, walletClient, publicClient);
+
+    // Publish a reply with the transaction result
+    const tradeUrl = `https://basescan.org/tx/${tradeResult.hash}`;
+    const tradeMessage = `${tradeParams.reply}\n\nTransaction: ${tradeUrl}`;
+
+    await publishCast(tradeMessage, tradeParams.parent);
+
+    console.log('TRADE operation completed successfully');
+  } catch (error) {
+    console.error('Error in background TRADE task:', error);
+
+    // Notify about the error
+    await publishCast(
+      `Failed to ${tradeParams.direction.toLowerCase()} token: ${
+        (error as Error).message
+      }`,
+      tradeParams.parent
+    );
+  }
+};
+
 export async function POST(request: Request) {
   try {
     const req = await request.json();
-    const { walletClient, publicClient } = await getWalletClients();
 
     const data = req.data;
     const text = data.text;
@@ -106,7 +222,7 @@ export async function POST(request: Request) {
 
     console.log('agentRoute', agentRoute);
 
-    // Always publish the reply regardless of action type
+    // Handle CHAT action immediately
     if (agentRoute.action === 'CHAT' && agentRoute?.reply) {
       const cast = await publishCast(agentRoute.reply, parent);
       console.log('cast', cast);
@@ -121,7 +237,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    // Handle specific actions
+
+    // Handle CREATE action
     if (agentRoute.action === 'CREATE') {
       const image = data?.embeds?.[0]?.url;
       if (!image) {
@@ -133,90 +250,38 @@ export async function POST(request: Request) {
         return Response.json({ error: 'No image found' }, { status: 400 });
       }
 
-      const uri = await pinMetadataToIPFS(
-        agentRoute.name,
-        agentRoute.description,
-        image
+      // Process coin creation in background
+      // Note: Using Promise without await to not block the response
+      Promise.resolve().then(() =>
+        handleCreateCoinInBackground({
+          name: agentRoute.name,
+          symbol: agentRoute.symbol,
+          description: agentRoute.description,
+          image,
+          verifiedAddress,
+          reply: agentRoute.reply,
+          parent,
+        })
       );
 
-      const createCoinParams = {
-        name: agentRoute.name,
-        symbol: agentRoute.symbol,
-        uri,
-        payoutRecipient: verifiedAddress as `0x${string}`,
-        platformReferrer:
-          '0xbD78783a26252bAf756e22f0DE764dfDcDa7733c' as `0x${string}`,
-      };
-
-      const result = await createCoin(
-        createCoinParams,
-        walletClient,
-        publicClient
+      return Response.json({ status: 'CREATE_PENDING' });
+    }
+    // Handle TRADE action
+    else if (agentRoute.action === 'TRADE') {
+      // Process trade in background
+      // Note: Using Promise without await to not block the response
+      Promise.resolve().then(() =>
+        handleTradeInBackground({
+          tokenAddress: agentRoute.tokenAddress,
+          size: agentRoute.size,
+          direction: agentRoute.direction,
+          verifiedAddress,
+          reply: agentRoute.reply,
+          parent,
+        })
       );
 
-      const tokenAddress = result.address;
-
-      const cast = await publishCast(
-        agentRoute.reply,
-        parent,
-        `https://zora.co/coin/base:${tokenAddress}`
-      );
-      console.log('cast', cast);
-
-      return Response.json({ status: 'CREATE' });
-    } else if (agentRoute.action === 'TRADE') {
-      try {
-        // Extract token address and size from the agent response
-        const { tokenAddress, size, direction } = agentRoute;
-
-        // Create trade parameters
-        const tradeParams = {
-          direction: direction.toLowerCase() as 'buy' | 'sell',
-          target: tokenAddress as `0x${string}`,
-          args: {
-            recipient: verifiedAddress as `0x${string}`,
-            orderSize: parseUnits(size, 18), // Assuming 18 decimals for the token
-          },
-        };
-
-        console.log('tradeParams', tradeParams);
-
-        // Execute the trade
-        const tradeResult = await tradeCoin(
-          tradeParams,
-          walletClient,
-          publicClient
-        );
-        console.log('tradeResult', tradeResult);
-
-        // Publish a reply with the transaction result
-        const tradeUrl = `https://basescan.org/tx/${tradeResult.hash}`;
-        const tradeMessage = `${agentRoute.reply}\n\nTransaction: ${tradeUrl}`;
-
-        const cast = await publishCast(tradeMessage, parent);
-        console.log('cast', cast);
-
-        return Response.json({
-          status: 'TRADE',
-          direction: direction,
-          tokenAddress: tokenAddress,
-          txHash: tradeResult.hash,
-        });
-      } catch (error) {
-        console.error('Error executing trade:', error);
-
-        // Notify the user about the error
-        const errorMessage = `Failed to ${agentRoute.direction.toLowerCase()} token. Please try again later.`;
-        await publishCast(errorMessage, parent);
-
-        return Response.json(
-          {
-            error: 'Failed to execute trade',
-            details: (error as Error).message,
-          },
-          { status: 500 }
-        );
-      }
+      return Response.json({ status: 'TRADE_PENDING' });
     }
 
     return Response.json({ status: agentRoute.action });
