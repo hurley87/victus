@@ -62,8 +62,17 @@ const handleCreateCoin = async (taskData: BackgroundTaskData) => {
     const coin = await createCoin(createCoinParams, walletClient, publicClient);
 
     console.log('coin', coin);
+    const hash = coin.hash;
 
-    const coinAddress = coin.address;
+    console.log('hash', hash);
+
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+
+    console.log('receipt', receipt);
+
+    const coinAddress = receipt.contractAddress;
+
+    console.log('coinAddress', coinAddress);
 
     // Publish the final response with the token address
     await publishCast(
