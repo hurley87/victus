@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { NeynarAPIClient } from '@neynar/nodejs-sdk';
 // import pinataSDK from '@pinata/sdk';
 
-export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes, adjust as needed
 
