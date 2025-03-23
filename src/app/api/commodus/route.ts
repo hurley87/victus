@@ -16,6 +16,7 @@ const schema = z.object({
   tokenAddress: z.string().optional(),
   size: z.string().optional(),
   direction: z.enum(['BUY', 'SELL']).optional(),
+  reply: z.string().optional(),
 });
 
 export async function POST(request: Request) {
