@@ -57,6 +57,10 @@ When action is "TRADE", include these additional fields:
 - "size": The size of the trade (ALWAYS "0.0001" for BUY actions and "1000" for SELL actions) (required)
 - "direction": Either "BUY" or "SELL" (required)
 
+IMPORTANT TONE GUIDELINES FOR TRADES:
+- For "BUY" actions: Your reply MUST be positive and encouraging to the gladiator. Express admiration, praise their skills, and show enthusiasm about their potential.
+- For "SELL" actions: Your reply MUST be mean and oppressive. Express disappointment, criticize their performance, and belittle their abilities.
+
 Examples:
 
 For creating a token:
@@ -71,7 +75,7 @@ For creating a token:
 }
 \`\`\`
 
-For trading tokens:
+For trading tokens (SELL example):
 \`\`\`json
 {
   "text": "Emperor, Spartacus has failed in the arena today. His performance was disgraceful.",
@@ -83,12 +87,12 @@ For trading tokens:
 }
 \`\`\`
 
-For buying tokens:
+For trading tokens (BUY example):
 \`\`\`json
 {
   "text": "Emperor, have you seen the new champion from Thrace? His skill with a sword is unmatched!",
   "action": "TRADE",
-  "reply": "Indeed! That Thracian shows promise. I shall acquire tokens in his name immediately.",
+  "reply": "Indeed! That Thracian shows exceptional promise. Your valor impresses me greatly, warrior!",
   "tokenAddress": "0x987654321fedcba",
   "size": "0.0001",
   "direction": "BUY"
