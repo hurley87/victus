@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { parseUnits } from 'viem';
 import { tradeCoin } from '@zoralabs/coins-sdk';
-import { getWalletClients } from '@/utils/wallet/clients';
+import { getWalletClients } from '@/lib/clients';
 
 export async function GET() {
   try {

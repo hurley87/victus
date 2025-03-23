@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createCoin } from '@zoralabs/coins-sdk';
-import { getWalletClients } from '@/utils/wallet/clients';
+import { getWalletClients } from '@/lib/clients';
 
 export async function GET() {
   try {
