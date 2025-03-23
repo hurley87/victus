@@ -12,24 +12,33 @@ export const maxDuration = 300; // 5 minutes, adjust as needed
 const triggerBackgroundTask = async (taskData: BackgroundTaskData) => {
   try {
     // Use server base URL with fallback
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    const baseUrl =
+      process.env.NEXT_PUBLIC_BASE_URL || 'https://www.victus.fun';
     const url = `${baseUrl}/api/commodus/task`;
 
-    console.log('taskData', taskData);
+    console.log('Triggering background task:', { url, taskData });
 
     // Fire-and-forget
-    fetch(url, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': process.env.BACKGROUND_TASK_SECRET || 'secret-key',
       },
       body: JSON.stringify(taskData),
-    }).catch((error) => {
-      console.error('Background task request failed:', error);
     });
 
-    return true; // Return immediately while task processes in background
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error(
+        `Background task request failed: ${response.status}`,
+        errorData
+      );
+      return false;
+    }
+
+    console.log('Background task triggered successfully');
+    return true;
   } catch (error) {
     console.error('Error triggering background task:', error);
     return false;
