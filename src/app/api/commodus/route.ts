@@ -15,6 +15,8 @@ const triggerBackgroundTask = async (taskData: BackgroundTaskData) => {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
     const url = `${baseUrl}/api/commodus/task`;
 
+    console.log('taskData', taskData);
+
     // Fire-and-forget
     fetch(url, {
       method: 'POST',
@@ -52,6 +54,8 @@ export async function POST(request: Request) {
       system: getSystemPrompt(),
       prompt: getActionPrompt(text),
     });
+
+    console.log('agentRoute', agentRoute);
 
     // Handle CHAT action immediately
     if (agentRoute.action === 'CHAT' && agentRoute?.reply) {
