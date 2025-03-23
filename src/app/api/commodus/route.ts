@@ -2,6 +2,8 @@ import { getSystemPrompt, getRoutePrompt } from '@/lib/prompts';
 import { openai } from '@ai-sdk/openai';
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { NeynarAPIClient } from '@neynar/nodejs-sdk';
+// import pinataSDK from '@pinata/sdk';
 
 export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
@@ -19,13 +21,29 @@ const schema = z.object({
   reply: z.string().optional(),
 });
 
+// Initialize clients
+// const pinata = new pinataSDK({ pinataJWTKey: process.env.PINATA_JWT_KEY });
+const neynarClient = new NeynarAPIClient({
+  apiKey: process.env.NEYNAR_API_KEY as string,
+});
+
+const publishCast = async (text: string, parent: string) => {
+  const signerUuid = process.env.SIGNER_UUID as string;
+  const response = await neynarClient.publishCast({
+    signerUuid,
+    text,
+    parent,
+  });
+  return response;
+};
+
 export async function POST(request: Request) {
   try {
     const req = await request.json();
-    // const uuid = process.env.SIGNER_UUID as string;
     const data = req.data;
     const text = data.text;
     const verifiedAddress = data.author.verified_addresses?.eth_addresses?.[0];
+    const parent = data.hash;
 
     console.log('data', data);
     console.log('text', text);
@@ -39,6 +57,12 @@ export async function POST(request: Request) {
     });
 
     console.log('agentRoute', agentRoute);
+
+    if (agentRoute.action === 'CHAT') {
+      const cast = await publishCast(agentRoute.text, parent);
+      console.log('cast', cast);
+      return Response.json({ status: 'CHAT' });
+    }
 
     return Response.json({ status: 'accepted' });
   } catch (error) {
