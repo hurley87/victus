@@ -49,12 +49,13 @@ const neynarClient = new NeynarAPIClient({
   apiKey: process.env.NEYNAR_API_KEY as string,
 });
 
-const publishCast = async (text: string, parent: string) => {
+const publishCast = async (text: string, parent: string, url?: string) => {
   const signerUuid = process.env.SIGNER_UUID as string;
   const response = await neynarClient.publishCast({
     signerUuid,
     text,
     parent,
+    embeds: url ? [{ url }] : undefined,
   });
   return response;
 };
@@ -147,23 +148,18 @@ export async function POST(request: Request) {
           '0xbD78783a26252bAf756e22f0DE764dfDcDa7733c' as `0x${string}`,
       };
 
-      console.log('createCoinParams', createCoinParams);
-
       const result = await createCoin(
         createCoinParams,
         walletClient,
         publicClient
       );
 
-      console.log(result);
-
       const tokenAddress = result.address;
 
-      console.log('tokenAddress', tokenAddress);
-
       const cast = await publishCast(
-        `${agentRoute.reply}\n\nhttps://zora.co/coin/base:${tokenAddress}`,
-        parent
+        agentRoute.reply,
+        parent,
+        `https://zora.co/coin/base:${tokenAddress}`
       );
       console.log('cast', cast);
 
