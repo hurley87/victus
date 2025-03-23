@@ -174,12 +174,17 @@ const handleTradeInBackground = async (tradeParams: {
       },
     };
 
+    console.log('params', params);
+
     // Execute the trade
     const tradeResult = await tradeCoin(params, walletClient, publicClient);
 
     // Publish a reply with the transaction result
     const tradeUrl = `https://basescan.org/tx/${tradeResult.hash}`;
     const tradeMessage = `${tradeParams.reply}\n\nTransaction: ${tradeUrl}`;
+
+    console.log('tradeMessage', tradeMessage);
+    console.log('tradeUrl', tradeUrl);
 
     await publishCast(tradeMessage, tradeParams.parent);
 
