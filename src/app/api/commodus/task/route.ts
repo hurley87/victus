@@ -70,7 +70,7 @@ const handleCreateCoin = async (taskData: BackgroundTaskData) => {
 
     console.log('receipt', receipt);
 
-    const coinAddress = receipt.contractAddress;
+    const coinAddress = coin.address;
 
     console.log('coinAddress', coinAddress);
 
@@ -82,7 +82,7 @@ const handleCreateCoin = async (taskData: BackgroundTaskData) => {
     );
 
     console.log('CREATE operation completed successfully');
-    return { success: true, coin };
+    return { success: true, coinAddress };
   } catch (error) {
     console.error('Error in CREATE task:', error);
 
