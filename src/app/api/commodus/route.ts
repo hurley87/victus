@@ -71,6 +71,9 @@ export async function POST(request: Request) {
     const { object: agentRoute } = await generateObject({
       model: openai('gpt-4o-mini'),
       schema,
+      schemaName: 'EmperorResponse',
+      schemaDescription: 'Response from Emperor Commodus about gladiators',
+      mode: 'json',
       system: getSystemPrompt(),
       prompt: getRoutePrompt(text),
     });
