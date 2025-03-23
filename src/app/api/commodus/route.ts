@@ -1,4 +1,4 @@
-import { getSystemPrompt, getRoutePrompt } from '@/lib/prompts';
+import { getSystemPrompt, getActionPrompt } from '@/lib/prompts';
 import { openai } from '@ai-sdk/openai';
 import { generateObject } from 'ai';
 import { z } from 'zod';
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       schemaDescription: 'Response from Emperor Commodus about gladiators',
       mode: 'json',
       system: getSystemPrompt(),
-      prompt: getRoutePrompt(text),
+      prompt: getActionPrompt(text),
     });
 
     console.log('agentRoute', agentRoute);
