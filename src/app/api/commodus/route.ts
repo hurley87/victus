@@ -19,23 +19,16 @@ const triggerBackgroundTask = async (taskData: BackgroundTaskData) => {
     console.log('Triggering background task:', { url, taskData });
 
     // Fire-and-forget
-    const response = await fetch(url, {
+    fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': process.env.BACKGROUND_TASK_SECRET || 'secret-key',
       },
       body: JSON.stringify(taskData),
+    }).catch((error) => {
+      console.error('Background task request failed:', error);
     });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error(
-        `Background task request failed: ${response.status}`,
-        errorData
-      );
-      return false;
-    }
 
     console.log('Background task triggered successfully');
     return true;
