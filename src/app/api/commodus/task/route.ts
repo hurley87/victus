@@ -59,23 +59,21 @@ const handleCreateCoin = async (taskData: BackgroundTaskData) => {
         '0xbD78783a26252bAf756e22f0DE764dfDcDa7733c' as `0x${string}`,
     };
 
-    const result = await createCoin(
-      createCoinParams,
-      walletClient,
-      publicClient
-    );
+    const coin = await createCoin(createCoinParams, walletClient, publicClient);
 
-    const tokenAddress = result.address;
+    console.log('coin', coin);
+
+    const coinAddress = coin.address;
 
     // Publish the final response with the token address
     await publishCast(
       taskData.reply,
       taskData.parent,
-      `https://zora.co/coin/base:${tokenAddress}`
+      `https://zora.co/coin/base:${coinAddress}`
     );
 
     console.log('CREATE operation completed successfully');
-    return { success: true, tokenAddress };
+    return { success: true, coin };
   } catch (error) {
     console.error('Error in CREATE task:', error);
 
