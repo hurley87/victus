@@ -3,6 +3,7 @@ import { createCoin, tradeCoin } from '@zoralabs/coins-sdk';
 import pinataSDK from '@pinata/sdk';
 import { parseUnits } from 'viem';
 import { NeynarAPIClient } from '@neynar/nodejs-sdk';
+import { BackgroundTaskData } from '@/lib/types';
 
 // Configure for long-running tasks
 export const maxDuration = 300; // 5 minutes timeout
@@ -46,7 +47,11 @@ const pinMetadataToIPFS = async (
 };
 
 // Handle CREATE task
-const handleCreateCoin = async (taskData: any) => {
+const handleCreateCoin = async (taskData: BackgroundTaskData) => {
+  if (taskData.type !== 'CREATE') {
+    throw new Error('Invalid task type for CREATE operation');
+  }
+
   try {
     // Pin metadata to IPFS
     const uri = await pinMetadataToIPFS(
@@ -98,7 +103,11 @@ const handleCreateCoin = async (taskData: any) => {
 };
 
 // Handle TRADE task
-const handleTrade = async (taskData: any) => {
+const handleTrade = async (taskData: BackgroundTaskData) => {
+  if (taskData.type !== 'TRADE') {
+    throw new Error('Invalid task type for TRADE operation');
+  }
+
   try {
     // Get wallet clients
     const { walletClient, publicClient } = await getWalletClients();

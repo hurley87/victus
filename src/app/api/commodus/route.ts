@@ -3,6 +3,7 @@ import { openai } from '@ai-sdk/openai';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { NeynarAPIClient } from '@neynar/nodejs-sdk';
+import { BackgroundTaskData } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes, adjust as needed
@@ -56,7 +57,7 @@ const publishCast = async (text: string, parent: string, url?: string) => {
 };
 
 // Trigger the background task
-const triggerBackgroundTask = async (taskData: any) => {
+const triggerBackgroundTask = async (taskData: BackgroundTaskData) => {
   try {
     // Use server base URL with fallback
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
