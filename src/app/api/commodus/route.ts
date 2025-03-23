@@ -10,6 +10,12 @@ export const maxDuration = 300; // 5 minutes, adjust as needed
 const schema = z.object({
   text: z.string(),
   action: z.enum(['CHAT', 'CREATE', 'TRADE']),
+  name: z.string().optional(),
+  symbol: z.string().optional(),
+  description: z.string().optional(),
+  tokenAddress: z.string().optional(),
+  size: z.string().optional(),
+  direction: z.enum(['BUY', 'SELL']).optional(),
 });
 
 export async function POST(request: Request) {
@@ -28,7 +34,7 @@ export async function POST(request: Request) {
       model: openai('gpt-4o-mini'),
       schema,
       system: getSystemPrompt(),
-      prompt: getRoutePrompt(),
+      prompt: getRoutePrompt(text),
     });
 
     console.log('agentRoute', agentRoute);
