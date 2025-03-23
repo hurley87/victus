@@ -3,7 +3,9 @@ import { openai } from '@ai-sdk/openai';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { NeynarAPIClient } from '@neynar/nodejs-sdk';
-// import pinataSDK from '@pinata/sdk';
+import { getWalletClients } from '@/lib/clients';
+import { createCoin } from '@zoralabs/coins-sdk';
+import pinataSDK from '@pinata/sdk';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes, adjust as needed
@@ -41,7 +43,7 @@ const schema = z.discriminatedUnion('action', [
 ]);
 
 // Initialize clients
-// const pinata = new pinataSDK({ pinataJWTKey: process.env.PINATA_JWT_KEY });
+const pinata = new pinataSDK({ pinataJWTKey: process.env.PINATA_JWT_KEY });
 const neynarClient = new NeynarAPIClient({
   apiKey: process.env.NEYNAR_API_KEY as string,
 });
@@ -56,9 +58,31 @@ const publishCast = async (text: string, parent: string) => {
   return response;
 };
 
+const pinMetadataToIPFS = async (
+  name: string,
+  description: string,
+  image: string
+) => {
+  const metadata = {
+    name,
+    description,
+    image,
+  };
+  try {
+    const pinataRes = await pinata.pinJSONToIPFS(metadata);
+    console.log('Pinata response:', pinataRes);
+    return `https://amber-late-bug-27.mypinata.cloud/ipfs/${pinataRes.IpfsHash}`;
+  } catch (error) {
+    console.error('Error pinning to IPFS:', error);
+    throw new Error('Failed to pin metadata to IPFS');
+  }
+};
+
 export async function POST(request: Request) {
   try {
     const req = await request.json();
+    const { walletClient, publicClient } = await getWalletClients();
+
     const data = req.data;
     const text = data.text;
     const verifiedAddress = data.author.verified_addresses?.eth_addresses?.[0];
@@ -81,15 +105,67 @@ export async function POST(request: Request) {
     console.log('agentRoute', agentRoute);
 
     // Always publish the reply regardless of action type
-    if (agentRoute?.reply) {
+    if (agentRoute.action === 'CHAT' && agentRoute?.reply) {
       const cast = await publishCast(agentRoute.reply, parent);
       console.log('cast', cast);
+      return Response.json({ status: 'CHAT' });
     }
 
+    if (!verifiedAddress) {
+      const cast = await publishCast('No verified address found', parent);
+      console.log('cast', cast);
+      return Response.json(
+        { error: 'No verified address found' },
+        { status: 400 }
+      );
+    }
     // Handle specific actions
     if (agentRoute.action === 'CREATE') {
-      // Additional CREATE action processing could go here
-      // Call the create-token API or directly create the token
+      const image = data?.embeds?.[0]?.url;
+      if (!image) {
+        const cast = await publishCast(
+          '404 IMAGE NOT FOUND 😭 (pls include an image in your cast)',
+          parent
+        );
+        console.log('cast', cast);
+        return Response.json({ error: 'No image found' }, { status: 400 });
+      }
+
+      const uri = await pinMetadataToIPFS(
+        agentRoute.name,
+        agentRoute.description,
+        image
+      );
+
+      const createCoinParams = {
+        name: agentRoute.name,
+        symbol: agentRoute.symbol,
+        uri,
+        payoutRecipient: verifiedAddress as `0x${string}`,
+        platformReferrer:
+          '0xbD78783a26252bAf756e22f0DE764dfDcDa7733c' as `0x${string}`,
+      };
+
+      console.log('createCoinParams', createCoinParams);
+
+      const result = await createCoin(
+        createCoinParams,
+        walletClient,
+        publicClient
+      );
+
+      console.log(result);
+
+      const tokenAddress = result.address;
+
+      console.log('tokenAddress', tokenAddress);
+
+      const cast = await publishCast(
+        `${agentRoute.reply}\n\nhttps://zora.co/coin/base:${tokenAddress}`,
+        parent
+      );
+      console.log('cast', cast);
+
       return Response.json({ status: 'CREATE' });
     } else if (agentRoute.action === 'TRADE') {
       // Additional TRADE action processing could go here
