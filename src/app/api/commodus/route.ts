@@ -3,10 +3,6 @@ import { openai } from '@ai-sdk/openai';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { NeynarAPIClient } from '@neynar/nodejs-sdk';
-import { getWalletClients } from '@/lib/clients';
-import { createCoin, tradeCoin } from '@zoralabs/coins-sdk';
-import pinataSDK from '@pinata/sdk';
-import { parseUnits } from 'viem';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes, adjust as needed
@@ -44,7 +40,6 @@ const schema = z.discriminatedUnion('action', [
 ]);
 
 // Initialize clients
-const pinata = new pinataSDK({ pinataJWTKey: process.env.PINATA_JWT_KEY });
 const neynarClient = new NeynarAPIClient({
   apiKey: process.env.NEYNAR_API_KEY as string,
 });
@@ -60,145 +55,29 @@ const publishCast = async (text: string, parent: string, url?: string) => {
   return response;
 };
 
-const pinMetadataToIPFS = async (
-  name: string,
-  description: string,
-  image: string
-) => {
-  const metadata = {
-    name,
-    description,
-    image,
-  };
+// Trigger the background task
+const triggerBackgroundTask = async (taskData: any) => {
   try {
-    const pinataRes = await pinata.pinJSONToIPFS(metadata);
-    console.log('Pinata response:', pinataRes);
-    return `https://amber-late-bug-27.mypinata.cloud/ipfs/${pinataRes.IpfsHash}`;
-  } catch (error) {
-    console.error('Error pinning to IPFS:', error);
-    throw new Error('Failed to pin metadata to IPFS');
-  }
-};
+    // Use server base URL with fallback
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    const url = `${baseUrl}/api/commodus/task`;
 
-// Handle background tasks
-const handleCreateCoinInBackground = async (createParams: {
-  name: string;
-  symbol: string;
-  description: string;
-  image: string;
-  verifiedAddress: string;
-  reply: string;
-  parent: string;
-}) => {
-  try {
-    // First, publish an acknowledgment
-    await publishCast(
-      `Your request to create ${createParams.name} (${createParams.symbol}) coin is being processed...`,
-      createParams.parent
-    );
-
-    // Pin metadata to IPFS
-    const uri = await pinMetadataToIPFS(
-      createParams.name,
-      createParams.description,
-      createParams.image
-    );
-
-    // Get wallet clients
-    const { walletClient, publicClient } = await getWalletClients();
-
-    // Create coin
-    const createCoinParams = {
-      name: createParams.name,
-      symbol: createParams.symbol,
-      uri,
-      payoutRecipient: createParams.verifiedAddress as `0x${string}`,
-      platformReferrer:
-        '0xbD78783a26252bAf756e22f0DE764dfDcDa7733c' as `0x${string}`,
-    };
-
-    const result = await createCoin(
-      createCoinParams,
-      walletClient,
-      publicClient
-    );
-
-    const tokenAddress = result.address;
-
-    // Publish the final response with the token address
-    await publishCast(
-      createParams.reply,
-      createParams.parent,
-      `https://zora.co/coin/base:${tokenAddress}`
-    );
-
-    console.log('CREATE operation completed successfully');
-  } catch (error) {
-    console.error('Error in background CREATE task:', error);
-
-    // Notify about the error
-    await publishCast(
-      `Failed to create coin: ${(error as Error).message}`,
-      createParams.parent
-    );
-  }
-};
-
-const handleTradeInBackground = async (tradeParams: {
-  tokenAddress: string;
-  size: string;
-  direction: 'BUY' | 'SELL';
-  verifiedAddress: string;
-  reply: string;
-  parent: string;
-}) => {
-  try {
-    // First, publish an acknowledgment
-    await publishCast(
-      `Your request to ${tradeParams.direction.toLowerCase()} ${
-        tradeParams.size
-      } tokens is being processed...`,
-      tradeParams.parent
-    );
-
-    // Get wallet clients
-    const { walletClient, publicClient } = await getWalletClients();
-
-    // Create trade parameters
-    const params = {
-      direction: tradeParams.direction.toLowerCase() as 'buy' | 'sell',
-      target: tradeParams.tokenAddress as `0x${string}`,
-      args: {
-        recipient: tradeParams.verifiedAddress as `0x${string}`,
-        orderSize: parseUnits(tradeParams.size, 18), // Assuming 18 decimals for the token
+    // Fire-and-forget
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.BACKGROUND_TASK_SECRET || 'secret-key',
       },
-    };
+      body: JSON.stringify(taskData),
+    }).catch((error) => {
+      console.error('Background task request failed:', error);
+    });
 
-    console.log('params', params);
-
-    // Execute the trade
-    const tradeResult = await tradeCoin(params, walletClient, publicClient);
-
-    // Publish a reply with the transaction result
-    const tradeUrl = `https://basescan.org/tx/${tradeResult.hash}`;
-    const tradeMessage = `${tradeParams.reply}\n\nTransaction: ${tradeUrl}`;
-
-    console.log('tradeMessage', tradeMessage);
-    console.log('tradeUrl', tradeUrl);
-
-    await publishCast(tradeMessage, tradeParams.parent);
-
-    console.log('TRADE operation completed successfully');
+    return true; // Return immediately while task processes in background
   } catch (error) {
-    console.error('Error in background TRADE task:', error);
-
-    // Notify about the error
-    await publishCast(
-      `Failed to ${tradeParams.direction.toLowerCase()} token: ${
-        (error as Error).message
-      }`,
-      tradeParams.parent
-    );
+    console.error('Error triggering background task:', error);
+    return false;
   }
 };
 
@@ -255,36 +134,46 @@ export async function POST(request: Request) {
         return Response.json({ error: 'No image found' }, { status: 400 });
       }
 
-      // Process coin creation in background
-      // Note: Using Promise without await to not block the response
-      Promise.resolve().then(() =>
-        handleCreateCoinInBackground({
-          name: agentRoute.name,
-          symbol: agentRoute.symbol,
-          description: agentRoute.description,
-          image,
-          verifiedAddress,
-          reply: agentRoute.reply,
-          parent,
-        })
+      // Send immediate acknowledgment message
+      await publishCast(
+        `I'll create ${agentRoute.name} (${agentRoute.symbol}) coin for you. Processing...`,
+        parent
       );
+
+      // Trigger background task with all necessary data
+      await triggerBackgroundTask({
+        type: 'CREATE',
+        name: agentRoute.name,
+        symbol: agentRoute.symbol,
+        description: agentRoute.description,
+        image,
+        verifiedAddress,
+        reply: agentRoute.reply,
+        parent,
+      });
 
       return Response.json({ status: 'CREATE_PENDING' });
     }
     // Handle TRADE action
     else if (agentRoute.action === 'TRADE') {
-      // Process trade in background
-      // Note: Using Promise without await to not block the response
-      Promise.resolve().then(() =>
-        handleTradeInBackground({
-          tokenAddress: agentRoute.tokenAddress,
-          size: agentRoute.size,
-          direction: agentRoute.direction,
-          verifiedAddress,
-          reply: agentRoute.reply,
-          parent,
-        })
+      // Send immediate acknowledgment message
+      await publishCast(
+        `I'll ${agentRoute.direction.toLowerCase()} ${
+          agentRoute.size
+        } tokens for you. Processing...`,
+        parent
       );
+
+      // Trigger background task
+      await triggerBackgroundTask({
+        type: 'TRADE',
+        tokenAddress: agentRoute.tokenAddress,
+        size: agentRoute.size,
+        direction: agentRoute.direction,
+        verifiedAddress,
+        reply: agentRoute.reply,
+        parent,
+      });
 
       return Response.json({ status: 'TRADE_PENDING' });
     }
