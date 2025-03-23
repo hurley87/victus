@@ -4,8 +4,9 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { NeynarAPIClient } from '@neynar/nodejs-sdk';
 import { getWalletClients } from '@/lib/clients';
-import { createCoin } from '@zoralabs/coins-sdk';
+import { createCoin, tradeCoin } from '@zoralabs/coins-sdk';
 import pinataSDK from '@pinata/sdk';
+import { parseUnits } from 'viem';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes, adjust as needed
@@ -168,9 +169,58 @@ export async function POST(request: Request) {
 
       return Response.json({ status: 'CREATE' });
     } else if (agentRoute.action === 'TRADE') {
-      // Additional TRADE action processing could go here
-      // Call the buy-token or sell-token API based on direction
-      return Response.json({ status: 'TRADE' });
+      try {
+        // Extract token address and size from the agent response
+        const { tokenAddress, size, direction } = agentRoute;
+
+        // Create trade parameters
+        const tradeParams = {
+          direction: direction.toLowerCase() as 'buy' | 'sell',
+          target: tokenAddress as `0x${string}`,
+          args: {
+            recipient: verifiedAddress as `0x${string}`,
+            orderSize: parseUnits(size, 18), // Assuming 18 decimals for the token
+          },
+        };
+
+        console.log('tradeParams', tradeParams);
+
+        // Execute the trade
+        const tradeResult = await tradeCoin(
+          tradeParams,
+          walletClient,
+          publicClient
+        );
+        console.log('tradeResult', tradeResult);
+
+        // Publish a reply with the transaction result
+        const tradeUrl = `https://basescan.org/tx/${tradeResult.hash}`;
+        const tradeMessage = `${agentRoute.reply}\n\nTransaction: ${tradeUrl}`;
+
+        const cast = await publishCast(tradeMessage, parent);
+        console.log('cast', cast);
+
+        return Response.json({
+          status: 'TRADE',
+          direction: direction,
+          tokenAddress: tokenAddress,
+          txHash: tradeResult.hash,
+        });
+      } catch (error) {
+        console.error('Error executing trade:', error);
+
+        // Notify the user about the error
+        const errorMessage = `Failed to ${agentRoute.direction.toLowerCase()} token. Please try again later.`;
+        await publishCast(errorMessage, parent);
+
+        return Response.json(
+          {
+            error: 'Failed to execute trade',
+            details: (error as Error).message,
+          },
+          { status: 500 }
+        );
+      }
     }
 
     return Response.json({ status: agentRoute.action });

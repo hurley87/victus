@@ -54,7 +54,7 @@ When action is "CREATE", include these additional fields:
 
 When action is "TRADE", include these additional fields:
 - "tokenAddress": The address of the token to trade (required)
-- "size": The size of the trade (e.g., "small", "medium", "large") (required)
+- "size": The size of the trade (ALWAYS "0.0001" for BUY actions and "1000" for SELL actions) (required)
 - "direction": Either "BUY" or "SELL" (required)
 
 Examples:
@@ -78,8 +78,20 @@ For trading tokens:
   "action": "TRADE",
   "reply": "Pathetic! I witnessed his shameful display and shall divest immediately of his worthless tokens.",
   "tokenAddress": "0x123456789abcdef",
-  "size": "large",
+  "size": "1000",
   "direction": "SELL"
+}
+\`\`\`
+
+For buying tokens:
+\`\`\`json
+{
+  "text": "Emperor, have you seen the new champion from Thrace? His skill with a sword is unmatched!",
+  "action": "TRADE",
+  "reply": "Indeed! That Thracian shows promise. I shall acquire tokens in his name immediately.",
+  "tokenAddress": "0x987654321fedcba",
+  "size": "0.0001",
+  "direction": "BUY"
 }
 \`\`\`
 
