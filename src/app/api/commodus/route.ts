@@ -1,60 +1,12 @@
 import { getSystemPrompt, getActionPrompt } from '@/lib/prompts';
 import { openai } from '@ai-sdk/openai';
 import { generateObject } from 'ai';
-import { z } from 'zod';
-import { NeynarAPIClient } from '@neynar/nodejs-sdk';
 import { BackgroundTaskData } from '@/lib/types';
+import { publishCast } from '@/lib/neynar';
+import { commodusResponseSchema } from '@/lib/schemas';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes, adjust as needed
-
-// Define schemas based on action type
-const baseSchema = z.object({
-  text: z.string(),
-  action: z.enum(['CHAT', 'CREATE', 'TRADE']),
-  reply: z.string(),
-});
-
-const chatSchema = baseSchema.extend({
-  action: z.literal('CHAT'),
-});
-
-const createSchema = baseSchema.extend({
-  action: z.literal('CREATE'),
-  name: z.string(),
-  symbol: z.string(),
-  description: z.string(),
-});
-
-const tradeSchema = baseSchema.extend({
-  action: z.literal('TRADE'),
-  tokenAddress: z.string(),
-  size: z.string(),
-  direction: z.enum(['BUY', 'SELL']),
-});
-
-// Combined schema with discriminated union
-const schema = z.discriminatedUnion('action', [
-  chatSchema,
-  createSchema,
-  tradeSchema,
-]);
-
-// Initialize clients
-const neynarClient = new NeynarAPIClient({
-  apiKey: process.env.NEYNAR_API_KEY as string,
-});
-
-const publishCast = async (text: string, parent: string, url?: string) => {
-  const signerUuid = process.env.SIGNER_UUID as string;
-  const response = await neynarClient.publishCast({
-    signerUuid,
-    text,
-    parent,
-    embeds: url ? [{ url }] : undefined,
-  });
-  return response;
-};
 
 // Trigger the background task
 const triggerBackgroundTask = async (taskData: BackgroundTaskData) => {
@@ -91,21 +43,15 @@ export async function POST(request: Request) {
     const verifiedAddress = data.author.verified_addresses?.eth_addresses?.[0];
     const parent = data.hash;
 
-    console.log('data', data);
-    console.log('text', text);
-    console.log('verifiedAddress:', verifiedAddress);
-
     const { object: agentRoute } = await generateObject({
       model: openai('gpt-4o-mini'),
-      schema,
+      schema: commodusResponseSchema,
       schemaName: 'EmperorResponse',
       schemaDescription: 'Response from Emperor Commodus about gladiators',
       mode: 'json',
       system: getSystemPrompt(),
       prompt: getActionPrompt(text),
     });
-
-    console.log('agentRoute', agentRoute);
 
     // Handle CHAT action immediately
     if (agentRoute.action === 'CHAT' && agentRoute?.reply) {
@@ -135,12 +81,6 @@ export async function POST(request: Request) {
         return Response.json({ error: 'No image found' }, { status: 400 });
       }
 
-      // Send immediate acknowledgment message
-      await publishCast(
-        `I'll create ${agentRoute.name} (${agentRoute.symbol}) coin for you. Processing...`,
-        parent
-      );
-
       // Trigger background task with all necessary data
       await triggerBackgroundTask({
         type: 'CREATE',
@@ -157,14 +97,6 @@ export async function POST(request: Request) {
     }
     // Handle TRADE action
     else if (agentRoute.action === 'TRADE') {
-      // Send immediate acknowledgment message
-      await publishCast(
-        `I'll ${agentRoute.direction.toLowerCase()} ${
-          agentRoute.size
-        } tokens for you. Processing...`,
-        parent
-      );
-
       // Trigger background task
       await triggerBackgroundTask({
         type: 'TRADE',
