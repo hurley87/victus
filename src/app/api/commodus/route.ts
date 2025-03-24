@@ -61,12 +61,10 @@ const handleChatAction = async (
  */
 const handleCreateAction = async (
   agentRoute: CommodusResponse,
-  data: any,
+  image: string,
   verifiedAddress: string,
   parent: string
 ): Promise<Response> => {
-  const image = data?.embeds?.[0]?.url;
-
   if (!image) {
     const cast = await publishCast(
       '404 IMAGE NOT FOUND 😭 (pls include an image in your cast)',
@@ -131,6 +129,7 @@ export async function POST(request: Request): Promise<Response> {
     const text = data.text;
     const parent = data.hash;
     const verifiedAddress = data.author.verified_addresses?.eth_addresses?.[0];
+    const image = data.embeds?.[0]?.url;
 
     // Generate AI response
     const { object: agentRoute } = await generateObject({
@@ -163,7 +162,7 @@ export async function POST(request: Request): Promise<Response> {
     // Route to appropriate handler based on action type
     switch (agentRoute.action) {
       case 'CREATE':
-        return handleCreateAction(agentRoute, data, verifiedAddress, parent);
+        return handleCreateAction(agentRoute, image, verifiedAddress, parent);
       case 'TRADE':
         return handleTradeAction(agentRoute, verifiedAddress, parent);
       default:
