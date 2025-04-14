@@ -52,6 +52,8 @@ const taskHandlers = {
         publicClient
       );
       const hash = coin.hash;
+      console.log('coin', coin);
+      console.log('hash', hash);
 
       await publicClient.waitForTransactionReceipt({ hash });
       const coinAddress = coin.address;

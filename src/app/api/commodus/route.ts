@@ -1,18 +1,15 @@
-import { getSystemPrompt, getActionPrompt } from '@/lib/prompts';
-import { openai } from '@ai-sdk/openai';
-import { generateObject } from 'ai';
-import { BackgroundTaskData } from '@/lib/types';
+import { getConversation } from '@/lib/neynar';
+import { getActionPrompt } from '@/lib/prompts';
+import { transformMessages } from '@/lib/utils';
+import { NextRequest, NextResponse } from 'next/server';
+import OpenAI from 'openai';
 import { publishCast } from '@/lib/neynar';
-import { CommodusResponse, commodusResponseSchema } from '@/lib/schemas';
+import { CommodusResponse } from '@/lib/schemas';
+import { BackgroundTaskData } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 minutes
 
-// ----- Background Task Handling -----
-
-/**
- * Triggers a background task for async processing
- */
 const triggerBackgroundTask = async (
   taskData: BackgroundTaskData
 ): Promise<boolean> => {
@@ -42,8 +39,6 @@ const triggerBackgroundTask = async (
   }
 };
 
-// ----- Action Handlers -----
-
 /**
  * Handles CHAT action by publishing a direct response
  */
@@ -51,8 +46,7 @@ const handleChatAction = async (
   reply: string,
   parent: string
 ): Promise<Response> => {
-  const cast = await publishCast(reply, parent);
-  console.log('Published chat cast:', cast);
+  await publishCast(reply, parent);
   return Response.json({ status: 'CHAT' });
 };
 
@@ -119,29 +113,66 @@ const handleTradeAction = async (
   return Response.json({ status: 'TRADE_PENDING' });
 };
 
-// ----- Main API Handler -----
-
-export async function POST(request: Request): Promise<Response> {
+export async function POST(request: NextRequest) {
   try {
-    // Parse request
     const req = await request.json();
     const data = req.data;
     const text = data.text;
+    const threadHash = data.thread_hash;
     const parent = data.hash;
-    const verifiedAddress = data.author.verified_addresses?.eth_addresses?.[0];
+    const verifiedAddress = data.author?.verified_addresses?.eth_addresses?.[0];
+    const score = data.author?.experimental?.neynar_user_score;
+    console.log('score', score);
     const image = data.embeds?.[0]?.url;
 
-    // Generate AI response
-    const { object: agentRoute } = await generateObject({
-      model: openai('gpt-4o-mini'),
-      schema: commodusResponseSchema,
-      schemaName: 'EmperorResponse',
-      schemaDescription: 'Response from Emperor Commodus about gladiators',
-      mode: 'json',
-      system: getSystemPrompt(),
-      prompt: getActionPrompt(text),
+    if (!text || !threadHash) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Missing required fields: text and thread_hash',
+        },
+        { status: 400 }
+      );
+    }
+
+    const conversationMessages = await getConversation(threadHash);
+
+    console.log('conversationMessages', conversationMessages);
+
+    const openAIMessages = transformMessages(conversationMessages, text);
+
+    console.log('openAIMessages', openAIMessages);
+
+    const client = new OpenAI();
+    const run = await client.beta.threads.createAndRunPoll({
+      assistant_id: 'asst_YhRgpzqRTyNuGHsq7yRWOEtQ',
+      thread: {
+        messages: openAIMessages,
+      },
+      instructions: getActionPrompt(text),
+      model: 'gpt-4o-mini',
+      response_format: {
+        type: 'json_object',
+      },
     });
 
+    const openAIThreadId = run.thread_id;
+    const threadMessages = await client.beta.threads.messages.list(
+      openAIThreadId
+    );
+    const lastMessage = threadMessages.data[0].content[0];
+
+    // Clean up the thread
+    await client.beta.threads.del(openAIThreadId);
+
+    if (lastMessage.type !== 'text') {
+      return NextResponse.json({
+        success: false,
+        message: 'Response contains non-text content',
+      });
+    }
+
+    const agentRoute = JSON.parse(lastMessage.text.value) as CommodusResponse;
     console.log('Generated agent route:', agentRoute);
 
     // Handle CHAT actions immediately (no address verification needed)
@@ -159,6 +190,15 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    if (score < 0.5) {
+      const cast = await publishCast(
+        'Your score is too low to enter my arena, citizen. Return when you have proven your worth!',
+        parent
+      );
+      console.log('Published verification failure:', cast);
+      return Response.json({ status: 'SCORE_TOO_LOW' });
+    }
+
     // Route to appropriate handler based on action type
     switch (agentRoute.action) {
       case 'CREATE':
@@ -169,7 +209,14 @@ export async function POST(request: Request): Promise<Response> {
         return Response.json({ status: agentRoute.action });
     }
   } catch (error) {
-    console.error('Error in Commodus API route:', error);
-    return Response.json({ error: 'Internal server error' }, { status: 500 });
+    console.error('Error in test API route:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        message: 'Failed to generate response',
+        error: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
   }
 }

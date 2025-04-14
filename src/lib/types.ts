@@ -22,3 +22,15 @@ export type BackgroundTaskData =
       reply: string;
       parent: string;
     };
+
+export type ConversationMessage = {
+  text: string;
+  author: string;
+};
+
+export type OpenAIMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+export type MessageRole = 'user' | 'assistant';

@@ -27,3 +27,18 @@ export const publishCast = async (
   });
   return response;
 };
+
+export const getConversation = async (threadId: string) => {
+  const response = await neynarClient.lookupCastConversation({
+    identifier: threadId,
+    type: 'hash',
+  });
+  const replies = response.conversation.cast.direct_replies;
+  const messages = replies.map((reply) => {
+    return {
+      text: reply.text,
+      author: reply.author.username,
+    };
+  });
+  return messages;
+};
