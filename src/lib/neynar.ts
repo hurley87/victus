@@ -32,8 +32,10 @@ export const getConversation = async (threadId: string) => {
   const response = await neynarClient.lookupCastConversation({
     identifier: threadId,
     type: 'hash',
+    replyDepth: 5,
   });
   const replies = response.conversation.cast.direct_replies;
+  console.log('response.conversation', response.conversation);
   const messages = replies.map((reply) => {
     return {
       text: reply.text,

@@ -1,215 +1,162 @@
-import { getConversation } from '@/lib/neynar';
-import { getActionPrompt } from '@/lib/prompts';
-import { transformMessages } from '@/lib/utils';
+import { publishCast } from '@/lib/neynar';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { publishCast } from '@/lib/neynar';
-import { CommodusResponse } from '@/lib/schemas';
-import { BackgroundTaskData } from '@/lib/types';
+
+// Types
+interface CommodusRequest {
+  data: {
+    text: string;
+    thread_hash: string;
+    hash: string;
+    author?: {
+      verified_addresses?: {
+        eth_addresses?: string[];
+      };
+    };
+    embeds?: Array<{
+      url?: string;
+    }>;
+  };
+}
+
+interface ToolCall {
+  id: string;
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+interface BackgroundToolRequest {
+  toolCallId: string;
+  runId: string;
+  threadId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  parent: string;
+  verifiedAddress?: string;
+}
+
+// Constants
+const ASSISTANT_ID = 'asst_YhRgpzqRTyNuGHsq7yRWOEtQ';
+const POLLING_INTERVAL = 1000;
+
+// Helper functions
+const validateRequest = (data: CommodusRequest['data']) => {
+  if (!data.text || !data.thread_hash) {
+    throw new Error('Missing required fields: text and thread_hash');
+  }
+};
+
+const getContentWithImage = (text: string, image?: string) => {
+  return image ? `${text}\n\n${image}` : text;
+};
+
+const waitForRunCompletion = async (
+  client: OpenAI,
+  threadId: string,
+  runId: string
+) => {
+  let runStatus;
+  do {
+    await new Promise((r) => setTimeout(r, POLLING_INTERVAL));
+    runStatus = await client.beta.threads.runs.retrieve(threadId, runId);
+  } while (runStatus.status === 'in_progress');
+  return runStatus;
+};
+
+const handleCompletedRun = async (
+  client: OpenAI,
+  threadId: string,
+  parent: string
+) => {
+  const messages = await client.beta.threads.messages.list(threadId);
+  const msg = messages.data.find((m) => m.role === 'assistant');
+  const content = msg?.content?.[0];
+
+  if (content && 'text' in content) {
+    console.log('✅ Assistant response:', content.text.value);
+    await publishCast(content.text.value, parent);
+  }
+};
+
+const handleToolCalls = (
+  toolCalls: ToolCall[],
+  runId: string,
+  threadId: string,
+  parent: string,
+  verifiedAddress?: string
+) => {
+  for (const call of toolCalls) {
+    const args = JSON.parse(call.function.arguments);
+    const backgroundRequest: BackgroundToolRequest = {
+      toolCallId: call.id,
+      runId,
+      threadId,
+      toolName: call.function.name,
+      args,
+      parent,
+      verifiedAddress,
+    };
+
+    fetch(`${process.env.BASE_URL}/api/handle-tool.background`, {
+      method: 'POST',
+      body: JSON.stringify(backgroundRequest),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 minutes
-
-const triggerBackgroundTask = async (
-  taskData: BackgroundTaskData
-): Promise<boolean> => {
-  try {
-    const baseUrl =
-      process.env.NEXT_PUBLIC_BASE_URL || 'https://www.victus.fun';
-    const url = `${baseUrl}/api/commodus/task`;
-
-    console.log('Triggering background task:', { url, taskData });
-
-    // Fire-and-forget request
-    fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.BACKGROUND_TASK_SECRET || 'secret-key',
-      },
-      body: JSON.stringify(taskData),
-    }).catch((error) => {
-      console.error('Background task request failed:', error);
-    });
-
-    return true;
-  } catch (error) {
-    console.error('Error triggering background task:', error);
-    return false;
-  }
-};
-
-/**
- * Handles CHAT action by publishing a direct response
- */
-const handleChatAction = async (
-  reply: string,
-  parent: string
-): Promise<Response> => {
-  await publishCast(reply, parent);
-  return Response.json({ status: 'CHAT' });
-};
-
-/**
- * Handles CREATE action for NFT creation
- */
-const handleCreateAction = async (
-  agentRoute: CommodusResponse,
-  image: string,
-  verifiedAddress: string,
-  parent: string
-): Promise<Response> => {
-  if (!image) {
-    const cast = await publishCast(
-      '404 IMAGE NOT FOUND 😭 (pls include an image in your cast)',
-      parent
-    );
-    console.log('Published error cast:', cast);
-    return Response.json({ error: 'No image found' }, { status: 400 });
-  }
-
-  if (agentRoute.action !== 'CREATE') {
-    return Response.json({ error: 'Invalid action type' }, { status: 400 });
-  }
-
-  // Trigger background task with necessary data
-  await triggerBackgroundTask({
-    type: 'CREATE',
-    name: agentRoute.name,
-    symbol: agentRoute.symbol,
-    description: agentRoute.description,
-    image,
-    verifiedAddress,
-    reply: agentRoute.reply,
-    parent,
-  });
-
-  return Response.json({ status: 'CREATE_PENDING' });
-};
-
-/**
- * Handles TRADE action for trading operations
- */
-const handleTradeAction = async (
-  agentRoute: CommodusResponse,
-  verifiedAddress: string,
-  parent: string
-): Promise<Response> => {
-  if (agentRoute.action !== 'TRADE') {
-    return Response.json({ error: 'Invalid action type' }, { status: 400 });
-  }
-
-  // Trigger background task
-  await triggerBackgroundTask({
-    type: 'TRADE',
-    tokenAddress: agentRoute.tokenAddress,
-    size: agentRoute.size,
-    direction: agentRoute.direction,
-    verifiedAddress,
-    reply: agentRoute.reply,
-    parent,
-  });
-
-  return Response.json({ status: 'TRADE_PENDING' });
-};
 
 export async function POST(request: NextRequest) {
+  const client = new OpenAI();
+
   try {
-    const req = await request.json();
-    const data = req.data;
-    const text = data.text;
-    const threadHash = data.thread_hash;
-    const parent = data.hash;
-    const verifiedAddress = data.author?.verified_addresses?.eth_addresses?.[0];
-    const score = data.author?.experimental?.neynar_user_score;
-    console.log('score', score);
-    const image = data.embeds?.[0]?.url;
+    const req: CommodusRequest = await request.json();
+    const { data } = req;
+    const { text, thread_hash, hash: parent, author, embeds } = data;
+    const verifiedAddress = author?.verified_addresses?.eth_addresses?.[0];
+    const image = embeds?.[0]?.url;
 
-    if (!text || !threadHash) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Missing required fields: text and thread_hash',
-        },
-        { status: 400 }
-      );
-    }
+    console.log('thread_hash', thread_hash);
 
-    const conversationMessages = await getConversation(threadHash);
+    validateRequest(data);
 
-    console.log('conversationMessages', conversationMessages);
+    // Create thread and add message
+    const thread = await client.beta.threads.create();
+    const threadId = thread.id;
+    console.log('threadId', threadId);
 
-    const openAIMessages = transformMessages(conversationMessages, text);
-
-    console.log('openAIMessages', openAIMessages);
-
-    const client = new OpenAI();
-    const run = await client.beta.threads.createAndRunPoll({
-      assistant_id: 'asst_YhRgpzqRTyNuGHsq7yRWOEtQ',
-      thread: {
-        messages: openAIMessages,
-      },
-      instructions: getActionPrompt(text),
-      model: 'gpt-4o-mini',
-      response_format: {
-        type: 'json_object',
-      },
+    const content = getContentWithImage(text, image);
+    await client.beta.threads.messages.create(threadId, {
+      role: 'user',
+      content,
     });
 
-    const openAIThreadId = run.thread_id;
-    const threadMessages = await client.beta.threads.messages.list(
-      openAIThreadId
-    );
-    const lastMessage = threadMessages.data[0].content[0];
+    // Run assistant
+    const run = await client.beta.threads.runs.create(threadId, {
+      assistant_id: ASSISTANT_ID,
+    });
+    console.log('run', run);
 
-    // Clean up the thread
-    await client.beta.threads.del(openAIThreadId);
+    const runStatus = await waitForRunCompletion(client, threadId, run.id);
+    console.log('runStatus', runStatus);
 
-    if (lastMessage.type !== 'text') {
-      return NextResponse.json({
-        success: false,
-        message: 'Response contains non-text content',
-      });
+    if (runStatus.status === 'completed') {
+      await handleCompletedRun(client, threadId, parent);
+    } else if (runStatus.status === 'requires_action') {
+      const toolCalls =
+        runStatus.required_action?.submit_tool_outputs?.tool_calls;
+      if (!toolCalls) {
+        return NextResponse.json({ status: 'NO_TOOL_CALLS' });
+      }
+      handleToolCalls(toolCalls, run.id, threadId, parent, verifiedAddress);
     }
 
-    const agentRoute = JSON.parse(lastMessage.text.value) as CommodusResponse;
-    console.log('Generated agent route:', agentRoute);
-
-    // Handle CHAT actions immediately (no address verification needed)
-    if (agentRoute.action === 'CHAT' && agentRoute.reply) {
-      return handleChatAction(agentRoute.reply, parent);
-    }
-
-    // Verify address for other actions
-    if (!verifiedAddress) {
-      const cast = await publishCast('No verified address found', parent);
-      console.log('Published address verification failure:', cast);
-      return Response.json(
-        { error: 'No verified address found' },
-        { status: 400 }
-      );
-    }
-
-    if (score < 0.5) {
-      const cast = await publishCast(
-        'Your score is too low to enter my arena, citizen. Return when you have proven your worth!',
-        parent
-      );
-      console.log('Published verification failure:', cast);
-      return Response.json({ status: 'SCORE_TOO_LOW' });
-    }
-
-    // Route to appropriate handler based on action type
-    switch (agentRoute.action) {
-      case 'CREATE':
-        return handleCreateAction(agentRoute, image, verifiedAddress, parent);
-      case 'TRADE':
-        return handleTradeAction(agentRoute, verifiedAddress, parent);
-      default:
-        return Response.json({ status: agentRoute.action });
-    }
+    return NextResponse.json({ status: 'TRADE_PENDING' });
   } catch (error) {
-    console.error('Error in test API route:', error);
+    console.error('Error in Commodus API route:', error);
     return NextResponse.json(
       {
         success: false,

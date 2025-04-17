@@ -55,8 +55,8 @@ export async function getWalletClients(): Promise<{
   walletClient: WalletClient;
   publicClient: PublicClient<Transport, Chain>;
 }> {
-  const walletId = 'k12xh985fc59b5u7svln692a';
-  const address = '0x6e8068F46082eDb44Ff1eE0D1570c8dC821281C3';
+  const walletId = 'mk9fuid4a267gfcwq9rlp9fn';
+  const address = '0x85F0337c410D6179B7dC8c3E0e329483a89C3c6B';
   const account = await getWalletAccount(walletId, address);
   const walletClient = createClientForWallet(account);
   const publicClient = getPublicClient();
