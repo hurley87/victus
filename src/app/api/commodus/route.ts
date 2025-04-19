@@ -124,8 +124,7 @@ export async function POST(request: NextRequest) {
     validateRequest(data);
 
     // Create thread and add message
-    const thread = await client.beta.threads.create();
-    const threadId = thread.id;
+    const threadId = 'thread_29SRyMG4UpW7XdmLaoOhc0yu';
     console.log('threadId', threadId);
 
     const content = getContentWithImage(text, image);
