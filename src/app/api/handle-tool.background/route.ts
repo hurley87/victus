@@ -9,7 +9,6 @@ import { z } from 'zod';
 
 // Constants
 const PLATFORM_REFERRER = '0xbD78783a26252bAf756e22f0DE764dfDcDa7733c' as const;
-const MAX_DURATION = 300; // 5 minutes timeout
 
 // Types
 type CreateTaskData = {
@@ -168,7 +167,6 @@ const submitToolOutput = async (
 };
 
 // Route configuration
-export const maxDuration = MAX_DURATION;
 export const dynamic = 'force-dynamic';
 
 // Main API route handler
@@ -185,7 +183,7 @@ export async function POST(request: Request) {
       verifiedAddress,
     } = body;
 
-    let result: TaskResponse<any>;
+    let result: TaskResponse<{ coinAddress: string } | { tradeUrl: string }>;
 
     switch (toolName) {
       case 'create_token':
@@ -194,7 +192,7 @@ export async function POST(request: Request) {
           parent,
           verifiedAddress,
         });
-        if (result.success && result.data) {
+        if (result.success && result.data && 'coinAddress' in result.data) {
           await publishCast(
             `Coin created! ${args.name} (${args.symbol})`,
             parent,
@@ -209,7 +207,7 @@ export async function POST(request: Request) {
           parent,
           verifiedAddress,
         });
-        if (result.success && result.data) {
+        if (result.success && result.data && 'tradeUrl' in result.data) {
           await publishCast(`Token traded! ${result.data.tradeUrl}`, parent);
         }
         break;
