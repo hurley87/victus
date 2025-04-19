@@ -208,7 +208,7 @@ export async function POST(request: Request) {
           verifiedAddress,
         });
         if (result.success && result.data && 'tradeUrl' in result.data) {
-          await publishCast(`Token traded! ${result.data.tradeUrl}`, parent);
+          await publishCast(`Coin traded! ${result.data.tradeUrl}`, parent);
         }
         break;
 
