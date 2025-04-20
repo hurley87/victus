@@ -424,7 +424,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Get the user's primary OpenAI thread ID. This handles user creation,
     // message increment, and triggers memory update check using the user's thread.
     // Note: This seems related to the user's overall context, not the specific conversation thread_hash
-    // await getUserOpenAIThreadId(client, fid, bio);
+    getUserOpenAIThreadId(client, fid, bio);
 
     // --- Conversation Thread Handling ---
     let conversationThreadId: string | null = null; // Use a specific variable for the conversation thread
