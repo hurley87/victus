@@ -23,7 +23,7 @@ type CreateTaskData = {
 
 type TradeTaskData = {
   direction: 'BUY' | 'SELL';
-  tokenAddress: string;
+  coinAddress: string;
   size: string;
   parent: string;
   reply: string;
@@ -48,7 +48,7 @@ const createTaskSchema = z.object({
 
 const tradeTaskSchema = z.object({
   direction: z.enum(['BUY', 'SELL']),
-  tokenAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  coinAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   size: z.string().min(1),
   parent: z.string().min(1),
   verifiedAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
@@ -120,7 +120,7 @@ const taskHandlers = {
       // Create trade parameters
       const params = {
         direction: validatedData.direction.toLowerCase() as 'buy' | 'sell',
-        target: validatedData.tokenAddress as `0x${string}`,
+        target: validatedData.coinAddress as `0x${string}`,
         platformReferrer: PLATFORM_REFERRER,
         args: {
           recipient: validatedData.verifiedAddress as `0x${string}`,
@@ -186,7 +186,7 @@ export async function POST(request: Request) {
     let result: TaskResponse<{ coinAddress: string } | { tradeUrl: string }>;
 
     switch (toolName) {
-      case 'create_token':
+      case 'create_coin':
         result = await taskHandlers.handleCreate({
           ...args,
           parent,
@@ -201,7 +201,7 @@ export async function POST(request: Request) {
         }
         break;
 
-      case 'trade_token':
+      case 'trade_coin':
         result = await taskHandlers.handleTrade({
           ...args,
           parent,

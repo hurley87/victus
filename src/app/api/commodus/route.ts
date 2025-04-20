@@ -1,5 +1,5 @@
 import { publishCast } from '@/lib/neynar';
-import { supabaseService } from '@/lib/supabase';
+import { supabaseService, User } from '@/lib/supabase';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { Thread } from 'openai/resources/beta/threads/threads';
@@ -12,6 +12,11 @@ interface CommodusRequestData {
   hash: string;
   author?: {
     fid?: number;
+    profile?: {
+      bio?: {
+        text?: string;
+      };
+    };
     verified_addresses?: {
       eth_addresses?: string[];
     };
@@ -45,6 +50,8 @@ interface BackgroundToolRequest {
 // Constants
 const ASSISTANT_ID = 'asst_YhRgpzqRTyNuGHsq7yRWOEtQ';
 const POLLING_INTERVAL = 1000; // ms
+const MEMORY_UPDATE_INTERVAL = 10; // Number of messages before updating memory
+const NEYNAR_CAST_CHAR_LIMIT = 320; // Max characters for a Farcaster cast
 
 // --- Helper Functions ---
 
@@ -108,6 +115,29 @@ const handleCompletedRun = async (
     ) {
       const assistantResponse = latestMessage.content[0].text.value;
       console.log('✅ Assistant response:', assistantResponse);
+
+      // --- Validation before publishing ---
+      if (!assistantResponse || assistantResponse.trim().length === 0) {
+        console.warn(
+          `⚠️ Assistant generated empty response for thread ${threadId}. Skipping publish.`
+        );
+        return; // Don't publish empty casts
+      }
+
+      if (assistantResponse.length > NEYNAR_CAST_CHAR_LIMIT) {
+        console.warn(
+          `⚠️ Assistant response exceeded character limit (${assistantResponse.length}/${NEYNAR_CAST_CHAR_LIMIT}) for thread ${threadId}. Skipping publish.`
+        );
+        // Optionally, you could truncate the message here:
+        const truncatedResponse = assistantResponse.slice(
+          0,
+          NEYNAR_CAST_CHAR_LIMIT
+        );
+        await publishCast(truncatedResponse, parent);
+        return; // Don't publish oversized casts (or publish truncated)
+      }
+      // --- End Validation ---
+
       await publishCast(assistantResponse, parent);
       console.log(`Published cast reply to ${parent}`);
     } else {
@@ -179,6 +209,7 @@ const handleToolCalls = (
 /**
  * Retrieves or creates an OpenAI thread ID for a given user FID.
  * Manages user record creation/update and message count increment in Supabase.
+ * Checks and triggers memory summarization if needed.
  * @param client - The OpenAI client instance.
  * @param fid - The user's Farcaster ID.
  * @returns The OpenAI thread ID for the user.
@@ -186,117 +217,113 @@ const handleToolCalls = (
  */
 const getUserOpenAIThreadId = async (
   client: OpenAI,
-  fid: number
-): Promise<string> => {
-  let user;
+  fid: number,
+  bio?: string
+) => {
+  let userResult;
   try {
-    user = await supabaseService.getUserByFid(fid);
+    // Fetch the full user record
+    userResult = await supabaseService.getUserByFid(fid);
   } catch (error) {
     console.error(`Error fetching user by FID ${fid}:`, error);
     throw new Error(`Failed to fetch user data for FID ${fid}.`);
   }
 
-  let openai_thread_id = user?.[0]?.openai_thread_id;
+  let user: User | null = (userResult?.[0] as User) || null;
+  let openai_thread_id = user?.openai_thread_id;
 
-  if (!openai_thread_id) {
-    console.log(`No OpenAI thread found for user ${fid}. Creating new thread.`);
+  // Create thread and initial user record if user or thread doesn't exist
+  if (!user || !openai_thread_id) {
+    console.log(
+      `User ${fid} or OpenAI thread not found. Creating new thread and user record.`
+    );
     try {
       const thread: Thread = await client.beta.threads.create();
       openai_thread_id = thread.id;
       console.log(
         `Created new OpenAI thread ${openai_thread_id} for user ${fid}.`
       );
-    } catch (error) {
-      console.error(`Error creating OpenAI thread for user ${fid}:`, error);
-      throw new Error(`Failed to create OpenAI thread for user ${fid}.`);
-    }
-  }
-
-  // Upsert user and increment count regardless of whether thread was new
-  try {
-    await supabaseService.upsertUser({
-      fid,
-      openai_thread_id,
-      last_updated: new Date().toISOString(),
-    });
-    console.log(`Upserted user ${fid} with thread ID ${openai_thread_id}`);
-    await supabaseService.incrementUserMessageCount(fid);
-    console.log(`Incremented message count for user ${fid}`);
-  } catch (error) {
-    // Log error but allow processing to continue if possible,
-    // as the core function might still succeed.
-    console.error(
-      `Error during user upsert or message count increment for FID ${fid}:`,
-      error
-    );
-    // Depending on requirements, you might want to throw here to halt processing
-    // throw new Error(`Failed to update user record for FID ${fid}.`);
-  }
-
-  return openai_thread_id;
-};
-
-/**
- * Retrieves or creates an OpenAI thread ID based on a conversation's thread hash.
- * Manages conversation record creation/update in Supabase.
- * @param client - The OpenAI client instance.
- * @param thread_hash - The unique hash identifying the conversation thread.
- * @returns The OpenAI thread ID for the conversation.
- * @throws Throws an error if the conversation cannot be processed or thread creation fails.
- */
-const getConversationOpenAIThreadId = async (
-  client: OpenAI,
-  thread_hash: string
-): Promise<string> => {
-  let conversations;
-  try {
-    conversations = await supabaseService.getConversationByThreadHash(
-      thread_hash
-    );
-  } catch (error) {
-    console.error(
-      `Error fetching conversation by thread_hash ${thread_hash}:`,
-      error
-    );
-    throw new Error(
-      `Failed to fetch conversation data for thread_hash ${thread_hash}.`
-    );
-  }
-
-  if (conversations && conversations.length > 0) {
-    const openai_thread_id = conversations[0].openai_thread_id;
-    console.log(
-      `Using existing OpenAI thread ${openai_thread_id} for thread_hash ${thread_hash}`
-    );
-    return openai_thread_id;
-  } else {
-    console.log(
-      `No conversation found for thread_hash ${thread_hash}. Creating new thread.`
-    );
-    try {
-      const thread: Thread = await client.beta.threads.create();
-      const openai_thread_id = thread.id;
-      console.log(
-        `Created new OpenAI thread ${openai_thread_id} for thread_hash ${thread_hash}`
-      );
-      // Save the new conversation record immediately
-      await supabaseService.upsertConversation({
-        thread_hash,
+      // Insert the new user with initial values
+      const newUserRecord = {
+        fid,
         openai_thread_id,
-      });
-      console.log(
-        `Saved new conversation record for thread_hash ${thread_hash}`
-      );
-      return openai_thread_id;
+        last_updated: new Date().toISOString(),
+        memory: bio,
+        message_count: 0,
+      };
+      await supabaseService.upsertUser(newUserRecord);
+      console.log(`Inserted new user record for FID ${fid}`);
+      // Fetch the newly created user record to have a consistent 'user' object
+      userResult = await supabaseService.getUserByFid(fid);
+      user = (userResult?.[0] as User) || null;
+      if (!user) throw new Error('Failed to retrieve newly created user.');
     } catch (error) {
       console.error(
-        `Error creating OpenAI thread or saving conversation for thread_hash ${thread_hash}:`,
+        `Error creating OpenAI thread or initial user record for FID ${fid}:`,
         error
       );
       throw new Error(
-        `Failed to create OpenAI thread/conversation for thread_hash ${thread_hash}.`
+        `Failed to create OpenAI thread or initial user record for FID ${fid}.`
       );
     }
+  }
+
+  // --- Increment Message Count and Check for Memory Update ---
+  let updatedUser: User | null = null;
+  try {
+    // Increment count first
+    await supabaseService.incrementUserMessageCount(fid);
+    console.log(`Incremented message count for user ${fid}`);
+
+    // Fetch the user again AFTER incrementing to get the latest message count
+    const updatedUserResult = await supabaseService.getUserByFid(fid);
+    updatedUser = (updatedUserResult?.[0] as User) || null;
+
+    if (!updatedUser) {
+      throw new Error(`Failed to fetch user ${fid} after incrementing count.`);
+    }
+
+    // Check if memory update is needed using modulo operator
+    const currentMessageCount = updatedUser.message_count;
+    console.log(`User ${fid}: Current msg count: ${currentMessageCount}`);
+
+    // Trigger update if message count is a multiple of the interval (and not 0)
+    if (
+      currentMessageCount > 0 &&
+      currentMessageCount % MEMORY_UPDATE_INTERVAL === 0
+    ) {
+      console.log(
+        `Triggering memory update based on count ${currentMessageCount}`
+      );
+      // Trigger update asynchronously by calling the background endpoint
+      // Add null check for updatedUser and capture fid to satisfy linter
+      if (updatedUser) {
+        const userFid = updatedUser.fid; // Capture FID here
+        void fetch(`${process.env.BASE_URL}/api/update-memory.background`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fid: userFid }), // Use captured FID
+        }).catch((fetchError) => {
+          // Catch potential errors from the fetch itself (e.g., network issues)
+          console.error(
+            `Error initiating background memory update task for FID ${userFid}:`, // Use captured FID
+            fetchError
+          );
+        });
+      }
+    }
+
+    // Update 'last_updated' timestamp
+    await supabaseService.upsertUser({
+      fid,
+      openai_thread_id: updatedUser.openai_thread_id, // ensure this is passed
+      last_updated: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error(
+      `Error during user message count increment or memory update check for FID ${fid}`,
+      error
+    );
   }
 };
 
@@ -367,6 +394,7 @@ const processOpenAIInteraction = async (
 // --- API Route Handler ---
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const client = new OpenAI();
@@ -376,15 +404,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const req: CommodusRequest = await request.json();
     const { data } = req;
     const { text, thread_hash, hash: parent, author, embeds } = data;
-
+    const bio = author?.profile?.bio?.text;
     const fid = author?.fid;
+
     if (!fid) {
       console.warn('Request received without FID.');
       // Consider returning a more specific error response if FID is mandatory
-      return NextResponse.json(
-        { success: false, message: 'User FID is missing.' },
-        { status: 400 } // Bad Request
-      );
+      return NextResponse.json({
+        success: false,
+        message: 'User FID is missing.',
+      });
     }
 
     const verifiedAddress = author?.verified_addresses?.eth_addresses?.[0];
@@ -392,22 +421,76 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const content = getContentWithImage(text, image); // Prepare content early
 
     // --- User and Conversation Thread Management ---
-    // Note: getUserOpenAIThreadId is called but its return value (user's personal thread) isn't directly used later.
-    // It's primarily for ensuring the user exists, updating their record, and incrementing count.
-    // If the user-specific thread *was* needed, it should be stored.
-    await getUserOpenAIThreadId(client, fid);
+    // Get the user's primary OpenAI thread ID. This handles user creation,
+    // message increment, and triggers memory update check using the user's thread.
+    // Note: This seems related to the user's overall context, not the specific conversation thread_hash
+    // await getUserOpenAIThreadId(client, fid, bio);
 
-    const conversationThreadId = await getConversationOpenAIThreadId(
-      client,
-      thread_hash
-    );
+    // --- Conversation Thread Handling ---
+    let conversationThreadId: string | null = null; // Use a specific variable for the conversation thread
 
-    // --- Process OpenAI Interaction ---
+    try {
+      const conversationResult =
+        await supabaseService.getConversationByThreadHash(thread_hash);
+
+      console.log('Raw conversationResult:', conversationResult); // Log the raw result for debugging
+
+      // Check if result is an array and has at least one element with the expected property
+      if (
+        Array.isArray(conversationResult) &&
+        conversationResult.length > 0 &&
+        typeof conversationResult[0]?.openai_thread_id === 'string' // Explicitly check type
+      ) {
+        conversationThreadId = conversationResult[0].openai_thread_id;
+        console.log(
+          `Found existing conversation thread: ${conversationThreadId} for hash ${thread_hash}`
+        );
+      } else {
+        console.warn(
+          `Thread ${thread_hash} not found or result format unexpected. Creating new thread.`
+        );
+        const newThread = await client.beta.threads.create();
+        conversationThreadId = newThread.id;
+        await supabaseService.upsertConversation({
+          thread_hash,
+          openai_thread_id: conversationThreadId,
+        });
+        console.log(
+          `Created and saved new conversation thread: ${conversationThreadId} for hash ${thread_hash}`
+        );
+      }
+    } catch (dbError) {
+      console.error(
+        `Error fetching or creating conversation thread for hash ${thread_hash}:`,
+        dbError
+      );
+      throw new Error(
+        `Failed to manage conversation thread for hash ${thread_hash}.`
+      );
+    }
+
+    // Ensure we have a valid thread ID before proceeding
+    if (!conversationThreadId) {
+      console.error(
+        `Failed to obtain a valid conversation thread ID for hash ${thread_hash}.`
+      );
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Failed to obtain a valid conversation thread ID for hash ${thread_hash}.`,
+        },
+        { status: 500 } // Internal Server Error
+      );
+    }
+
+    console.log('conversationThreadId', conversationThreadId);
+
+    // --- Process OpenAI Interaction using the conversation thread ---
     await processOpenAIInteraction(
       client,
-      conversationThreadId,
+      conversationThreadId, // Use the specific conversation thread ID
       content,
-      parent, // Pass the original cast hash as parent
+      parent,
       verifiedAddress
     );
 
@@ -422,9 +505,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const status =
       error instanceof Error &&
       (error.message.includes('fetch user data') ||
-        error.message.includes('conversation data'))
-        ? 503
-        : 500; // Service Unavailable for DB errors
+        error.message.includes('conversation data') ||
+        error.message.includes('Failed to create OpenAI thread')) // Add thread creation error
+        ? 503 // Service Unavailable for critical DB/dependency errors
+        : 500; // Internal Server Error for others
 
     return NextResponse.json(
       {

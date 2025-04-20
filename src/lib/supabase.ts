@@ -1,5 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 
+// --- Types ---
+export type User = {
+  id?: string; // Supabase ID, usually UUID
+  created_at?: string; // Timestamp
+  fid: number;
+  openai_thread_id: string;
+  last_updated: string; // Timestamp
+  message_count: number;
+  memory?: string | null;
+};
+
+// --- End Types ---
+
 type Conversation = {
   id?: string;
   created_at?: string;
@@ -15,11 +28,10 @@ const supabase = createClient(
 );
 
 export const supabaseService = {
-  async upsertUser(record: {
-    fid: number;
-    openai_thread_id: string;
-    last_updated: string;
-  }) {
+  async upsertUser(
+    record: Partial<User> &
+      Pick<User, 'fid' | 'openai_thread_id' | 'last_updated'>
+  ) {
     // Use standard upsert to set fid and openai_thread_id
     // Note: This will NOT increment message_count
     const { data, error } = await supabase
@@ -93,6 +105,39 @@ export const supabaseService = {
 
     return data;
   },
+
+  async updateUserMemory(fid: number, memoryData: Pick<User, 'memory'>) {
+    const { data, error } = await supabase
+      .from('users')
+      .update(memoryData)
+      .eq('fid', fid)
+      .select(); // Optionally select the updated row
+
+    if (error) {
+      console.error(
+        `Supabase update error (user memory for FID ${fid}):`,
+        error
+      );
+      // Decide if this error should halt execution
+      throw new Error('Failed to update user memory');
+    }
+    console.log(`Updated memory for user FID ${fid}`);
+    return data;
+  },
+
+  async storeMemory(fid: number, memory: string) {
+    const { data, error } = await supabase
+      .from('memories')
+      .insert({ fid, memory });
+
+    if (error) {
+      console.error('Supabase error:', error);
+      throw new Error('Failed to store memory');
+    }
+
+    return data;
+  },
+
   // Add direct access to supabase client
   from: supabase.from.bind(supabase),
 };
