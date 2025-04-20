@@ -1,15 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 
-type User = {
-  id?: string;
-  fid: number;
-  openai_thread_id: string;
-  created_at?: string;
-  last_updated?: string;
-  message_count?: number;
-  memory?: string;
-};
-
 type Conversation = {
   id?: string;
   created_at?: string;
