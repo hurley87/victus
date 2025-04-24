@@ -45,6 +45,7 @@ interface BackgroundToolRequest {
   args: Record<string, unknown>;
   parent: string;
   verifiedAddress?: string;
+  fid?: number;
 }
 
 // Constants
@@ -167,7 +168,8 @@ const handleToolCalls = (
   runId: string,
   threadId: string,
   parent: string,
-  verifiedAddress?: string
+  verifiedAddress?: string,
+  fid?: number
 ): void => {
   console.log(`Handling ${toolCalls.length} tool call(s) for run ${runId}`);
   for (const call of toolCalls) {
@@ -181,6 +183,7 @@ const handleToolCalls = (
         args,
         parent,
         verifiedAddress,
+        fid,
       };
 
       // Use void operator to explicitly ignore the promise
@@ -341,7 +344,8 @@ const processOpenAIInteraction = async (
   threadId: string,
   content: string,
   parent: string,
-  verifiedAddress?: string
+  verifiedAddress?: string,
+  fid?: number
 ): Promise<void> => {
   try {
     // --- Add Message to Conversation Thread ---
@@ -367,7 +371,14 @@ const processOpenAIInteraction = async (
       const toolCalls =
         runStatus.required_action?.submit_tool_outputs?.tool_calls;
       if (toolCalls && toolCalls.length > 0) {
-        handleToolCalls(toolCalls, run.id, threadId, parent, verifiedAddress);
+        handleToolCalls(
+          toolCalls,
+          run.id,
+          threadId,
+          parent,
+          verifiedAddress,
+          fid
+        );
       } else {
         console.warn(`Run ${run.id} requires action but has no tool calls.`);
         // Potentially handle this case, maybe log an error or return specific status
@@ -491,7 +502,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       conversationThreadId, // Use the specific conversation thread ID
       content,
       parent,
-      verifiedAddress
+      verifiedAddress,
+      fid
     );
 
     // --- Respond ---

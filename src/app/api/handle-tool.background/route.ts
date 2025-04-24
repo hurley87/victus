@@ -6,6 +6,7 @@ import { ipfsService } from '@/lib/ipfs';
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { z } from 'zod';
+import { supabaseService, User } from '@/lib/supabase';
 
 // Constants
 const PLATFORM_REFERRER = '0xbD78783a26252bAf756e22f0DE764dfDcDa7733c' as const;
@@ -19,6 +20,7 @@ type CreateTaskData = {
   parent: string;
   reply: string;
   verifiedAddress: string;
+  fid: number;
 };
 
 type TradeTaskData = {
@@ -44,6 +46,7 @@ const createTaskSchema = z.object({
   symbol: z.string().min(1),
   parent: z.string().min(1),
   verifiedAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  fid: z.number(),
 });
 
 const tradeTaskSchema = z.object({
@@ -73,12 +76,14 @@ const taskHandlers = {
       // Get wallet clients
       const { walletClient, publicClient } = await getWalletClients();
 
+      const payoutRecipient = validatedData.verifiedAddress as `0x${string}`;
+
       // Create coin
       const createCoinParams = {
         name: validatedData.name,
         symbol: validatedData.symbol,
         uri,
-        payoutRecipient: validatedData.verifiedAddress as `0x${string}`,
+        payoutRecipient,
         platformReferrer: PLATFORM_REFERRER,
       };
 
@@ -87,7 +92,27 @@ const taskHandlers = {
         walletClient,
         publicClient
       );
-      await publicClient.waitForTransactionReceipt({ hash: coin.hash });
+
+      try {
+        await publicClient.waitForTransactionReceipt({ hash: coin.hash });
+
+        try {
+          await supabaseService.storeCoin({
+            coinAddress: coin.address as `0x${string}`,
+            fid: validatedData.fid,
+            name: validatedData.name,
+            symbol: validatedData.symbol,
+            description: validatedData.description,
+            parentCast: validatedData.parent,
+          });
+        } catch (dbError) {
+          console.error('Failed to store coin in database:', dbError);
+          // Consider whether to throw or handle differently
+        }
+      } catch (receiptError) {
+        console.error('Failed to confirm transaction:', receiptError);
+        throw new Error('Transaction confirmation failed');
+      }
 
       if (!coin.address) {
         throw new Error('Coin address not found in response');
@@ -181,6 +206,7 @@ export async function POST(request: Request) {
       args,
       parent,
       verifiedAddress,
+      fid,
     } = body;
 
     let result: TaskResponse<{ coinAddress: string } | { tradeUrl: string }>;
@@ -191,6 +217,7 @@ export async function POST(request: Request) {
           ...args,
           parent,
           verifiedAddress,
+          fid,
         });
         if (result.success && result.data && 'coinAddress' in result.data) {
           await publishCast(

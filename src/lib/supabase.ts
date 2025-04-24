@@ -21,6 +21,15 @@ type Conversation = {
   last_updated?: string;
 };
 
+type Coin = {
+  fid: number;
+  coinAddress: `0x${string}`;
+  name: string;
+  symbol: string;
+  description: string;
+  parentCast: string;
+};
+
 // Initialize Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -133,6 +142,17 @@ export const supabaseService = {
     if (error) {
       console.error('Supabase error:', error);
       throw new Error('Failed to store memory');
+    }
+
+    return data;
+  },
+
+  async storeCoin(coin: Coin) {
+    const { data, error } = await supabase.from('coins').insert(coin);
+
+    if (error) {
+      console.error('Supabase error:', error);
+      throw new Error('Failed to store coin');
     }
 
     return data;
