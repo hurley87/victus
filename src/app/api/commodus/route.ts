@@ -497,7 +497,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.log('conversationThreadId', conversationThreadId);
 
     // --- Process OpenAI Interaction using the conversation thread ---
-    await processOpenAIInteraction(
+    processOpenAIInteraction(
       client,
       conversationThreadId, // Use the specific conversation thread ID
       content,
