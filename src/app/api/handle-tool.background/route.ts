@@ -6,7 +6,7 @@ import { ipfsService } from '@/lib/ipfs';
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { z } from 'zod';
-import { supabaseService, User } from '@/lib/supabase';
+import { supabaseService } from '@/lib/supabase';
 
 // Constants
 const PLATFORM_REFERRER = '0xbD78783a26252bAf756e22f0DE764dfDcDa7733c' as const;
