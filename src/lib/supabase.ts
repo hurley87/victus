@@ -27,7 +27,7 @@ type Coin = {
   name: string;
   symbol: string;
   description: string;
-  parentCast: string;
+  parent: string;
 };
 
 // Initialize Supabase client

@@ -103,7 +103,7 @@ const taskHandlers = {
             name: validatedData.name,
             symbol: validatedData.symbol,
             description: validatedData.description,
-            parentCast: validatedData.parent,
+            parent: validatedData.parent,
           });
         } catch (dbError) {
           console.error('Failed to store coin in database:', dbError);
