@@ -35,6 +35,39 @@ Future versions should preserve these principles:
    - expand only after the MVP loop proves itself
 ---
 ## Future Phases
+
+## Phase 0 — Post-Hackathon Technical Migrations
+These are not game-design improvements; they are the technical compromises taken for the MVP that must be resolved before any public / at-scale launch.
+
+### Custody migration: Option A → Option B (then C)
+The MVP uses **Privy server wallets** (Option A) for speed. This means the arena wallet's private key is held server-side, which is fine for a capped $50 hackathon demo but not for real users.
+
+Path:
+- **Option B (first migration)**: Privy **embedded wallet** + **delegated actions**. The user owns the wallet (Shamir + TEE), delegates scoped trading rights to the backend, and can revoke at any time. This preserves the cast-triggered auto-execute loop without custodying user funds.
+  - New onboarding step: "Grant trading authority" consent modal.
+  - New policy: delegation is scoped to the 0x exchange proxy, the whitelisted assets, and the policy limits.
+  - Migration is one-shot: sweep each user's Option-A balance into their newly provisioned Option-B wallet, retire the server-wallet address, update `arena_wallets.wallet_address`.
+- **Option C (second migration, optional)**: user-owned **smart account** with an onchain **session key / permission module** (Coinbase Smart Wallet, ZeroDev, Safe 7579). Permissions enforced at the contract layer rather than at Privy's delegation layer. Strongest trust story, highest build cost. Only worth doing if volume justifies it.
+
+### Lift the $50 wallet cap
+Introduced solely to bound the custodial-risk blast radius in MVP. Remove it once Option B is live. Revisit the default trade size and daily cap at the same time.
+
+### Beta dependency hardening
+MVP uses Vercel Queues + Vercel Workflow in public beta. Before public launch:
+- confirm both products have hit GA or have long-term commitment signals
+- if not, switch to **Upstash QStash + Supabase-driven state machine** (interface-compatible — documented as the MVP fallback plan)
+
+### Base Sepolia staging environment
+MVP ships only to Base mainnet with no pre-prod chain. Before team grows, stand up a Base Sepolia mirror of the full pipeline for safer iteration.
+
+### Role-based admin access
+MVP gates the admin UI by a single allowlisted FID. When the team grows beyond one operator, add proper role-based access control.
+
+### Rate limiting at ingress
+MVP relies on policy caps (trade size, daily count) as its only rate limit. Before public launch, add IP-and-FID rate limiting on the webhook endpoint to handle potential spam / abuse.
+
+---
+
 ## Phase 1.5 — Stronger Competition Layer
 This phase improves the game loop without changing the core architecture too much.
 ### Goals
@@ -82,6 +115,7 @@ Suggested implementation:
 - Commodus announces its trades publicly
 - Commodus uses the same whitelist as users
 - Commodus follows a transparent scoring model
+- Execution backend could be **Bankr** (`api.bankr.bot`) — a single-account agentic trading API is an excellent fit for Commodus-the-character's own wallet, where the "one API key = one wallet" model that rules it out for per-user MVP custody is actually the desired shape. Offload Commodus's own trade execution to Bankr; keep user execution on 0x.
 #### Beat Commodus bonuses
 Players earn extra points for outperforming Commodus during a period.
 Suggested implementation:
@@ -138,6 +172,16 @@ This phase gives GLORY more meaning inside the game.
 - make rewards feel useful
 - create player progression
 ### Features
+#### Commemorative ERC-1155 badges
+In addition to (or alongside) the ERC-20 `$GLORY` airdrop, issue monthly **tiered ERC-1155 badges** from a `CommodusGlory` contract on Base:
+- **Gold** (rank 1) — Champion of the Arena
+- **Silver** (ranks 2–3) — Consul of the Arena
+- **Bronze** (ranks 4–10) — Gladiator of the Arena
+Badges carry metadata (month, rank, points, realized PnL) and are dynamic-OG image generated. Minted to the winner's Farcaster-verified address. Deferred from MVP because the user chose ERC-20 + manual airdrop for hackathon scope; the badge adds a persistent visual status artifact that complements rather than replaces the token.
+#### Optional USDC top-3 bonus pool
+Small monthly USDC pot (e.g. 25 USDC split 15/6/4 across top 3) on top of the GLORY airdrop, to add real-stakes texture. Funded from a treasury wallet initially; sponsor-funded or protocol-fee-funded at scale.
+#### Automated onchain distribution
+Replace manual CSV airdrops with a `GloryDistributor` contract that accepts a merkle root per epoch. Operator commits the root; winners claim.
 #### Cosmetic unlocks
 GLORY unlocks:
 - profile badges
@@ -234,14 +278,27 @@ Examples:
 This adds identity and social coordination.
 ---
 ## Phase 7 — Agent Expansion
-This phase increases the role of agents without giving up clarity.
+This phase increases the role of agents without giving up clarity. The MVP already ships the OpenAI Agents SDK as the parsing runtime with a single tool (`emit_trade_intent`); this phase expands the tool surface without rewriting the agent plumbing.
 ### Goals
 - make Commodus feel more alive
 - introduce more dynamic gameplay
 - preserve user trust
+### Planned agent tools
+- `publish_commentary_cast(text)` — scheduled Commodus commentary casts (marketing)
+- `publish_recap_cast(epoch)` — monthly recap casts with top gladiators, biggest win, biggest fall, total arena volume
+- `reply_to_non_command_cast(cast_hash)` — in-character responses when users reply to Commodus's posts asking "why?"
+- `query_market_state(symbol)` — price and recent moves, read-only
+- `decide_benchmark_trade()` — Commodus's own trading decisions for Phase 2 benchmark wallet
+- `publish_danger_zone_alert(fid)` — Phase 1.5 elimination-adjacent theatrical warnings
+- `publish_rivalry_matchup(fid_a, fid_b)` — Phase 5 rivalry announcements
+Each new tool adds surface area but the core guardrails (Zod-validated inputs, templated voice fallbacks, tracing) carry over from MVP.
+### Safeguards
+- Every autonomous cast passes through a structural guardrail that verifies template-shape before publishing. The agent assembles, but the shape is enforced.
+- Autonomous trading tools (Phase 2) never write to user wallets — only to Commodus's own benchmark wallet.
+- Rate-limited by default; scheduled casts go through the same Vercel Workflow pipeline so they're observable, idempotent, and replayable.
 ### Features
 #### Richer command parsing
-Support more natural phrasing while still normalizing to safe structured actions.
+Support more natural phrasing while still normalizing to safe structured actions. Also: **absolute-quantity sells** (`sell 100 aero`) — deferred from MVP where only `sell N%` is supported.
 #### Agent commentary
 Commodus explains decisions, rankings, or rejections in a more contextual way.
 #### House traders
