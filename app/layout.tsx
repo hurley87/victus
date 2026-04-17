@@ -1,5 +1,7 @@
 import Providers from "@/components/providers";
 import { env } from "@/lib/env";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { headers } from "next/headers";
@@ -66,6 +68,8 @@ export default async function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <Providers cookie={cookie}>{children}</Providers>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
