@@ -5,9 +5,15 @@ import { z } from "zod";
 export const env = createEnv({
   server: {
     NEYNAR_API_KEY: z.string().min(1),
+    NEYNAR_WEBHOOK_SECRET: z.string().min(1),
     JWT_SECRET: z.string().min(1),
-    REDIS_URL: z.string().min(1),
-    REDIS_TOKEN: z.string().min(1),
+    // Farcaster FID of the Commodus bot. Optional until the bot account is
+    // created; required at runtime by the webhook handler and reply publisher.
+    COMMODUS_FID: z.coerce.number().int().positive().optional(),
+    // Upstash Redis REST API (auto-injected by Vercel-Upstash integration).
+    // Used by @upstash/redis and @upstash/ratelimit over HTTPS.
+    KV_REST_API_URL: z.string().url(),
+    KV_REST_API_TOKEN: z.string().min(1),
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   },
   client: {

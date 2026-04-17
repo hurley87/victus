@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import createJiti from "jiti";
 import { createSecureHeaders } from "next-secure-headers";
+import { withWorkflow } from "workflow/next";
 
 const jiti = createJiti(fileURLToPath(import.meta.url));
 
@@ -55,4 +56,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withWorkflow(nextConfig);
