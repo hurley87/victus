@@ -163,7 +163,7 @@ Users who may not be active traders but like:
 - Commodus replies publicly with templated copy
 - `buy`, `sell`, and `status` commands only
 - fixed whitelist of 4 tradable assets + USDC
-- deterministic regex grammar wrapped in an OpenAI Agents SDK agent tool
+- deterministic regex grammar with LLM fallback via Vercel AI SDK `generateObject` + Zod `TradeIntentSchema`
 - validation and policy checks before execution
 
 ### Backend
@@ -453,7 +453,7 @@ Commodus should feel imperial and theatrical, but never unclear.
 - **Neynar** — cast webhooks, `@commodus` reply publishing (managed signer already provisioned)
 - **Privy** — server wallet provisioning and signing (Option A custody for hackathon)
 - **0x Swap API** — DEX routing on Base
-- **OpenAI Agents SDK** (`@openai/agents`) — agent runtime for command parsing (expands post-MVP)
+- **Vercel AI SDK** (`ai`, `@ai-sdk/workflow`) — `generateObject` for MVP command parsing; graduates to `WorkflowAgent` post-MVP when Commodus gains autonomous tools. Models routed via **Vercel AI Gateway**.
 - **Clanker** — external, used to launch `$GLORY` as an ERC-20 on Base
 - **viem / wagmi** — chain interaction (already in deps)
 
@@ -480,7 +480,7 @@ Vercel Queue "trade-commands"
 Vercel Workflow process-trade-command   (each bullet = 'use step', checkpointed)
           │
           ├─ load_command(cast_hash)         — replay guard; terminal status → return
-          ├─ agent_parse(cast_text)          — OpenAI Agents SDK, Zod-validated tool emit_trade_intent
+          ├─ parse_command(cast_text)        — regex pre-filter; LLM fallback via generateObject + Zod TradeIntentSchema
           ├─ policy_validate(intent)         — whitelist, sizes, balance, daily cap, wallet cap
           ├─ quote(intent)                   — 0x Swap API; slippage, price-impact gating
           ├─ reserve_execution(cast_hash)    — insert trade_executions row with deterministic execution_id
@@ -496,7 +496,7 @@ Vercel Workflow process-trade-command   (each bullet = 'use step', checkpointed)
 Idempotency strategy summary:
 - **Webhook layer:** Redis `SETNX` + Postgres unique constraint on `cast_hash`
 - **Queue layer:** Vercel Queue's own idempotency keys
-- **Workflow layer:** every step is pure or idempotent check-then-act
+- **Workflow layer:** every step is pure or idempotent check-then-act (each pipeline bullet is a `'use step'` checkpoint; the AI SDK call lives inside one such step)
 - **Chain layer:** `trade_executions` row reserved *before* tx submission; replays see the reservation and skip re-submission
 
 ### Fallback plan if Vercel Queues/Workflow beta churn
@@ -510,18 +510,25 @@ The interfaces are compatible; the primitives are swappable. **Documented, not b
 
 ### Agent Scope: MVP vs Future
 
-The OpenAI Agents SDK is in the MVP for one reason: it gives Commodus the scaffolding to become an autonomous Farcaster entity later without a rewrite.
+The MVP uses the **Vercel AI SDK** (`ai` package) because it runs on the same primitives as the rest of the trade pipeline — Vercel Workflow, Fluid compute, AI Gateway — with zero rewrite when Commodus graduates from "parser" to "autonomous entity."
 
-**MVP tool surface (single tool):**
-- `emit_trade_intent(intent: TradeIntentSchema)` — called by the agent after parsing a cast
+**MVP approach — structured output, not a tool loop:**
+- Parsing is a single `generateObject` call bound to `TradeIntentSchema` (Zod), wrapped in a `'use step'` workflow step for durability + retries.
+- A deterministic regex pre-filter handles the happy-path grammar cheaply; the LLM is invoked only on regex miss, which keeps cost and latency predictable.
+- The same `TradeIntentSchema` is reused by the policy engine and by tests — one source of truth.
+- **No** tool-loop runtime in MVP. No approvals, no multi-turn agent reasoning, no autonomous posting. Just extract an intent.
 
-That's it. The agent does **not** choose what to trade, write reply copy, or post anything autonomously in MVP.
-
-**Post-MVP tool surface (roadmap, see `docs/future.md`):**
+**Post-MVP — graduate to `WorkflowAgent` (`@ai-sdk/workflow`):**
+When Commodus grows a real tool surface, each of these becomes a durable workflow step (`'use step'`) attached to a single `WorkflowAgent`. Migration is additive; the MVP `TradeIntentSchema` and workflow structure stay intact.
 - `publish_commentary_cast(text)` — scheduled market commentary for marketing
 - `query_market_state(symbol)` — for Commodus's own benchmark wallet (Phase 2)
-- `decide_benchmark_trade()` — autonomous trading by Commodus
+- `decide_benchmark_trade()` — autonomous trading by Commodus (multi-step tool loop, gated by `needsApproval` where appropriate)
 - `reply_to_non_command_cast(cast_hash)` — in-character responses to replies
+
+**Why Vercel AI SDK over OpenAI Agents SDK:**
+- Native fit with Vercel Workflow (`'use step'` tools, suspension survives process restarts).
+- Model-agnostic via AI Gateway — swap `openai/gpt-5-mini` for parsing with `anthropic/claude-sonnet-4-6` for reasoning without code changes.
+- `generateObject` is the right primitive for the MVP task; no agent loop needed until there's a tool surface to loop over.
 
 ---
 
@@ -892,7 +899,7 @@ Most prior open questions resolved during grilling. Remaining:
 - implement `POST /api/webhooks/neynar` with HMAC verification + Redis idempotency + Supabase insert
 - stand up Vercel Queue `trade-commands`
 - stand up Vercel Workflow `process-trade-command` with all durable steps
-- integrate `@openai/agents` with `emit_trade_intent` tool + Zod schema
+- implement `parse_command` step: regex pre-filter → `generateObject` (Vercel AI SDK, AI Gateway model) → `TradeIntentSchema` (Zod)
 - integrate 0x Swap API for quoting + calldata
 - implement Permit2 allowance step
 - implement transaction submission via Privy
