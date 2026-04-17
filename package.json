@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "frames": "frames"
+    "typecheck": "tsc --noEmit",
+    "frames": "frames",
+    "supabase:types": "supabase gen types typescript --project-id rjiecbvxrlctmoblqngt --schema public > lib/supabase/types.ts"
   },
   "dependencies": {
     "@farcaster/auth-client": "^0.7.0",
@@ -18,6 +20,7 @@
     "@farcaster/quick-auth": "^0.0.8",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-slot": "^1.2.4",
+    "@supabase/supabase-js": "^2.103.3",
     "@t3-oss/env-nextjs": "^0.13.8",
     "@tanstack/react-query": "^5.90.11",
     "@upstash/redis": "^1.35.7",
