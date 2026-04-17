@@ -6,6 +6,10 @@ export const env = createEnv({
   server: {
     NEYNAR_API_KEY: z.string().min(1),
     NEYNAR_WEBHOOK_SECRET: z.string().min(1),
+    // UUID of the managed signer used to publish Commodus replies. Optional
+    // at build time so the app can start without it; the reply publisher
+    // throws a FatalError at runtime if unset.
+    NEYNAR_SIGNER_UUID: z.string().uuid().optional(),
     JWT_SECRET: z.string().min(1),
     // Farcaster FID of the Commodus bot. Optional until the bot account is
     // created; required at runtime by the webhook handler and reply publisher.

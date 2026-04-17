@@ -3,12 +3,16 @@ import { NextResponse } from "next/server";
 import { start } from "workflow/api";
 import { env } from "@/lib/env";
 import { ratelimit, wasProcessed } from "@/lib/redis";
+import { supabaseAdmin } from "@/lib/supabase/server";
 import {
   type CommandContext,
   handleCommodusCommand,
 } from "@/lib/workflows/commodus-command";
 
 export const runtime = "nodejs";
+
+/** 60s covers Neynar's retry window; durable dedupe is the cast_hash UNIQUE. */
+const CAST_DEDUPE_TTL_SECONDS = 60;
 
 /**
  * Neynar `cast.created` webhook → Commodus command workflow.
@@ -18,8 +22,9 @@ export const runtime = "nodejs";
  *  2. Verify HMAC-SHA512 signature against NEYNAR_WEBHOOK_SECRET.
  *  3. Parse JSON only after signature passes.
  *  4. Rate-limit per author FID to shield downstream paid APIs.
- *  5. Idempotency check by cast hash (Neynar retries on 5xx).
- *  6. Start durable workflow and ack 200 fast.
+ *  5. Fast idempotency guard via Redis SETNX cast:{hash} TTL 60s.
+ *  6. Durable idempotency via cast_commands unique (cast_hash).
+ *  7. Enqueue durable workflow and ack 200 (< 500ms target).
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -37,19 +42,45 @@ export async function POST(request: Request) {
   }
 
   if (event.type !== "cast.created") {
-    // Neynar may deliver other types if the webhook is broadened later.
     return NextResponse.json({ ignored: true });
   }
 
   const { hash, author, text, parent_hash } = event.data;
+
+  // Guard: our own replies (Neynar re-broadcasts casts we publish). Drop
+  // before we spend Redis/DB budget on them.
+  if (env.COMMODUS_FID && author.fid === env.COMMODUS_FID) {
+    return NextResponse.json({ self: true });
+  }
 
   const { success } = await ratelimit.webhook.limit(`fid:${author.fid}`);
   if (!success) {
     return new NextResponse("Rate limited", { status: 429 });
   }
 
-  if (await wasProcessed(`neynar:cast:${hash}`)) {
+  if (await wasProcessed(`cast:${hash}`, CAST_DEDUPE_TTL_SECONDS)) {
     return NextResponse.json({ duplicate: true });
+  }
+
+  // Durable landing row. `upsert` + `ignoreDuplicates` makes a race with a
+  // concurrent delivery a no-op rather than a 500.
+  const { error } = await supabaseAdmin
+    .from("cast_commands")
+    .upsert(
+      {
+        fid: author.fid,
+        cast_hash: hash,
+        text,
+        status: "received",
+      },
+      { onConflict: "cast_hash", ignoreDuplicates: true },
+    );
+
+  if (error) {
+    // Don't leak webhook state to Neynar — return 500 so they retry, but log
+    // loudly. Redis dedupe key will expire in 60s, so retry can proceed.
+    console.error("cast_commands upsert failed", { hash, error });
+    return new NextResponse("Database error", { status: 500 });
   }
 
   const ctx: CommandContext = {
@@ -59,6 +90,8 @@ export async function POST(request: Request) {
     parentHash: parent_hash ?? null,
   };
 
+  // Fire-and-forget: the workflow runtime owns durability from here. We do
+  // NOT await any downstream work inside the webhook — 200 ASAP.
   await start(handleCommodusCommand, [ctx]);
 
   return NextResponse.json({ accepted: true });

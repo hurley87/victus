@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "tunnel": "cloudflared tunnel --url http://localhost:3000",
     "frames": "frames",
     "supabase:types": "supabase gen types typescript --project-id rjiecbvxrlctmoblqngt --schema public > lib/supabase/types.ts"
   },
