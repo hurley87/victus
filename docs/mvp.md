@@ -455,6 +455,20 @@ Commodus should feel imperial and theatrical, but never unclear.
 - **Clanker** — external, used to launch `$GLORY` as an ERC-20 on Base
 - **viem / wagmi** — chain interaction (already in deps)
 
+### Alternatives considered
+
+The execution surface for user-signed trades was the biggest architectural call for MVP. Two options were evaluated.
+
+**Farcaster Mini App SDK `swapToken` (chosen).** GA feature of `@farcaster/miniapp-sdk`. Runs inside every Farcaster client that supports Mini Apps, using whatever wallet the client already embeds (Warpcast, Base App, Coinbase Wallet, Privy-embedded, MetaMask, etc.). The native wallet owns routing, allowances, slippage, chain selection, and gas. One tap from the cast, one signature in a surface the user already trusts.
+
+**MetaMask Snaps.** A Snap is a sandboxed JS plugin inside MetaMask that can expose custom RPC methods and render custom signing UIs. A hypothetical "Commodus Snap" could own the entire trade-signing experience with Commodus-branded UX (inline price-impact warnings, scoring preview, templated confirmations). Ruled out for MVP for three reasons:
+
+1. **Install friction.** A Snap requires the user to have MetaMask installed *and* approve the Snap install. Our traffic surface is Farcaster casts, where most users sign with the embedded wallet of their Farcaster client, not MetaMask. Stacking a MetaMask-plus-Snap install on top of "designate an arena address" guts the onboarding funnel.
+2. **Wallet lock-in.** Snaps are MetaMask-only. The Mini App SDK works across every Farcaster client's native wallet. Locking the game to MetaMask users disqualifies most of the addressable audience.
+3. **Re-solving solved problems.** A Snap-based surface has to own routing, allowances, slippage, and fee estimation. The Mini App SDK delegates all of these to the native wallet; nothing ships in our codebase for it.
+
+**When Snaps become interesting.** Post-MVP, if we introduce order types native wallets can't express (TWAP, stop-loss, conditional orders), a custom signing surface becomes valuable. At that point the decision is "dedicated web-app signing UI vs. Snap", not "Snap vs. Mini App SDK" — the Mini App SDK is purpose-built for one-shot spot swaps, not programmable order types.
+
 ### Durable Execution Architecture
 
 The trade pipeline is split into two phases. The server owns everything up to the swap signature, and everything after the tx hash arrives. The user owns the signature itself — that is the security boundary.
