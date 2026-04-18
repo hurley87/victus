@@ -28,14 +28,28 @@ export default async function proxy(req: NextRequest) {
 
   try {
     const secret = new TextEncoder().encode(env.JWT_SECRET);
-    // Verify the token using jose
     const { payload } = await jose.jwtVerify(token, secret);
 
-    // Clone the request headers to add user info
-    const requestHeaders = new Headers(req.headers);
-    requestHeaders.set("x-user-fid", payload.fid as string);
+    const fid = payload.fid;
+    const userId = payload.user_id;
 
-    // Return response with modified headers
+    if (typeof fid !== "number" && typeof fid !== "string") {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    if (typeof userId !== "string" || userId.length === 0) {
+      // Session predates the user_id claim — force re-auth so the client
+      // mints a new token carrying a resolved Supabase user_id.
+      return NextResponse.json(
+        { error: "Session requires re-authentication" },
+        { status: 401 },
+      );
+    }
+
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set("x-user-fid", String(fid));
+    requestHeaders.set("x-user-id", userId);
+
     return NextResponse.next({
       request: {
         headers: requestHeaders,

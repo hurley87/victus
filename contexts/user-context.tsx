@@ -1,6 +1,6 @@
 import { useApiMutation } from "@/hooks/use-api-mutation";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { NeynarUser } from "@/lib/neynar";
+import type { AuthenticatedUser } from "@/lib/auth/types";
 import sdk from "@farcaster/miniapp-sdk";
 import { QueryObserverResult } from "@tanstack/react-query";
 import {
@@ -17,8 +17,8 @@ import { useFarcaster } from "./farcaster-context";
 const UserProviderContext = createContext<
   | {
       user: {
-        data: NeynarUser | undefined;
-        refetch: () => Promise<QueryObserverResult<NeynarUser>>;
+        data: AuthenticatedUser | undefined;
+        refetch: () => Promise<QueryObserverResult<AuthenticatedUser>>;
         isLoading: boolean;
         error: Error | null;
       };
@@ -57,7 +57,7 @@ export const UserProvider = ({
     refetch: refetchUser,
     isLoading: isFetchingUser,
     error: userError,
-  } = useApiQuery<NeynarUser>({
+  } = useApiQuery<AuthenticatedUser>({
     queryKey: ["user-query"],
     url: "/api/users/me",
     refetchOnWindowFocus: false,
@@ -72,7 +72,7 @@ export const UserProvider = ({
   });
 
   const { mutate: signIn } = useApiMutation<{
-    user: NeynarUser;
+    user: AuthenticatedUser;
   }>({
     url: "/api/auth/sign-in",
     method: "POST",

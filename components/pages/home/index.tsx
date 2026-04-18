@@ -31,7 +31,16 @@ export default function HomePage() {
   return (
     <div className="bg-white text-black flex min-h-screen flex-col items-center justify-center p-4">
       <div className="text-center space-y-4">
-        <h1 className="text-4xl font-bold">Welcome</h1>
+        {user?.data ? (
+          <p
+            className="text-2xl font-semibold"
+            data-testid="welcome-line"
+          >
+            Welcome, @{user.data.username} (FID: {user.data.fid})
+          </p>
+        ) : (
+          <h1 className="text-4xl font-bold">Welcome</h1>
+        )}
         <p className="text-lg text-muted-foreground">
           {user?.data ? "You are signed in!" : "Sign in to get started"}
         </p>
