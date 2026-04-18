@@ -110,12 +110,12 @@ const { data, error } = await supabaseAdmin
 The pipeline relies on database-level uniqueness for idempotency. Do not add code paths that bypass these.
 
 
-| Layer       | Constraint                                                              |
-| ----------- | ----------------------------------------------------------------------- |
-| Webhook     | `cast_commands.cast_hash` UNIQUE                                        |
-| Chain       | `trade_executions.execution_id` UNIQUE (deterministic from `cast_hash`) |
-| Reply       | `scoring_events (cast_command_id, event_type)` UNIQUE                   |
-| Lot linkage | `lots.opening_execution_id` UNIQUE                                      |
+| Layer       | Constraint                                                                       |
+| ----------- | -------------------------------------------------------------------------------- |
+| Webhook     | `cast_commands.cast_hash` UNIQUE                                                 |
+| Chain       | `trade_executions.tx_hash` UNIQUE (supplied by the user's signed tx via swapToken) |
+| Reply       | `scoring_events (cast_command_id, event_type)` UNIQUE                            |
+| Lot linkage | `lots.opening_execution_id` UNIQUE                                               |
 
 
 When inserting from workflow steps, use `.insert(...).select()` + handle `23505` (unique violation) as "already processed, load existing row and continue."
