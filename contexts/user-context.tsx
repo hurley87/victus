@@ -1,34 +1,41 @@
-import { useApiMutation } from "@/hooks/use-api-mutation";
-import { useApiQuery } from "@/hooks/use-api-query";
+"use client";
+
 import type { AuthenticatedUser } from "@/lib/auth/types";
+import type { MiniAppContext } from "@farcaster/miniapp-core/dist/context";
 import sdk from "@farcaster/miniapp-sdk";
-import { QueryObserverResult } from "@tanstack/react-query";
+import {
+  QueryObserverResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   createContext,
   ReactNode,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useState,
 } from "react";
 import { useFarcaster } from "./farcaster-context";
 
-const UserProviderContext = createContext<
-  | {
-      user: {
-        data: AuthenticatedUser | undefined;
-        refetch: () => Promise<QueryObserverResult<AuthenticatedUser>>;
-        isLoading: boolean;
-        error: Error | null;
-      };
-      isSignedIn: boolean;
-      signIn: () => Promise<void>;
-      isLoading: boolean;
-      error: Error | null;
-    }
-  | undefined
->(undefined);
+const USER_QUERY_KEY = ["user-query"] as const;
+
+type UserContextValue = {
+  user: {
+    data: AuthenticatedUser | undefined;
+    refetch: () => Promise<QueryObserverResult<AuthenticatedUser>>;
+    isLoading: boolean;
+    error: Error | null;
+  };
+  isSignedIn: boolean;
+  signIn: () => Promise<void>;
+  isLoading: boolean;
+  error: Error | null;
+};
+
+const UserProviderContext = createContext<UserContextValue | undefined>(
+  undefined,
+);
 
 interface UserProviderProps {
   children: ReactNode;
@@ -48,104 +55,71 @@ export const UserProvider = ({
   autoSignIn = false,
 }: UserProviderProps) => {
   const { context } = useFarcaster();
-  const [error, setError] = useState<Error | null>(null);
-  const [isSignedIn, setIsSignedIn] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const queryClient = useQueryClient();
 
-  const {
-    data: user,
-    refetch: refetchUser,
-    isLoading: isFetchingUser,
-    error: userError,
-  } = useApiQuery<AuthenticatedUser>({
-    queryKey: ["user-query"],
-    url: "/api/users/me",
-    refetchOnWindowFocus: false,
-    isProtected: true,
+  // One query owns the entire "who am I?" lifecycle. On 401 it transparently
+  // runs SIWF Quick Auth + /api/auth/sign-in (when `autoSignIn` is on and a
+  // Farcaster context is available) and returns the resulting user. This lets
+  // `isSignedIn` be derived purely from `data` and avoids a `useEffect` that
+  // reacts to the query's error state.
+  const userQuery = useQuery<AuthenticatedUser, Error>({
+    queryKey: USER_QUERY_KEY,
+    enabled: !autoSignIn || Boolean(context),
     retry: false,
-    enabled: autoSignIn,
-    ...{
-      onSuccess: () => {
-        setIsSignedIn(true);
-      },
+    refetchOnWindowFocus: false,
+    queryFn: async () => {
+      const me = await fetchMe();
+      if (me.ok) return me.user;
+
+      if (!autoSignIn || !context) {
+        throw new Error(`API Error: ${me.status}`);
+      }
+
+      return await performSignIn(context);
     },
   });
 
-  const { mutate: signIn } = useApiMutation<{
-    user: AuthenticatedUser;
-  }>({
-    url: "/api/auth/sign-in",
-    method: "POST",
-    body: (variables) => variables,
-    onSuccess: (data) => {
-      setIsSignedIn(true);
-      setIsLoading(false);
-      refetchUser();
-    },
-  });
-
-  const handleSignIn = useCallback(async () => {
-    try {
-      console.log("handleSignIn");
-      setIsLoading(true);
-      setError(null);
-
+  const signInMutation = useMutation<AuthenticatedUser, Error, void>({
+    mutationFn: async () => {
       if (!context) {
-        console.error("Not in mini app");
         throw new Error("Not in mini app");
       }
+      return await performSignIn(context);
+    },
+    onSuccess: (user) => {
+      queryClient.setQueryData(USER_QUERY_KEY, user);
+    },
+  });
 
-      const referrerFid =
-        context.location?.type === "cast_embed"
-          ? context.location.cast.author.fid
-          : undefined;
-
-      const result = await sdk.quickAuth.getToken();
-
-      if (!result) {
-        throw new Error("No token from SIWF Quick Auth");
-      }
-
-      await signIn({
-        fid: context.user.fid,
-        referrerFid,
-        token: result.token,
-      });
+  const signIn = useCallback(async () => {
+    try {
+      await signInMutation.mutateAsync();
     } catch {
-      setError(new Error("Failed to sign in"));
-    } finally {
-      setIsLoading(false);
+      // Error is surfaced via `signInMutation.error` → `value.error`.
     }
-  }, [context, signIn]);
+  }, [signInMutation]);
 
-  useEffect(() => {
-    if (context && !isSignedIn && !isLoading && autoSignIn && userError) {
-      handleSignIn();
-    }
-  }, [context, handleSignIn, isSignedIn, isLoading, autoSignIn, userError]);
-
-  const value = useMemo(() => {
+  const value = useMemo<UserContextValue>(() => {
     return {
       user: {
-        data: user,
-        refetch: refetchUser,
-        isLoading: isFetchingUser,
-        error: userError,
+        data: userQuery.data,
+        refetch: userQuery.refetch,
+        isLoading: userQuery.isLoading,
+        error: userQuery.error,
       },
-      signIn: handleSignIn,
-      isSignedIn,
-      isLoading,
-      error,
+      signIn,
+      isSignedIn: Boolean(userQuery.data),
+      isLoading: userQuery.isLoading || signInMutation.isPending,
+      error: signInMutation.error ?? userQuery.error ?? null,
     };
   }, [
-    user,
-    isFetchingUser,
-    userError,
-    handleSignIn,
-    isSignedIn,
-    isLoading,
-    error,
-    refetchUser,
+    userQuery.data,
+    userQuery.refetch,
+    userQuery.isLoading,
+    userQuery.error,
+    signInMutation.isPending,
+    signInMutation.error,
+    signIn,
   ]);
 
   return (
@@ -154,3 +128,48 @@ export const UserProvider = ({
     </UserProviderContext.Provider>
   );
 };
+
+type FetchMeResult =
+  | { ok: true; user: AuthenticatedUser }
+  | { ok: false; status: number };
+
+async function fetchMe(): Promise<FetchMeResult> {
+  const res = await fetch("/api/users/me", { credentials: "include" });
+  if (!res.ok) return { ok: false, status: res.status };
+  return { ok: true, user: (await res.json()) as AuthenticatedUser };
+}
+
+async function performSignIn(
+  context: MiniAppContext,
+): Promise<AuthenticatedUser> {
+  const referrerFid =
+    context.location?.type === "cast_embed"
+      ? context.location.cast.author.fid
+      : undefined;
+
+  const token = await sdk.quickAuth.getToken();
+  if (!token) {
+    throw new Error("No token from SIWF Quick Auth");
+  }
+
+  const res = await fetch("/api/auth/sign-in", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fid: context.user.fid,
+      referrerFid,
+      token: token.token,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`API Error: ${res.status}`);
+  }
+
+  const body = (await res.json()) as { success: boolean; user: AuthenticatedUser };
+  if (!body.success || !body.user) {
+    throw new Error("Sign-in response missing user");
+  }
+  return body.user;
+}
