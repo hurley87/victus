@@ -6,7 +6,7 @@
 
 Users keep their existing Farcaster account, open the Mini App, designate one of their Farcaster-verified wallet addresses as their **arena address**, then issue **public trade commands** by casting at `@commodus`.
 
-Commodus parses the command, validates it against the user's policy and the game rules, publishes an intent reply that deep-links the user into the Mini App's signing surface, and — after the user signs the swap in their own wallet via the Mini App SDK's `swapToken` action — records the executed trade, replies publicly, and updates a live leaderboard.
+Commodus parses the command, validates it against the user's policy and the game rules, publishes an **intent reply as a Farcaster Snap cast**, and — after the user taps the Snap inline in their feed and signs the resulting `swap_token` action in their own wallet — records the executed trade, replies publicly, and updates a live leaderboard.
 
 Execution is **non-custodial**. The server never holds keys, never holds USDC, and never pays gas.
 
@@ -93,8 +93,9 @@ The user picks one of their existing Farcaster-verified wallet addresses as thei
 ### 4. Review Arena Rules
 The user reads what Commodus can and cannot do, including:
 - only 4 whitelisted tradable assets (plus USDC as quote)
-- max trade size and max trades per day
-- trades execute only when the user signs the pre-filled swap in their own wallet
+- max trades per day
+- trade size is chosen by the user in their own wallet at signing time
+- trades execute only when the user signs the swap themselves, inline in the Farcaster cast
 
 ### 5. First Trade
 The user posts a cast such as:
@@ -106,10 +107,10 @@ The user posts a cast such as:
 The backend:
 - ingests the cast via Neynar webhook
 - enqueues it to a Vercel Queue
-- runs a durable Vercel Workflow that parses, validates, and publishes an **intent reply cast** embedding a Mini App URL
+- runs a durable Vercel Workflow that parses, validates, and publishes an **intent reply cast whose embed is a Farcaster Snap URL** hosted by Commodus
 
 ### 7. User Signs the Swap
-The user taps the embed. The Mini App hydrates the parsed intent and invokes `sdk.actions.swapToken({ sellToken, buyToken, sellAmount })`. The native wallet opens pre-filled; the user signs and pays gas. The Mini App reports the tx hash back to the server, which verifies it on Base, records the execution, scores the trade, and publishes an **outcome reply cast**. If the user abandons the signing dialog, nothing is executed and nothing is scored.
+The Farcaster client renders the Snap inline in the reply cast. The user sees a one-line summary (e.g. "Buy AERO with USDC") and taps **Confirm**. The Snap server responds with a `swap_token` action pinned to `{ sellToken, buyToken }`; the client opens the user's native wallet with the swap pre-filled. The user chooses the amount, signs, and pays gas. The tx hash is captured back at the server, which verifies it on Base, records the execution, scores the trade, and publishes an **outcome reply cast**. If the user abandons the signing dialog, nothing is executed and nothing is scored.
 
 ### 8. Track Performance
 The user opens the Mini App to see:
@@ -151,12 +152,17 @@ Users who may not be active traders but like:
 - Farcaster sign-in (Quick Auth)
 - onboarding flow
 - designate arena address (one of the user's Farcaster-verified EOAs)
-- trade-confirmation surface that invokes `sdk.actions.swapToken` from `@farcaster/miniapp-sdk`
 - show game rules + grammar
 - show whitelisted assets
 - show leaderboard (current month)
 - show portfolio + cost basis
 - show trade history
+
+### Farcaster Snap (execution surface)
+- a server endpoint at `POST /snaps/arena/:cast_hash` returning Farcaster Snap responses
+- JFS-verified interaction envelope for every button tap
+- renders a one-line confirm UI, then emits a `swap_token` action pinned to `{ sellToken, buyToken }`
+- no in-Snap amount field; amount is chosen by the user in the native wallet sheet
 
 ### Public Trading
 - users trade via public Farcaster casts at `@commodus`
@@ -210,7 +216,7 @@ Users who may not be active traders but like:
 - each user has **one** arena address
 - the arena address is **one of the user's existing Farcaster-verified EOAs** (selected from `verifications[]`)
 - the server never holds keys, never holds balances, and never pays gas
-- the user signs every trade in their own native wallet via the Mini App SDK's `swapToken` action; the user pays gas in ETH from that wallet
+- the user signs every trade in their own native wallet via the Farcaster Snap's `swap_token` action, rendered inline in the intent reply cast; the user pays gas in ETH from that wallet
 - the arena address can only be changed by an explicit re-designation flow (out of scope for MVP — set once at onboarding)
 - only swaps whose `from` address equals the designated arena address count toward scoring; trades signed from any other wallet are off-game by construction
 
@@ -228,10 +234,12 @@ command    := buy | sell-pct | status
 buy        := "buy" AMOUNT "usdc" "of" SYMBOL
 sell-pct   := "sell" PERCENT "%" "of" SYMBOL
 status     := "status"
-AMOUNT     := positive decimal, <= policy.max_trade_usdc
+AMOUNT     := positive decimal (suggestion only; the user picks the actual size in their wallet)
 PERCENT    := integer 1..100
 SYMBOL     := member of asset_whitelist (case-insensitive)
 ```
+
+`AMOUNT` and `PERCENT` are treated as **display hints** on the intent reply cast, not as enforcement values. The Farcaster `swap_token` action does not accept a sell-amount parameter, so the user picks the final size in their native wallet regardless of what the cast said. Scoring is based on what the user actually signed, not what they announced.
 
 ### Rules
 - **single command per cast** — multi-command casts rejected
@@ -273,26 +281,30 @@ Global defaults for MVP. **Not user-editable.**
 
 | Parameter | Value | Enforced at |
 |---|---|---|
-| `max_trade_usdc` | 10 | pre-fill time (clamp `sellAmount`) + score time (reject oversize realized fills) |
 | `max_trades_per_day` | 10 | pre-fill time (intent-reply gate) |
-| `wallet_cap_usdc` | 50 | retained in schema; **not enforced** in non-custodial MVP (the server does not see the user's wallet balance) |
-| `max_slippage_bps` | 100 (1%) | retained in schema; **not enforced** by the server (the user's native wallet owns slippage selection) |
 | `max_price_impact_bps` | 300 (3%) | score time (realized fill vs. reference 0x quote) |
 
+- Trade size is **not capped**. The Farcaster Snap `swap_token` action does not take a sell-amount parameter; size is a pure wallet-side decision. Points accrue for executed buys and sells regardless of notional.
 - Intents exceeding a pre-fill-time rule are rejected with a templated Commodus line and no intent reply publishes
 - Executions that exceed a score-time rule are recorded with `status='failed'` and a structured `failure_reason`; the outcome reply names the reason
 - Daily counters reset at **00:00 UTC**
 
+Columns retained in the schema but **not used for enforcement** in MVP, kept for continuity with future versions that may reintroduce custodial or quoted modes:
+- `wallet_cap_usdc` — server cannot see user balance in non-custodial mode
+- `max_slippage_bps` — native wallet owns slippage selection
+
+The `max_trade_usdc` column is **scheduled for removal** from `wallet_policies` (tracked in the implementation issue). It is neither enforced nor surfaced in MVP UI.
+
 ## Execution Rules
 
-- **Execution surface:** Mini App SDK `sdk.actions.swapToken({ sellToken, buyToken, sellAmount })` from `@farcaster/miniapp-sdk`. The user's native wallet handles routing, allowances, slippage selection, and gas.
-- **Whitelist (pre-fill enforcement):** the server will only pre-fill `sellToken` / `buyToken` for whitelisted symbols. Non-whitelisted casts are rejected at parse time with a templated reply, and no intent cast is published.
-- **Size cap (pre-fill enforcement):** `sellAmount` is clamped to `policy.max_trade_usdc` before the Mini App invokes `swapToken`. The user can still edit the amount inside their native wallet, but any realized tx that spends more than the cap (+2% tolerance for rounding) is marked `status='failed'` with reason `oversize` and scores zero.
+- **Execution surface:** a Farcaster Snap hosted at `POST /snaps/arena/:cast_hash`. The snap response emits a `swap_token` action pinned to `{ sellToken, buyToken }`. The user's native wallet handles amount entry, routing, allowances, slippage selection, and gas.
+- **Whitelist (pre-fill enforcement):** the server will only pin `sellToken` / `buyToken` to whitelisted symbols. Non-whitelisted casts are rejected at parse time with a templated reply, and no intent cast is published.
 - **Daily rate limit (pre-fill enforcement):** a user at `max_trades_per_day` gets a cooldown reply and no intent cast is published until the UTC rollover.
 - **Price impact (score-time enforcement):** after the tx confirms, the server compares realized fill vs. a reference 0x quote. Impact > 3% → `status='failed'`, reason `price_impact`, no points.
+- **Size:** chosen by the user in their native wallet. Not server-enforced, not capped. Scoring treats any confirmed swap as a valid trade.
 - **Slippage:** owned by the user's native wallet. Not server-enforced.
 - **Gas:** paid by the user from their own ETH balance on Base. No server-side seeding, no pre-flight top-up, no seeder wallet.
-- **Transaction idempotency:** the chain-layer idempotency key is `trade_executions.tx_hash` (unique). There is no reserve-before-submit because the server never submits. Replays of `POST /api/executions/confirm` with the same `tx_hash` are no-ops.
+- **Transaction idempotency:** the chain-layer idempotency key is `trade_executions.tx_hash` (unique). There is no reserve-before-submit because the server never submits. Replays of the tx-hash ingestion path with the same `tx_hash` are no-ops.
 
 ---
 
@@ -427,7 +439,7 @@ Commodus should feel imperial and theatrical, but never unclear.
 
 **Policy rejection**
 - "Order denied. Asset not approved for this arena."
-- "Order denied. The decree exceeds thy allotted size."
+- "The arena grants only ten decrees per day. Return at the next dawn."
 - "Commodus refuses. This trade violates the laws of the arena."
 
 **GLORY purchase attempt**
@@ -449,7 +461,8 @@ Commodus should feel imperial and theatrical, but never unclear.
 - **Vercel Queues** (public beta) — cast-command ingress queue
 - **Vercel Workflow** (beta) — durable multi-step trade pipeline
 - **Neynar** — cast webhooks, `@commodus` reply publishing (managed signer already provisioned)
-- **`@farcaster/miniapp-sdk`** — `sdk.actions.swapToken` is the entire execution surface; the user's native wallet handles signing, routing, allowances, and gas
+- **Farcaster Snaps** — the entire trade-signing execution surface. Commodus hosts a snap server (Hono handlers on Fluid compute) that returns [SnapResponse](https://docs.farcaster.xyz/snap/llms.txt) JSON, renders a one-tap confirm inline in the intent reply cast, and emits a `swap_token` action that opens the user's native wallet pre-pinned to the right token pair.
+- **`@farcaster/miniapp-sdk`** — retained **only** for sign-in (Quick Auth) and Mini App context (safe-area insets, `isInMiniApp`, capabilities). Not on the trade-execution path.
 - **0x Swap API** — optional, used only for server-side reference quotes at score time (price-impact sanity check). Not on the execution path.
 - **Vercel AI SDK** (`ai`, `@ai-sdk/workflow`) — `generateObject` for MVP command parsing; graduates to `WorkflowAgent` post-MVP when Commodus gains autonomous tools. Models routed via **Vercel AI Gateway**.
 - **Clanker** — external, used to launch `$GLORY` as an ERC-20 on Base
@@ -457,17 +470,23 @@ Commodus should feel imperial and theatrical, but never unclear.
 
 ### Alternatives considered
 
-The execution surface for user-signed trades was the biggest architectural call for MVP. Two options were evaluated.
+The execution surface for user-signed trades was the biggest architectural call for MVP. Three options were evaluated; MetaMask Snaps were eliminated first, then the decision came down to Farcaster Mini App SDK vs. Farcaster Snaps.
 
-**Farcaster Mini App SDK `swapToken` (chosen).** GA feature of `@farcaster/miniapp-sdk`. Runs inside every Farcaster client that supports Mini Apps, using whatever wallet the client already embeds (Warpcast, Base App, Coinbase Wallet, Privy-embedded, MetaMask, etc.). The native wallet owns routing, allowances, slippage, chain selection, and gas. One tap from the cast, one signature in a surface the user already trusts.
+**Farcaster Snaps (chosen).** A Farcaster Snap is a server endpoint that returns a small JSON `SnapResponse` describing inline UI (buttons, text, inputs) and actions. Farcaster clients render the snap **inside the cast itself** — no navigation, no Mini App launch, no embedded webview. Supported actions include `swap_token({ sellToken, buyToken })` and `send_token({ token, amount })`. The `swap_token` action pins the token pair but deliberately does **not** accept a sell-amount parameter; the user's native wallet owns amount entry. One tap in the cast, one signature in the wallet the user already trusts, zero client navigation.
 
-**MetaMask Snaps.** A Snap is a sandboxed JS plugin inside MetaMask that can expose custom RPC methods and render custom signing UIs. A hypothetical "Commodus Snap" could own the entire trade-signing experience with Commodus-branded UX (inline price-impact warnings, scoring preview, templated confirmations). Ruled out for MVP for three reasons:
+**Farcaster Mini App SDK `swapToken` (eliminated).** `sdk.actions.swapToken({ sellToken, buyToken, sellAmount })` from `@farcaster/miniapp-sdk`. Does accept a `sellAmount`, which originally looked attractive for size-capped trading. Eliminated for MVP because:
 
-1. **Install friction.** A Snap requires the user to have MetaMask installed *and* approve the Snap install. Our traffic surface is Farcaster casts, where most users sign with the embedded wallet of their Farcaster client, not MetaMask. Stacking a MetaMask-plus-Snap install on top of "designate an arena address" guts the onboarding funnel.
-2. **Wallet lock-in.** Snaps are MetaMask-only. The Mini App SDK works across every Farcaster client's native wallet. Locking the game to MetaMask users disqualifies most of the addressable audience.
-3. **Re-solving solved problems.** A Snap-based surface has to own routing, allowances, slippage, and fee estimation. The Mini App SDK delegates all of these to the native wallet; nothing ships in our codebase for it.
+1. **Context switch.** The user has to tap the cast embed, wait for the Mini App to hydrate the intent, then sign. Snaps render the confirm button directly in the feed with no load step.
+2. **The amount argument is advisory anyway.** The Mini App SDK pre-fills `sellAmount`, but the user can freely edit it in the native wallet sheet. We would ship server-side enforcement for a constraint the wallet doesn't actually hold. Snaps drop the pretense entirely: size is user-determined, scoring is based on what confirmed.
+3. **Duplicated surface area.** A Mini App signing page needs its own route, its own hydration query, its own error states, its own retry UI. A snap endpoint is stateless JSON.
 
-**When Snaps become interesting.** Post-MVP, if we introduce order types native wallets can't express (TWAP, stop-loss, conditional orders), a custom signing surface becomes valuable. At that point the decision is "dedicated web-app signing UI vs. Snap", not "Snap vs. Mini App SDK" — the Mini App SDK is purpose-built for one-shot spot swaps, not programmable order types.
+**MetaMask Snaps (eliminated).** Sandboxed JS plugins inside the MetaMask browser extension — a different product from Farcaster Snaps despite the name collision. Eliminated because:
+
+1. **Install friction.** Requires MetaMask installed *and* Snap install approval. Our traffic surface is Farcaster casts, where most users sign with their Farcaster client's embedded wallet.
+2. **Wallet lock-in.** MetaMask-only; Farcaster Snaps run in every Farcaster client.
+3. **Re-solves solved problems.** A MetaMask Snap would have to own routing, allowances, slippage, and fee estimation; Farcaster Snaps delegate all of those to the native wallet.
+
+**When a dedicated signing surface becomes interesting.** Post-MVP, if we introduce order types that `swap_token` can't express (TWAP, stop-loss, conditional orders), a custom signing UI becomes valuable. At that point the decision is "dedicated web-app signing page vs. MetaMask Snap" — the Farcaster Snap is purpose-built for one-shot spot swaps, not programmable order types.
 
 ### Durable Execution Architecture
 
@@ -492,22 +511,30 @@ Vercel Workflow process-trade-command — PHASE 1 (intent)
           │    each bullet = 'use step', checkpointed
           ├─ load_command(cast_hash)              replay guard; terminal status → return
           ├─ parse_command(cast_text)             regex pre-filter; LLM fallback via generateObject + Zod
-          ├─ policy_validate(intent)              whitelist, size cap, daily-rate-limit cap
-          ├─ build_miniapp_intent_url(intent)     derive /arena/trade?cast=<hash>
+          ├─ policy_validate(intent)              whitelist + daily-rate-limit cap (no size cap)
+          ├─ build_snap_embed_url(intent)         derive /snaps/arena/<cast_hash>
           └─ publish_intent_reply_cast(...)       unique on (cast_hash, reply_kind='intent')
+                                                   embed URL = snap endpoint
                                                    → cast_commands.status = 'awaiting_swap'
 
     ~~~ the workflow run ends here; the user now drives the next event ~~~
 
-User taps the Mini App embed → /arena/trade?cast=<hash>
+Farcaster client renders snap inline in the reply cast
           │
-          ├─ Mini App: GET /api/commands/:cast_hash (hydrate parsed intent)
-          ├─ Mini App: sdk.actions.swapToken({ sellToken, buyToken, sellAmount })
-          ├─ User's native wallet opens pre-filled; user signs and pays gas
-          └─ SDK returns { transactions: [tx_hash, ...] }
+          ├─ Client: GET/POST /snaps/arena/:cast_hash (with JFS-signed envelope)
+          ├─ Snap server: verify JFS, hydrate parsed intent, return SnapResponse with
+          │               action = swap_token({ sellToken, buyToken })
+          ├─ Client: opens native wallet sheet pre-pinned to the pair
+          └─ User signs (chooses amount, pays gas) → tx broadcasts on Base
+
+    ~~~ tx hash capture path — see open question below ~~~
+
+Tx hash delivered back to server (exact mechanism TBD — tracked in the snap
+execution issue; candidates: snap action result callback, post-swap snap
+re-entry, or onchain event listener keyed on the arena address)
           │
           ▼
-Mini App ─▶ POST /api/executions/confirm { cast_hash, tx_hash, from_address }
+POST /api/executions/confirm { cast_hash, tx_hash, from_address }
                               • assert from_address == arena_wallets.wallet_address
                               • enqueue {cast_hash, tx_hash} to Vercel Queue "trade-confirmations"
                               • return 200
@@ -517,7 +544,7 @@ Vercel Workflow process-trade-confirmation — PHASE 2 (confirm)
           │
           ├─ verify_tx_onchain(tx_hash)           viem on Base; wait 1 confirmation
           ├─ decode_swap_log(receipt)             realized amounts; reason codes on mismatch
-          ├─ score_time_enforcement               oversize / non_whitelisted / price_impact checks
+          ├─ score_time_enforcement               non_whitelisted / price_impact checks
           ├─ record_execution                     insert trade_executions (unique on tx_hash)
           ├─ update_lots_and_positions            FIFO bookkeeping, deterministic from execution
           ├─ score_trade                          append scoring_events, respecting daily cap
@@ -527,9 +554,17 @@ Vercel Workflow process-trade-confirmation — PHASE 2 (confirm)
 
 Idempotency strategy summary:
 - **Webhook layer:** Redis `SETNX` + Postgres unique constraint on `cast_hash`
+- **Snap layer:** every snap POST carries a JFS envelope the server verifies against the FID's signer; the snap handler is a stateless function of `(cast_hash, parsed_intent)` and safe to re-render on retries
 - **Queue layer:** Vercel Queue idempotency keys (`cast_hash` for phase 1, `tx_hash` for phase 2)
 - **Workflow layer:** every step is pure or idempotent check-then-act; reply publishing is guarded by a unique `(cast_hash, reply_kind)` row so intent and outcome replies publish exactly once each
 - **Chain layer:** `trade_executions.tx_hash` unique. The server never submits a tx, so there is nothing to reserve; chain-layer dedup relies purely on the hash arriving from the user's signed transaction.
+
+**Open question (tracked in the snap execution issue):** the exact mechanism by which `tx_hash` is delivered from the user's wallet back to the server after `swap_token` is not yet finalized. Three candidates:
+1. The Farcaster client returns the tx hash to the snap server on the next snap POST (snap re-entry).
+2. A dedicated snap action result callback URL.
+3. Fall back to a viem listener on the arena address watching for `Swap` events on whitelisted pools, keyed to the `awaiting_swap` cast within a time window.
+
+Option 3 is the guaranteed-to-work safety net; 1 and 2 are preferred if they are supported. This will be resolved during the snap execution prototype.
 
 ### Fallback plan if Vercel Queues/Workflow beta churn
 
@@ -593,11 +628,12 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 ### `wallet_policies`
 - id
 - wallet_id (unique)
-- max_trade_usdc
 - max_trades_per_day
 - wallet_cap_usdc (retained for schema continuity; not enforced in non-custodial MVP since the server never sees the user's wallet balance)
 - active
 - created_at
+
+> `max_trade_usdc` was present in the initial schema migration but is **scheduled for removal**. Size is user-determined in the Snap flow; the column is neither enforced nor surfaced. The drop migration is tracked in the snap execution issue.
 
 ### `asset_whitelist`
 - id
@@ -642,7 +678,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - quantity
 - notional_usdc
 - fees_usdc (swap fees; gas is paid by the user and not captured)
-- failure_reason (nullable; `'oversize'`, `'non_whitelisted_token'`, `'price_impact'`, `'wrong_from_address'`, `'unknown'`)
+- failure_reason (nullable; `'non_whitelisted_token'`, `'price_impact'`, `'wrong_from_address'`, `'unknown'`)
 - status ('confirmed' | 'reverted' | 'failed')
 - created_at
 - confirmed_at
@@ -718,7 +754,8 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 ## API / Backend Requirements
 
 ### Auth / App
-- `POST /api/auth/siwf` — Farcaster Quick Auth callback
+- `POST /api/auth/siwf` — Farcaster Quick Auth callback (Mini App session)
+- JFS verification on every snap POST (Farcaster-signed envelope verified against the FID's on-chain signer)
 - session handling
 
 ### Arena
@@ -729,9 +766,9 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - `POST /api/webhooks/neynar` — verify signature, dedupe, enqueue
 
 ### Trading
-- `GET /api/commands/:cast_hash` — hydrate a parsed intent for the Mini App signing surface (owner-only)
-- `POST /api/executions/confirm` — receive `{ cast_hash, tx_hash, from_address }` from the Mini App after `swapToken` returns; verifies the tx on Base and advances the workflow
-- internal workflow steps: parser, policy validator, intent reply publisher, tx verifier, execution recorder, scorer, outcome reply publisher
+- `POST /snaps/arena/:cast_hash` — Farcaster Snap endpoint. Verifies the JFS envelope, asserts the signer's FID owns `cast_hash`, hydrates the parsed intent, and returns a `SnapResponse` whose action is `swap_token({ sellToken, buyToken })`. Stateless; safe to re-enter.
+- `POST /api/executions/confirm` — receive `{ cast_hash, tx_hash, from_address }` once the user's signed tx is observed (delivery mechanism TBD — see Durable Execution Architecture open question); verifies the tx on Base and advances the workflow.
+- internal workflow steps: parser, policy validator, intent reply publisher (snap-embed variant), snap handler, tx verifier, execution recorder, scorer, outcome reply publisher
 
 ### Leaderboard (read-side)
 - `GET /api/leaderboard/current` — current month standings
@@ -760,10 +797,12 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - user can issue a supported public trade command
 - system parses valid commands via agent + Zod schema
 - system rejects invalid commands with templated Commodus reply
-- system publishes an intent reply cast embedding a Mini App URL when validation passes
-- user taps the embed, signs a pre-filled swap in their native wallet via `sdk.actions.swapToken`
-- system verifies the returned tx hash on Base, records the execution, scores the trade, and publishes an outcome reply cast
-- each cast produces at most one intent reply and one outcome reply (idempotent at webhook, queue, workflow, and chain layers)
+- system publishes an intent reply cast whose embed is a Farcaster Snap URL when validation passes
+- the Farcaster client renders the snap inline in the cast
+- user taps Confirm; the snap emits a `swap_token` action; the native wallet opens pre-pinned to the pair
+- user chooses the amount, signs, and pays gas
+- system captures the resulting tx hash, verifies it on Base, records the execution, scores the trade, and publishes an outcome reply cast
+- each cast produces at most one intent reply and one outcome reply (idempotent at webhook, snap, queue, workflow, and chain layers)
 
 ### Leaderboard
 - leaderboard updates from stored executions and closed trades
@@ -805,12 +844,12 @@ Must show:
 
 ### Rules page
 Must show:
-- exact command grammar
+- exact command grammar (including the caveat that amount/percent in a cast are display hints; the user picks the final size in their wallet)
 - full whitelist
 - scoring formula + daily cap + monthly reset
 - $0.25 profitable-close floor explanation
 - how monthly GLORY airdrop works
-- policy limits (trade size, daily cap, wallet cap)
+- daily trade cap (`max_trades_per_day`) and the fact that trade size is user-determined, not capped
 
 ### Admin pages (operator only, allowlisted FID)
 - `/admin/rewards/:epoch` — leaderboard snapshot + CSV export + mark-distributed
@@ -823,8 +862,8 @@ Must show:
 - the server holds no private keys; there are no custodial assets to protect
 - only the designated arena address (which must be one of the user's Farcaster `verifications[]` at designation time) counts for scoring
 - enforce hard asset whitelist at pre-fill time (non-whitelisted casts are rejected before any intent reply publishes)
-- enforce max trade size at pre-fill time (`sellAmount` clamped to `max_trade_usdc`) and again at score time (reject trades that spent more than the cap +2% tolerance)
 - enforce daily trade rate limit at pre-fill time
+- verify JFS envelopes on every snap POST; reject requests whose signer FID does not match the caster of `cast_hash`
 - enforce price-impact cap (3%) at score time against a reference 0x quote
 - do not execute unparseable commands
 - do not allow duplicate processing of the same cast (idempotency at webhook, queue, workflow, and chain layers)
@@ -841,8 +880,9 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 
 | Compromise | Reason | Resolution |
 |---|---|---|
-| **Mini App SDK `swapToken`** is the only execution surface | Ships non-custodial with zero server-side key management; users pay their own gas | If Farcaster clients lag on SDK support, fall back to a "sign-in-your-wallet" deep link that opens the user's preferred swap UI with the same CAIP-19 pair. |
-| **User can edit `sellAmount`** inside their native wallet | The SDK pre-fill is a strong suggestion, not a contract | Score-time enforcement rejects oversize fills with reason `oversize`; user keeps the tokens but gets zero points for that cast. |
+| **Farcaster Snap `swap_token`** is the only execution surface | Ships non-custodial with zero server-side key management; users pay their own gas; renders inline in the cast with no navigation | If Farcaster clients lag on Snap support, fall back to the Mini App SDK `swapToken` action on a `/arena/trade?cast=<hash>` page (same pair-pinning, worse UX). |
+| **Trade size is user-determined** | The Farcaster `swap_token` action deliberately has no sell-amount parameter; the native wallet owns size | Accepted permanently for spot trading. If size-gated gameplay returns post-MVP, it moves to a dedicated signing surface, not into `swap_token`. |
+| **Tx-hash capture path from snap → server is not yet finalized** | Farcaster Snap docs do not specify a standard post-action callback | Prototype all three paths (snap re-entry / action callback / onchain listener) in the snap execution issue; ship with whichever is guaranteed to work. |
 | **Vercel Queues / Workflow** both in public beta | New primitives, best-fit DX | If unreliable, fall back to Upstash QStash + Supabase state machine; no code redesign needed. |
 | **Templated reply copy only** (no LLM replies) | Deterministic voice, safer for money-moving flows | Agent grows a `publish_cast` tool post-MVP; voice is then LLM-curated with guardrails. |
 | **Manual offchain GLORY airdrops** | No contract, zero smart-contract risk for MVP | Optionally automate via a `Distributor` contract + merkle airdrops post-MVP. |
@@ -862,7 +902,7 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 - number of public trade casts
 - command parse success rate
 - intent-reply publish success rate (server-owned)
-- user-signed tx confirmation rate (user-owned; an honest measure of Mini App SDK + native-wallet integration health)
+- user-signed tx confirmation rate (user-owned; an honest measure of Snap + native-wallet integration health)
 - trade execution success rate (confirmed & passing score-time enforcement)
 - weekly active traders
 - number of users who trade more than once
@@ -874,12 +914,12 @@ A successful demo should show, in order:
 1. A first-time user signs in with Farcaster
 2. User picks one of their Farcaster-verified addresses as their arena address
 3. User posts `@commodus buy 10 usdc of aero` from Farcaster
-4. Commodus publishes an intent reply cast with a Mini App embed within seconds
-5. User taps the embed, the native wallet opens pre-filled with USDC → AERO, 10 USDC
-6. User signs; tx confirms on Base
+4. Commodus publishes an intent reply cast within seconds; the cast renders a Farcaster Snap inline
+5. User taps **Confirm** in the snap; the native wallet opens pre-pinned to USDC → AERO
+6. User chooses the amount (e.g. 10 USDC), signs; tx confirms on Base
 7. Commodus publishes an outcome reply naming the realized fill
 8. Mini App shows updated portfolio + rank
-9. User posts `@commodus sell 50% of aero`, signs, and the outcome reply names realized PnL
+9. User posts `@commodus sell 50% of aero`, taps Confirm in the snap, chooses the amount, signs, and the outcome reply names realized PnL
 10. Leaderboard page shows the user climbing
 
 ---
@@ -928,7 +968,8 @@ Most prior open questions resolved during grilling. Remaining:
 - stand up Vercel Queue `trade-commands`
 - stand up Vercel Workflow `process-trade-command` phase 1 (parse → validate → publish intent reply)
 - implement `parse_command` step: regex pre-filter → `generateObject` (Vercel AI SDK, AI Gateway model) → `TradeIntentSchema` (Zod)
-- implement Mini App `/arena/trade` page that hydrates the intent and calls `sdk.actions.swapToken`
+- implement `POST /snaps/arena/:cast_hash` Farcaster Snap endpoint (JFS verification, snap response with `swap_token` action pinned to the pair)
+- prototype and lock in the tx-hash capture path (snap re-entry vs. action callback vs. onchain listener)
 - implement `POST /api/executions/confirm` + Vercel Queue `trade-confirmations`
 - stand up Vercel Workflow phase 2 (verify tx → decode → score-time enforcement → record → score → publish outcome reply)
 - integrate 0x Swap API for reference quotes (score-time price-impact check only)
@@ -952,4 +993,4 @@ Most prior open questions resolved during grilling. Remaining:
 
 ## One-Line Product Definition
 
-**Commodus is a Farcaster trading game where users pick an arena address, trade in public from their own wallet, climb the leaderboard, and earn GLORY.**
+**Commodus is a Farcaster trading game where users pick an arena address, trade in public by signing Farcaster Snap `swap_token` actions inline in their own casts, climb the leaderboard, and earn GLORY.**
