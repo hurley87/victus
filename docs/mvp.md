@@ -4,9 +4,11 @@
 
 **Commodus** is a Farcaster trading game built as a Mini App.
 
-Users keep their existing Farcaster account, open the Mini App, create and fund an **arena wallet**, then issue **public trade commands** by casting at `@commodus`.
+Users keep their existing Farcaster account, open the Mini App, designate one of their Farcaster-verified wallet addresses as their **arena address**, then issue **public trade commands** by casting at `@commodus`.
 
-Commodus parses the command, validates it against the user's policy and the game rules, executes the trade from the user's arena wallet, replies publicly, and updates a live leaderboard.
+Commodus parses the command, validates it against the user's policy and the game rules, publishes an intent reply that deep-links the user into the Mini App's signing surface, and — after the user signs the swap in their own wallet via the Mini App SDK's `swapToken` action — records the executed trade, replies publicly, and updates a live leaderboard.
+
+Execution is **non-custodial**. The server never holds keys, never holds USDC, and never pays gas.
 
 At the end of each month, the top 10 players receive an airdrop of **$GLORY**, a Farcaster-native ERC-20 token.
 
@@ -25,8 +27,8 @@ Commodus makes trading:
 The core loop is simple:
 
 1. Join the arena
-2. Fund your wallet
-3. Trade in public
+2. Designate your arena address
+3. Trade in public (sign swaps in your own wallet)
 4. Earn points
 5. Climb the leaderboard
 6. Win GLORY
@@ -37,8 +39,8 @@ The core loop is simple:
 
 Ship a working Farcaster Mini App that proves three things:
 
-1. users will onboard and fund an arena wallet
-2. users will issue trade commands publicly on Farcaster
+1. users will onboard and designate an arena address
+2. users will issue trade commands publicly on Farcaster and sign the resulting swap in their own wallet
 3. a leaderboard plus monthly rewards is enough to create engagement
 
 The MVP should prioritize:
@@ -85,31 +87,29 @@ The user signs in with Farcaster (Quick Auth) and reads a simple explanation of 
 - leaderboard is based on points
 - top 10 earn GLORY monthly
 
-### 3. Create Arena Wallet
-The backend provisions a dedicated **Privy server wallet** for the user on first visit. This wallet is custodial for the MVP hackathon. Hard balance cap of **$50 USDC**.
+### 3. Designate Arena Address
+The user picks one of their existing Farcaster-verified wallet addresses as their **arena address**. No new wallet is provisioned. The server persists the choice and scopes all scoring to swaps signed from this address.
 
 ### 4. Review Arena Rules
 The user reads what Commodus can and cannot do, including:
 - only 4 whitelisted tradable assets (plus USDC as quote)
-- max trade size, max trades per day, wallet cap
-- trades execute automatically when a command is valid
+- max trade size and max trades per day
+- trades execute only when the user signs the pre-filled swap in their own wallet
 
-### 5. Fund Arena Wallet
-The user sends USDC on Base to the arena wallet address shown in the app. The backend auto-seeds the wallet with ~$0.50 in ETH on creation to cover gas; no manual ETH funding required.
-
-### 6. Trade in Public
+### 5. First Trade
 The user posts a cast such as:
 - `@commodus buy 25 usdc of aero`
 - `@commodus sell 50% of aero`
 - `@commodus status`
 
-### 7. Commodus Executes
+### 6. Commodus Publishes the Intent
 The backend:
 - ingests the cast via Neynar webhook
 - enqueues it to a Vercel Queue
-- runs a durable Vercel Workflow that parses, validates, quotes, executes, and records
-- replies publicly with a templated Commodus line
-- updates the leaderboard
+- runs a durable Vercel Workflow that parses, validates, and publishes an **intent reply cast** embedding a Mini App URL
+
+### 7. User Signs the Swap
+The user taps the embed. The Mini App hydrates the parsed intent and invokes `sdk.actions.swapToken({ sellToken, buyToken, sellAmount })`. The native wallet opens pre-filled; the user signs and pays gas. The Mini App reports the tx hash back to the server, which verifies it on Base, records the execution, scores the trade, and publishes an **outcome reply cast**. If the user abandons the signing dialog, nothing is executed and nothing is scored.
 
 ### 8. Track Performance
 The user opens the Mini App to see:
@@ -150,8 +150,8 @@ Users who may not be active traders but like:
 ### Mini App
 - Farcaster sign-in (Quick Auth)
 - onboarding flow
-- create arena wallet (Privy server wallet)
-- fund arena wallet (USDC deposit instructions)
+- designate arena address (one of the user's Farcaster-verified EOAs)
+- trade-confirmation surface that invokes `sdk.actions.swapToken` from `@farcaster/miniapp-sdk`
 - show game rules + grammar
 - show whitelisted assets
 - show leaderboard (current month)
@@ -207,13 +207,12 @@ Users who may not be active traders but like:
 - Farcaster identity is the canonical social identity in the app
 
 ## Wallets
-- each user has **one** arena wallet
-- arena wallet is a **Privy server wallet** (custodial, key held server-side)
-- arena wallet is separate from the user's normal trading wallet
-- hard balance cap: **$50 USDC**; deposits beyond the cap are ignored for trading purposes
-- auto-seeded with ~$0.50 in ETH on creation for gas
-- users can withdraw at any time via an in-app "withdraw to Farcaster-verified address" action
-- the arena wallet is not locked during a season
+- each user has **one** arena address
+- the arena address is **one of the user's existing Farcaster-verified EOAs** (selected from `verifications[]`)
+- the server never holds keys, never holds balances, and never pays gas
+- the user signs every trade in their own native wallet via the Mini App SDK's `swapToken` action; the user pays gas in ETH from that wallet
+- the arena address can only be changed by an explicit re-designation flow (out of scope for MVP — set once at onboarding)
+- only swaps whose `from` address equals the designated arena address count toward scoring; trades signed from any other wallet are off-game by construction
 
 ## Trade Commands
 
@@ -272,29 +271,28 @@ MVP supports:
 
 Global defaults for MVP. **Not user-editable.**
 
-| Parameter | Value |
-|---|---|
-| `max_trade_usdc` | 10 |
-| `max_trades_per_day` | 10 |
-| `wallet_cap_usdc` | 50 |
-| `max_slippage_bps` | 100 (1%) |
-| `max_price_impact_bps` | 300 (3%) |
+| Parameter | Value | Enforced at |
+|---|---|---|
+| `max_trade_usdc` | 10 | pre-fill time (clamp `sellAmount`) + score time (reject oversize realized fills) |
+| `max_trades_per_day` | 10 | pre-fill time (intent-reply gate) |
+| `wallet_cap_usdc` | 50 | retained in schema; **not enforced** in non-custodial MVP (the server does not see the user's wallet balance) |
+| `max_slippage_bps` | 100 (1%) | retained in schema; **not enforced** by the server (the user's native wallet owns slippage selection) |
+| `max_price_impact_bps` | 300 (3%) | score time (realized fill vs. reference 0x quote) |
 
-- Executions exceeding any policy rule are rejected with a templated Commodus line
+- Intents exceeding a pre-fill-time rule are rejected with a templated Commodus line and no intent reply publishes
+- Executions that exceed a score-time rule are recorded with `status='failed'` and a structured `failure_reason`; the outcome reply names the reason
 - Daily counters reset at **00:00 UTC**
 
 ## Execution Rules
 
-- **Router:** 0x Swap API. One call returns quote + signable calldata.
-- **Slippage:** fixed 1% max slippage on every quote.
-- **Price impact:** trades reporting estimated price impact > 3% are rejected.
-- **Quote freshness:** quote must be used within 30 seconds of fetch; otherwise re-quote.
-- **Permit2 allowances:** first sell of a given asset from a wallet triggers an implicit `ensure_allowance` step (idempotent check-then-approve).
-- **Gas:**
-  - new arena wallets seeded with ~$0.50 in ETH on creation
-  - if ETH balance falls below threshold before a trade, a pre-flight USDC→ETH swap tops it back up inside the same workflow run
-  - users never need to manually fund ETH
-- **Transaction idempotency:** each `trade_execution` row is reserved with a deterministic `execution_id` derived from `cast_hash` before the transaction is submitted. Workflow replays always check-then-submit. Never double-send.
+- **Execution surface:** Mini App SDK `sdk.actions.swapToken({ sellToken, buyToken, sellAmount })` from `@farcaster/miniapp-sdk`. The user's native wallet handles routing, allowances, slippage selection, and gas.
+- **Whitelist (pre-fill enforcement):** the server will only pre-fill `sellToken` / `buyToken` for whitelisted symbols. Non-whitelisted casts are rejected at parse time with a templated reply, and no intent cast is published.
+- **Size cap (pre-fill enforcement):** `sellAmount` is clamped to `policy.max_trade_usdc` before the Mini App invokes `swapToken`. The user can still edit the amount inside their native wallet, but any realized tx that spends more than the cap (+2% tolerance for rounding) is marked `status='failed'` with reason `oversize` and scores zero.
+- **Daily rate limit (pre-fill enforcement):** a user at `max_trades_per_day` gets a cooldown reply and no intent cast is published until the UTC rollover.
+- **Price impact (score-time enforcement):** after the tx confirms, the server compares realized fill vs. a reference 0x quote. Impact > 3% → `status='failed'`, reason `price_impact`, no points.
+- **Slippage:** owned by the user's native wallet. Not server-enforced.
+- **Gas:** paid by the user from their own ETH balance on Base. No server-side seeding, no pre-flight top-up, no seeder wallet.
+- **Transaction idempotency:** the chain-layer idempotency key is `trade_executions.tx_hash` (unique). There is no reserve-before-submit because the server never submits. Replays of `POST /api/executions/confirm` with the same `tx_hash` are no-ops.
 
 ---
 
@@ -390,9 +388,9 @@ Let `P = MONTHLY_GLORY_POOL` (constant, set at token launch).
 
 ### Recipient address resolution
 In order of preference:
-1. User's **Farcaster-verified address** (first entry in `verifications[]` from Neynar)
-2. Farcaster **custody address** (fallback)
-3. **Arena wallet address** (last resort; flagged because arena wallets will be orphaned at the A→B custody migration)
+1. User's **designated arena address** (already validated to be one of the user's Farcaster `verifications[]` at designation time)
+2. Any other entry in `verifications[]` (if the designated address is no longer listed at snapshot time)
+3. Farcaster **custody address** (fallback)
 
 Recorded in `reward_epochs` for audit.
 
@@ -451,15 +449,15 @@ Commodus should feel imperial and theatrical, but never unclear.
 - **Vercel Queues** (public beta) — cast-command ingress queue
 - **Vercel Workflow** (beta) — durable multi-step trade pipeline
 - **Neynar** — cast webhooks, `@commodus` reply publishing (managed signer already provisioned)
-- **Privy** — server wallet provisioning and signing (Option A custody for hackathon)
-- **0x Swap API** — DEX routing on Base
+- **`@farcaster/miniapp-sdk`** — `sdk.actions.swapToken` is the entire execution surface; the user's native wallet handles signing, routing, allowances, and gas
+- **0x Swap API** — optional, used only for server-side reference quotes at score time (price-impact sanity check). Not on the execution path.
 - **Vercel AI SDK** (`ai`, `@ai-sdk/workflow`) — `generateObject` for MVP command parsing; graduates to `WorkflowAgent` post-MVP when Commodus gains autonomous tools. Models routed via **Vercel AI Gateway**.
 - **Clanker** — external, used to launch `$GLORY` as an ERC-20 on Base
 - **viem / wagmi** — chain interaction (already in deps)
 
 ### Durable Execution Architecture
 
-The trade pipeline is the highest-stakes path in the system. It is designed so that no partial failure can result in a double-executed trade or a lost cast.
+The trade pipeline is split into two phases. The server owns everything up to the swap signature, and everything after the tx hash arrives. The user owns the signature itself — that is the security boundary.
 
 ```
 Farcaster user casts "@commodus buy 10 usdc of aero"
@@ -467,37 +465,57 @@ Farcaster user casts "@commodus buy 10 usdc of aero"
           ▼
 Neynar mention webhook ─▶ POST /api/webhooks/neynar
                               • verify X-Neynar-Signature (HMAC)
-                              • Redis SETNX cast:{hash} TTL 60s   ◀── fast idempotency guard
-                              • insert cast_commands row           ◀── durable idempotency
-                                (unique on cast_hash)
-                              • enqueue {cast_hash} to Vercel Queue
+                              • Redis SETNX cast:{hash} TTL 60s
+                              • insert cast_commands row (unique on cast_hash)
+                              • enqueue {cast_hash} to Vercel Queue "trade-commands"
                               • return 200 (<100ms)
           │
           ▼
 Vercel Queue "trade-commands"
           │
           ▼
-Vercel Workflow process-trade-command   (each bullet = 'use step', checkpointed)
+Vercel Workflow process-trade-command — PHASE 1 (intent)
+          │    each bullet = 'use step', checkpointed
+          ├─ load_command(cast_hash)              replay guard; terminal status → return
+          ├─ parse_command(cast_text)             regex pre-filter; LLM fallback via generateObject + Zod
+          ├─ policy_validate(intent)              whitelist, size cap, daily-rate-limit cap
+          ├─ build_miniapp_intent_url(intent)     derive /arena/trade?cast=<hash>
+          └─ publish_intent_reply_cast(...)       unique on (cast_hash, reply_kind='intent')
+                                                   → cast_commands.status = 'awaiting_swap'
+
+    ~~~ the workflow run ends here; the user now drives the next event ~~~
+
+User taps the Mini App embed → /arena/trade?cast=<hash>
           │
-          ├─ load_command(cast_hash)         — replay guard; terminal status → return
-          ├─ parse_command(cast_text)        — regex pre-filter; LLM fallback via generateObject + Zod TradeIntentSchema
-          ├─ policy_validate(intent)         — whitelist, sizes, balance, daily cap, wallet cap
-          ├─ quote(intent)                   — 0x Swap API; slippage, price-impact gating
-          ├─ reserve_execution(cast_hash)    — insert trade_executions row with deterministic execution_id
-          ├─ ensure_allowance(symbol)        — Permit2 one-time approval, idempotent
-          ├─ sign_and_submit(quote)          — Privy server wallet; only if trade_executions.tx_hash IS NULL
-          ├─ wait_for_confirmation(tx_hash)  — revert → mark failed, no score
-          ├─ update_lots_and_positions       — FIFO bookkeeping, deterministic from execution
-          ├─ score_trade                     — append scoring_events rows, respecting daily cap
-          ├─ publish_reply_cast              — templated; unique on (cast_hash, reply_kind)
-          └─ finalize_command                — cast_commands.status → terminal
+          ├─ Mini App: GET /api/commands/:cast_hash (hydrate parsed intent)
+          ├─ Mini App: sdk.actions.swapToken({ sellToken, buyToken, sellAmount })
+          ├─ User's native wallet opens pre-filled; user signs and pays gas
+          └─ SDK returns { transactions: [tx_hash, ...] }
+          │
+          ▼
+Mini App ─▶ POST /api/executions/confirm { cast_hash, tx_hash, from_address }
+                              • assert from_address == arena_wallets.wallet_address
+                              • enqueue {cast_hash, tx_hash} to Vercel Queue "trade-confirmations"
+                              • return 200
+          │
+          ▼
+Vercel Workflow process-trade-confirmation — PHASE 2 (confirm)
+          │
+          ├─ verify_tx_onchain(tx_hash)           viem on Base; wait 1 confirmation
+          ├─ decode_swap_log(receipt)             realized amounts; reason codes on mismatch
+          ├─ score_time_enforcement               oversize / non_whitelisted / price_impact checks
+          ├─ record_execution                     insert trade_executions (unique on tx_hash)
+          ├─ update_lots_and_positions            FIFO bookkeeping, deterministic from execution
+          ├─ score_trade                          append scoring_events, respecting daily cap
+          └─ publish_outcome_reply_cast           templated; unique on (cast_hash, reply_kind='outcome')
+                                                   → cast_commands.status = 'executed' | 'failed'
 ```
 
 Idempotency strategy summary:
 - **Webhook layer:** Redis `SETNX` + Postgres unique constraint on `cast_hash`
-- **Queue layer:** Vercel Queue's own idempotency keys
-- **Workflow layer:** every step is pure or idempotent check-then-act (each pipeline bullet is a `'use step'` checkpoint; the AI SDK call lives inside one such step)
-- **Chain layer:** `trade_executions` row reserved *before* tx submission; replays see the reservation and skip re-submission
+- **Queue layer:** Vercel Queue idempotency keys (`cast_hash` for phase 1, `tx_hash` for phase 2)
+- **Workflow layer:** every step is pure or idempotent check-then-act; reply publishing is guarded by a unique `(cast_hash, reply_kind)` row so intent and outcome replies publish exactly once each
+- **Chain layer:** `trade_executions.tx_hash` unique. The server never submits a tx, so there is nothing to reserve; chain-layer dedup relies purely on the hash arriving from the user's signed transaction.
 
 ### Fallback plan if Vercel Queues/Workflow beta churn
 
@@ -553,8 +571,8 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 ### `arena_wallets`
 - id
 - user_id (unique — one per user in MVP)
-- wallet_address (unique)
-- privy_wallet_id
+- wallet_address (unique — must be one of the user's Farcaster `verifications[]`)
+- source (`'user_verified'`; reserved for future values if the product ever re-adds server wallets)
 - status ('active' | 'closed')
 - created_at
 
@@ -563,7 +581,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - wallet_id (unique)
 - max_trade_usdc
 - max_trades_per_day
-- wallet_cap_usdc
+- wallet_cap_usdc (retained for schema continuity; not enforced in non-custodial MVP since the server never sees the user's wallet balance)
 - active
 - created_at
 
@@ -586,7 +604,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - parsed_symbol
 - parsed_amount
 - parsed_percent
-- status ('received' | 'parsed' | 'validated' | 'quoted' | 'executing' | 'executed' | 'failed' | 'rejected')
+- status ('received' | 'parsed' | 'validated' | 'awaiting_swap' | 'executed' | 'failed' | 'rejected' | 'abandoned')
 - error_reason
 - created_at
 
@@ -604,13 +622,14 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 ### `trade_executions`
 - id
 - trade_intent_id
-- execution_id (**unique**, deterministic from cast_hash — chain idempotency key)
-- tx_hash (nullable until submitted)
+- tx_hash (**unique** — the chain-layer idempotency key; supplied by the user's signed tx)
+- from_address (must match the user's `arena_wallets.wallet_address`)
 - execution_price_usdc
 - quantity
 - notional_usdc
-- fees_usdc (swap + gas)
-- status ('pending' | 'submitted' | 'confirmed' | 'reverted' | 'failed')
+- fees_usdc (swap fees; gas is paid by the user and not captured)
+- failure_reason (nullable; `'oversize'`, `'non_whitelisted_token'`, `'price_impact'`, `'wrong_from_address'`, `'unknown'`)
+- status ('confirmed' | 'reverted' | 'failed')
 - created_at
 - confirmed_at
 
@@ -688,20 +707,17 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - `POST /api/auth/siwf` — Farcaster Quick Auth callback
 - session handling
 
-### Wallets
-- `POST /api/wallets` — create arena wallet (idempotent by user)
-- `GET /api/wallets/me` — status, address, balance, policy
-- `POST /api/wallets/withdraw` — withdraw to Farcaster-verified address
+### Arena
+- `POST /api/arena/address` — designate an arena address (must be in the user's Farcaster `verifications[]`; idempotent per user)
+- `GET /api/arena/me` — designated address, rules snapshot, sample command
 
 ### Farcaster ingestion
 - `POST /api/webhooks/neynar` — verify signature, dedupe, enqueue
 
-### Trading (internal, invoked by Workflow steps)
-- parser (agent tool)
-- policy validator
-- quote fetcher
-- executor
-- replier
+### Trading
+- `GET /api/commands/:cast_hash` — hydrate a parsed intent for the Mini App signing surface (owner-only)
+- `POST /api/executions/confirm` — receive `{ cast_hash, tx_hash, from_address }` from the Mini App after `swapToken` returns; verifies the tx on Base and advances the workflow
+- internal workflow steps: parser, policy validator, intent reply publisher, tx verifier, execution recorder, scorer, outcome reply publisher
 
 ### Leaderboard (read-side)
 - `GET /api/leaderboard/current` — current month standings
@@ -722,19 +738,18 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 
 ### Onboarding
 - user can sign in with Farcaster
-- user can create arena wallet (one-click, backend-provisioned)
-- user can see wallet address + QR
-- user can fund wallet by sending USDC
+- user can pick one of their Farcaster-verified addresses as their arena address
+- user can see their designated arena address
 - user can see approved assets and grammar before trading
-- user can withdraw to Farcaster-verified address at any time
 
 ### Trade Execution
 - user can issue a supported public trade command
 - system parses valid commands via agent + Zod schema
 - system rejects invalid commands with templated Commodus reply
-- system executes valid trades durably via Vercel Workflow
-- system publishes public confirmation or rejection
-- each cast is processed exactly once (idempotent at 4 layers)
+- system publishes an intent reply cast embedding a Mini App URL when validation passes
+- user taps the embed, signs a pre-filled swap in their native wallet via `sdk.actions.swapToken`
+- system verifies the returned tx hash on Base, records the execution, scores the trade, and publishes an outcome reply cast
+- each cast produces at most one intent reply and one outcome reply (idempotent at webhook, queue, workflow, and chain layers)
 
 ### Leaderboard
 - leaderboard updates from stored executions and closed trades
@@ -754,13 +769,12 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 
 ### Arena page (home)
 Must show:
-- arena wallet address + QR
-- wallet balance (USDC + ETH-for-gas)
+- the user's designated arena address (copyable)
 - approved assets
 - how to trade (exact grammar)
 - sample commands
 - daily trade slots remaining
-- wallet cap remaining
+- a pointer to the user's native wallet for balance/gas visibility (no in-app balance display in MVP)
 
 ### Portfolio page
 Must show:
@@ -792,18 +806,18 @@ Must show:
 ## Security and Trust Requirements
 
 - verify all incoming Farcaster webhook requests (Neynar HMAC signature)
-- keep trade execution secrets server-side only
-- Privy server wallet keys never leave Privy infrastructure
-- enforce hard asset whitelist (and blocklist for GLORY)
-- enforce max trade size, max daily trade count, wallet cap
-- enforce max slippage (1%) and price-impact cap (3%)
+- the server holds no private keys; there are no custodial assets to protect
+- only the designated arena address (which must be one of the user's Farcaster `verifications[]` at designation time) counts for scoring
+- enforce hard asset whitelist at pre-fill time (non-whitelisted casts are rejected before any intent reply publishes)
+- enforce max trade size at pre-fill time (`sellAmount` clamped to `max_trade_usdc`) and again at score time (reject trades that spent more than the cap +2% tolerance)
+- enforce daily trade rate limit at pre-fill time
+- enforce price-impact cap (3%) at score time against a reference 0x quote
 - do not execute unparseable commands
-- do not allow duplicate processing of the same cast (4-layer idempotency)
-- transaction submission is always idempotent (reserve-then-submit)
+- do not allow duplicate processing of the same cast (idempotency at webhook, queue, workflow, and chain layers)
+- chain-layer idempotency is guarded by `trade_executions.tx_hash` unique; replays of `POST /api/executions/confirm` with the same hash are no-ops
 - log all command, validation, execution, and reply events
-- show the user: their address, their balance, their trades, their PnL — every decision auditable
 
-Trust is critical because the product asks users to fund a wallet that Commodus controls. The $50 wallet cap is the core risk mitigation for MVP custody; migration to non-custodial delegated execution (Option B) is the first post-hackathon task.
+Trust is straightforward because Commodus is non-custodial: users sign their own trades from their own wallet, and the server is purely a referee. The residual trust question is "does Commodus score fairly?" — every scoring decision is deterministic, derived from on-chain receipts, and auditable by tx hash.
 
 ---
 
@@ -813,8 +827,8 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 
 | Compromise | Reason | Resolution |
 |---|---|---|
-| Privy **server wallets** (Option A custody) | Zero consent UX, one call to provision | Migrate to Privy embedded wallet + delegated actions (Option B) before any public launch. See `future.md` "Post-Hackathon Custody Migration". |
-| **$50 USDC wallet cap** enforced in deposit-handling | Caps blast radius of custodial design | Lift cap when Option B is live. |
+| **Mini App SDK `swapToken`** is the only execution surface | Ships non-custodial with zero server-side key management; users pay their own gas | If Farcaster clients lag on SDK support, fall back to a "sign-in-your-wallet" deep link that opens the user's preferred swap UI with the same CAIP-19 pair. |
+| **User can edit `sellAmount`** inside their native wallet | The SDK pre-fill is a strong suggestion, not a contract | Score-time enforcement rejects oversize fills with reason `oversize`; user keeps the tokens but gets zero points for that cast. |
 | **Vercel Queues / Workflow** both in public beta | New primitives, best-fit DX | If unreliable, fall back to Upstash QStash + Supabase state machine; no code redesign needed. |
 | **Templated reply copy only** (no LLM replies) | Deterministic voice, safer for money-moving flows | Agent grows a `publish_cast` tool post-MVP; voice is then LLM-curated with guardrails. |
 | **Manual offchain GLORY airdrops** | No contract, zero smart-contract risk for MVP | Optionally automate via a `Distributor` contract + merkle airdrops post-MVP. |
@@ -822,6 +836,7 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 | **Admin UI gated by single allowlisted FID** | Simple auth for one operator | Role-based access when team grows. |
 | **No rate limiting beyond policy caps** | Policy caps are sufficient at hackathon scale | Add IP/FID rate limits before public launch. |
 | **Base mainnet from day one** (no staging chain) | Real assets make the demo real | Add Base Sepolia staging environment if team grows. |
+| **No in-app balance display** | Balances live in the user's native wallet; duplicating them in-app would force an RPC query path the server does not otherwise need | Add a read-only `GET /api/arena/balance` backed by viem if the UX gap matters. |
 
 ---
 
@@ -829,11 +844,12 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 
 ### MVP success metrics
 - number of users who sign in
-- number of users who create arena wallets
-- number of funded wallets
+- number of users who designate an arena address
 - number of public trade casts
 - command parse success rate
-- trade execution success rate
+- intent-reply publish success rate (server-owned)
+- user-signed tx confirmation rate (user-owned; an honest measure of Mini App SDK + native-wallet integration health)
+- trade execution success rate (confirmed & passing score-time enforcement)
 - weekly active traders
 - number of users who trade more than once
 - leaderboard page views
@@ -842,14 +858,15 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 ### Demo success
 A successful demo should show, in order:
 1. A first-time user signs in with Farcaster
-2. Arena wallet is provisioned, address shown
-3. User deposits USDC (pre-demo)
-4. User posts `@commodus buy 10 usdc of aero` from Farcaster
-5. Commodus replies publicly within seconds
-6. Mini App shows updated portfolio + rank
-7. User posts `@commodus sell 50% of aero`
-8. Commodus replies publicly with realized PnL
-9. Leaderboard page shows the user climbing
+2. User picks one of their Farcaster-verified addresses as their arena address
+3. User posts `@commodus buy 10 usdc of aero` from Farcaster
+4. Commodus publishes an intent reply cast with a Mini App embed within seconds
+5. User taps the embed, the native wallet opens pre-filled with USDC → AERO, 10 USDC
+6. User signs; tx confirms on Base
+7. Commodus publishes an outcome reply naming the realized fill
+8. Mini App shows updated portfolio + rank
+9. User posts `@commodus sell 50% of aero`, signs, and the outcome reply names realized PnL
+10. Leaderboard page shows the user climbing
 
 ---
 
@@ -857,14 +874,13 @@ A successful demo should show, in order:
 
 Order of operations for going live:
 
-1. **Infrastructure ready** — Supabase schema applied, Vercel deployment live, Neynar webhook pointed at prod URL, Privy app configured, 0x API key in place.
-2. **Seed wallet prepped** — small ETH reserve to auto-seed new arena wallets.
-3. **`@commodus` FID profile polished** — bio, pfp, pinned cast explaining the game.
-4. **First `reward_epoch` row created** for the launch month.
-5. **Commodus casts the `$GLORY` launch** via Clanker: *"Rome proclaims its coin. @clanker launch GLORY — supply N, ticker $GLORY."*
-6. **Commodus casts the arena opening:** *"The arena opens. Speak thy decrees: `@commodus buy N usdc of SYMBOL`. Glory awaits."*
-7. **Public trading begins.**
-8. **End of month:** leaderboard freezes automatically; operator exports CSV; airdrop completed; recap cast published.
+1. **Infrastructure ready** — Supabase schema applied (including the non-custodial pivot migration), Vercel deployment live, Neynar webhook pointed at prod URL, 0x API key in place (for reference quotes only).
+2. **`@commodus` FID profile polished** — bio, pfp, pinned cast explaining the game.
+3. **First `reward_epoch` row created** for the launch month.
+4. **Commodus casts the `$GLORY` launch** via Clanker: *"Rome proclaims its coin. @clanker launch GLORY — supply N, ticker $GLORY."*
+5. **Commodus casts the arena opening:** *"The arena opens. Speak thy decrees: `@commodus buy N usdc of SYMBOL`. Sign thy swap. Glory awaits."*
+6. **Public trading begins.**
+7. **End of month:** leaderboard freezes automatically; operator exports CSV; airdrop completed; recap cast published.
 
 ---
 
@@ -887,23 +903,22 @@ Most prior open questions resolved during grilling. Remaining:
 - add `asset_whitelist` seed data (USDC, WETH, AERO, DEGEN, VIRTUAL; GLORY blocklisted)
 - add admin-FID allowlist env var
 
-### Phase 2 — Arena wallet
-- integrate Privy SDK for server-wallet provisioning
-- implement `POST /api/wallets` (creates Privy server wallet, seeds ~$0.50 ETH)
-- implement `GET /api/wallets/me` (status + balances)
-- implement `POST /api/wallets/withdraw`
-- Arena page UI with address, QR, balance, sample commands
+### Phase 2 — Arena address
+- implement `POST /api/arena/address` (validate against the user's Farcaster `verifications[]`, upsert `arena_wallets`)
+- implement `GET /api/arena/me` (designated address + rules snapshot)
+- Arena page UI with address picker, copyable address, sample commands
 - Rules page with grammar + whitelist + scoring
 
 ### Phase 3 — Cast ingestion + pipeline
 - implement `POST /api/webhooks/neynar` with HMAC verification + Redis idempotency + Supabase insert
 - stand up Vercel Queue `trade-commands`
-- stand up Vercel Workflow `process-trade-command` with all durable steps
+- stand up Vercel Workflow `process-trade-command` phase 1 (parse → validate → publish intent reply)
 - implement `parse_command` step: regex pre-filter → `generateObject` (Vercel AI SDK, AI Gateway model) → `TradeIntentSchema` (Zod)
-- integrate 0x Swap API for quoting + calldata
-- implement Permit2 allowance step
-- implement transaction submission via Privy
-- implement templated reply publishing via Neynar
+- implement Mini App `/arena/trade` page that hydrates the intent and calls `sdk.actions.swapToken`
+- implement `POST /api/executions/confirm` + Vercel Queue `trade-confirmations`
+- stand up Vercel Workflow phase 2 (verify tx → decode → score-time enforcement → record → score → publish outcome reply)
+- integrate 0x Swap API for reference quotes (score-time price-impact check only)
+- implement templated reply publishing via Neynar for both intent and outcome reply kinds
 
 ### Phase 4 — Scoring + UI
 - implement FIFO lot accounting (`lots`, `lot_closures`)
@@ -923,4 +938,4 @@ Most prior open questions resolved during grilling. Remaining:
 
 ## One-Line Product Definition
 
-**Commodus is a Farcaster trading game where users fund an arena wallet, trade in public, climb the leaderboard, and earn GLORY.**
+**Commodus is a Farcaster trading game where users pick an arena address, trade in public from their own wallet, climb the leaderboard, and earn GLORY.**
