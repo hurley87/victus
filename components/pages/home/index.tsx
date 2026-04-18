@@ -5,6 +5,7 @@ import { useFarcaster } from "@/contexts/farcaster-context";
 import { useUser } from "@/contexts/user-context";
 import { env } from "@/lib/env";
 import Image from "next/image";
+import Link from "next/link";
 import { useAccount } from "wagmi";
 import { Website } from "../website";
 
@@ -94,6 +95,12 @@ export default function HomePage() {
                 )}
               </div>
             )}
+            <Link
+              href="/arena"
+              className="inline-flex items-center justify-center px-6 py-3 bg-purple-600 text-white font-semibold rounded-lg shadow-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50 transition-colors duration-200 min-w-[160px] min-h-[48px]"
+            >
+              Go to Arena
+            </Link>
           </div>
         )}
       </div>
