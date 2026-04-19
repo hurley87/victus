@@ -1,12 +1,3 @@
-/**
- * Supabase-generated types for the Victus project.
- *
- * Regenerate after any schema change:
- *   pnpm supabase:types
- *
- * (Script in package.json runs `supabase gen types typescript`.)
- */
-
 export type Json =
   | string
   | number
@@ -27,7 +18,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
-          source: string
+          privy_wallet_id: string
           status: string
           updated_at: string
           user_id: string
@@ -36,7 +27,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
-          source?: string
+          privy_wallet_id: string
           status?: string
           updated_at?: string
           user_id: string
@@ -45,7 +36,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
-          source?: string
+          privy_wallet_id?: string
           status?: string
           updated_at?: string
           user_id?: string
@@ -184,6 +175,44 @@ export type Database = {
             foreignKeyName: "farcaster_accounts_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gladiators: {
+        Row: {
+          funded_at: string | null
+          id: string
+          minted_at: string
+          name: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          funded_at?: string | null
+          id?: string
+          minted_at?: string
+          name: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          funded_at?: string | null
+          id?: string
+          minted_at?: string
+          name?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gladiators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -482,12 +511,15 @@ export type Database = {
         Row: {
           confirmed_at: string | null
           created_at: string
+          execution_id: string
           execution_price_usdc: number | null
-          fees_usdc: number | null
+          fee_tx_hash: string | null
           id: string
           notional_usdc: number | null
           quantity: number | null
+          sponsored_gas_usdc: number | null
           status: string
+          swap_fee_usdc: number | null
           trade_intent_id: string
           tx_hash: string | null
           updated_at: string
@@ -495,12 +527,15 @@ export type Database = {
         Insert: {
           confirmed_at?: string | null
           created_at?: string
+          execution_id: string
           execution_price_usdc?: number | null
-          fees_usdc?: number | null
+          fee_tx_hash?: string | null
           id?: string
           notional_usdc?: number | null
           quantity?: number | null
-          status: string
+          sponsored_gas_usdc?: number | null
+          status?: string
+          swap_fee_usdc?: number | null
           trade_intent_id: string
           tx_hash?: string | null
           updated_at?: string
@@ -508,12 +543,15 @@ export type Database = {
         Update: {
           confirmed_at?: string | null
           created_at?: string
+          execution_id?: string
           execution_price_usdc?: number | null
-          fees_usdc?: number | null
+          fee_tx_hash?: string | null
           id?: string
           notional_usdc?: number | null
           quantity?: number | null
+          sponsored_gas_usdc?: number | null
           status?: string
+          swap_fee_usdc?: number | null
           trade_intent_id?: string
           tx_hash?: string | null
           updated_at?: string
@@ -648,6 +686,9 @@ export type Database = {
           max_slippage_bps: number
           max_trade_usdc: number
           max_trades_per_day: number
+          min_mint_deposit_usdc: number
+          swap_fee_bps: number
+          swap_fee_min_usdc: number
           updated_at: string
           wallet_cap_usdc: number
           wallet_id: string
@@ -660,6 +701,9 @@ export type Database = {
           max_slippage_bps?: number
           max_trade_usdc?: number
           max_trades_per_day?: number
+          min_mint_deposit_usdc?: number
+          swap_fee_bps?: number
+          swap_fee_min_usdc?: number
           updated_at?: string
           wallet_cap_usdc?: number
           wallet_id: string
@@ -672,6 +716,9 @@ export type Database = {
           max_slippage_bps?: number
           max_trade_usdc?: number
           max_trades_per_day?: number
+          min_mint_deposit_usdc?: number
+          swap_fee_bps?: number
+          swap_fee_min_usdc?: number
           updated_at?: string
           wallet_cap_usdc?: number
           wallet_id?: string

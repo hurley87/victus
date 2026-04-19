@@ -1,28 +1,40 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useAccount } from "wagmi";
-
+import { useCallback, useMemo, useState } from "react";
 import { useEnvironment } from "@/contexts/environment-context";
 import { useFarcaster } from "@/contexts/farcaster-context";
 import { useUser } from "@/contexts/user-context";
 import { useApiMutation } from "@/hooks/use-api-mutation";
 import { useApiQuery } from "@/hooks/use-api-query";
 import type {
+  ArenaBalance,
   ArenaProfile,
   ArenaRules,
-  DesignateArenaAddressRequest,
-  DesignateArenaAddressResponse,
+  GladiatorSummary,
+  MintGladiatorRequest,
+  MintGladiatorResponse,
+  PositionBalance,
 } from "@/lib/arena/types";
-import { cn, copyToClipboard } from "@/lib/utils";
+import { cn, copyToClipboard, formatWalletAddress } from "@/lib/utils";
 import { Button } from "@/components/shared/ui/button";
+import { DepositButton } from "./deposit-button";
 import { Website } from "../website";
 
 /**
- * Arena onboarding page. Defaults the picker to the wallet currently
- * connected to the Mini App so the address the user signs from
- * matches the designated arena address (see #7's `from_address` check).
+ * Arena onboarding page. Three states driven by `GET /api/arena/me`:
+ *
+ *   - no gladiator yet  → mint button (auto-derived name)
+ *   - pending funding   → in-app deposit button + live progress meter
+ *   - alive             → trading UI with live balance + rules + slots
+ *
+ * The page polls `/api/arena/me` while `needs_funding` is true so the
+ * server-side self-heal (`getArenaProfile` flips pending_funding → alive
+ * when on-chain USDC clears the threshold) surfaces within ~5s of the
+ * server's RPC seeing the deposit.
  */
+
+const ARENA_QUERY_KEY = ["arena-me"] as const;
+
 export default function ArenaPage() {
   const { isInBrowser } = useEnvironment();
   const { context } = useFarcaster();
@@ -42,7 +54,7 @@ export default function ArenaPage() {
         <div className="space-y-4 text-center">
           <h1 className="text-2xl font-semibold">Arena</h1>
           <p className="text-sm text-muted-foreground">
-            Sign in to designate your Arena address.
+            Sign in to enter the Arena.
           </p>
           <Button onClick={signIn} disabled={isSigningIn}>
             {isSigningIn ? "Signing in…" : "Sign in"}
@@ -56,12 +68,21 @@ export default function ArenaPage() {
 }
 
 function ArenaContent() {
+  // Poll while pending_funding so the server-side self-heal surfaces on
+  // the next tick. 5s is aggressive enough for demo UX and rounds to
+  // ~zero cost at MVP scale.
   const { data, isLoading, error, refetch } = useApiQuery<ArenaProfile>({
-    queryKey: ["arena-me"],
+    queryKey: ARENA_QUERY_KEY,
     url: "/api/arena/me",
     isProtected: true,
     retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.needs_funding ? 5_000 : false,
   });
+
+  const refetchArena = useCallback(() => {
+    void refetch();
+  }, [refetch]);
 
   if (isLoading) {
     return <Centered>Loading your Arena…</Centered>;
@@ -74,7 +95,7 @@ function ArenaContent() {
           <p className="text-sm text-red-600">
             Couldn&apos;t load your Arena profile.
           </p>
-          <Button variant="outline" onClick={() => refetch()}>
+          <Button variant="outline" onClick={refetchArena}>
             Try again
           </Button>
         </div>
@@ -88,22 +109,12 @@ function ArenaContent() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Arena</h1>
           <p className="text-sm text-muted-foreground">
-            Your designated Farcaster-verified address is where you sign
-            trades and receive rewards.
+            Mint your gladiator. Fund the arena wallet. Trade by casting at
+            <span className="font-mono"> @commodus</span>.
           </p>
         </header>
 
-        {data.is_designated && data.arena_address ? (
-          <DesignatedCard
-            address={data.arena_address}
-            rules={data.rules}
-          />
-        ) : (
-          <DesignatePicker
-            verifications={data.verifications}
-            onDesignated={() => refetch()}
-          />
-        )}
+        {renderState(data, refetchArena)}
 
         <RulesCard rules={data.rules} />
       </div>
@@ -111,200 +122,266 @@ function ArenaContent() {
   );
 }
 
-function DesignatedCard({
-  address,
-  rules,
-}: {
-  address: string;
-  rules: ArenaRules;
-}) {
-  const [isCopied, setIsCopied] = useState(false);
-
-  return (
-    <section className="rounded-xl border border-black/10 bg-green-50 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-green-800">
-          Arena ready
-        </span>
-        <span className="text-[11px] text-green-800/70">
-          {rules.max_trades_per_day} trades/day · ${rules.max_trade_usdc}
-          /trade
-        </span>
-      </div>
-      <p className="text-sm text-black/80">
-        You&apos;re trading from
-      </p>
-      <button
-        type="button"
-        onClick={() => copyToClipboard(address, setIsCopied)}
-        className="font-mono text-sm break-all text-left w-full rounded-md bg-white/60 p-2 border border-green-900/10 hover:bg-white"
-        aria-label="Copy arena address"
-      >
-        {address}
-      </button>
-      <p className="text-xs text-muted-foreground">
-        {isCopied ? "Copied!" : "Tap to copy. Trade from this address in your wallet."}
-      </p>
-      <SampleCommandHint />
-    </section>
-  );
+function renderState(profile: ArenaProfile, onChange: () => void) {
+  if (!profile.gladiator) {
+    return (
+      <PreMintCard
+        suggestedName={profile.suggested_name ?? "gladiator"}
+        onMinted={onChange}
+      />
+    );
+  }
+  if (profile.needs_funding && profile.arena_address) {
+    return (
+      <PendingFundingCard
+        gladiator={profile.gladiator}
+        arenaAddress={profile.arena_address}
+        balance={profile.balance}
+        minDepositUsdc={profile.rules.min_mint_deposit_usdc}
+        onFundingConfirmed={onChange}
+      />
+    );
+  }
+  if (profile.arena_address) {
+    return (
+      <AliveCard
+        gladiator={profile.gladiator}
+        arenaAddress={profile.arena_address}
+        balance={profile.balance}
+        dailySlotsRemaining={profile.daily_slots_remaining}
+        maxTradesPerDay={profile.rules.max_trades_per_day}
+        maxTradeUsdc={profile.rules.max_trade_usdc}
+      />
+    );
+  }
+  return null;
 }
 
-function DesignatePicker({
-  verifications,
-  onDesignated,
+function PreMintCard({
+  suggestedName,
+  onMinted,
 }: {
-  verifications: string[];
-  onDesignated: () => void;
+  suggestedName: string;
+  onMinted: () => void;
 }) {
-  const { address: connected } = useAccount();
-  const connectedLower = connected?.toLowerCase();
-
-  const options = useMemo(
-    () =>
-      verifications.map((addr) => ({
-        address: addr,
-        isConnected: connectedLower === addr,
-      })),
-    [verifications, connectedLower],
-  );
-
-  // Default to the currently-connected wallet if it's among the user's
-  // verifications, otherwise the first verification.
-  const defaultSelection =
-    options.find((o) => o.isConnected)?.address ?? options[0]?.address ?? null;
-
-  // `override` is the user's explicit radio choice. We validate it
-  // against the current `options` so a stale pick from a previous
-  // verification list can't leak through a refetch.
-  const [override, setOverride] = useState<string | null>(null);
-  const selected =
-    options.find((o) => o.address === override)?.address ?? defaultSelection;
-
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { mutate: designate, isPending } = useApiMutation<
-    DesignateArenaAddressResponse,
-    DesignateArenaAddressRequest
+  // Empty body — server derives the name from the session's Farcaster
+  // username. Kept typed as MintGladiatorRequest so the hook's generics
+  // still line up if we reintroduce a custom-name surface later.
+  const { mutate: mint, isPending } = useApiMutation<
+    MintGladiatorResponse,
+    MintGladiatorRequest
   >({
-    url: "/api/arena/address",
+    url: "/api/gladiators/mint",
     method: "POST",
-    body: (variables) => variables,
-    onError: (err) => {
-      setFormError(mapDesignateError(err));
-      // Stale verifications are the most common cause of 403; refetching
-      // /me pulls the latest list for the picker.
-      if (/403/.test(err.message)) {
-        onDesignated();
-      }
-    },
+    body: () => ({}),
     onSuccess: () => {
       setFormError(null);
-      onDesignated();
+      onMinted();
+    },
+    onError: (err) => {
+      setFormError(mapMintError(err));
     },
   });
 
-  if (options.length === 0) {
-    return <NoVerificationsCard />;
-  }
-
-  const handleConfirm = () => {
-    if (!selected) return;
-    setFormError(null);
-    designate({ address: selected });
-  };
-
-  if (options.length === 1) {
-    const [only] = options;
-    return (
-      <SectionCard>
-        <h2 className="text-sm font-semibold">Designate your Arena address</h2>
-        <p className="text-xs text-muted-foreground">
-          You have one Farcaster-verified address. Trades will execute from
-          this wallet.
-        </p>
-        <div className="rounded-md border border-black/10 bg-black/5 p-3 font-mono text-sm break-all">
-          {only.address}
-          {only.isConnected && <ConnectedBadge />}
-        </div>
-        {formError && <ErrorLine message={formError} />}
-        <Button
-          className="w-full"
-          onClick={handleConfirm}
-          disabled={isPending}
-        >
-          {isPending ? "Confirming…" : "Designate this address"}
-        </Button>
-      </SectionCard>
-    );
-  }
-
   return (
     <SectionCard>
-      <h2 className="text-sm font-semibold">Pick your Arena address</h2>
+      <h2 className="text-sm font-semibold">Enter the Arena</h2>
       <p className="text-xs text-muted-foreground">
-        Commodus will open swaps in your wallet from this address. Pick the
-        one you&apos;ll actually sign with — ideally the wallet connected
-        to this Mini App.
+        Commodus will mint a gladiator under your Farcaster handle and
+        provision a custodial arena wallet on Base. Fund it with $5 USDC
+        to start trading by casting at <span className="font-mono">@commodus</span>.
       </p>
-      <ul
-        className="space-y-2"
-        role="radiogroup"
-        aria-label="Verified addresses"
-      >
-        {options.map((opt) => {
-          const isChecked = selected === opt.address;
-          return (
-            <li key={opt.address}>
-              <label
-                className={cn(
-                  "flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors",
-                  isChecked
-                    ? "border-black bg-black/5"
-                    : "border-black/10 hover:border-black/30",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="arena-address"
-                  value={opt.address}
-                  checked={isChecked}
-                  onChange={() => setOverride(opt.address)}
-                  className="mt-1"
-                />
-                <span className="flex flex-col gap-1 min-w-0">
-                  <span className="font-mono text-sm break-all">
-                    {opt.address}
-                  </span>
-                  {opt.isConnected && <ConnectedBadge />}
-                </span>
-              </label>
-            </li>
-          );
-        })}
-      </ul>
+
+      <div className="rounded-md border border-black/10 bg-black/[0.02] p-2">
+        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          Gladiator name
+        </p>
+        <p className="font-mono text-sm break-all">{suggestedName}</p>
+      </div>
+
       {formError && <ErrorLine message={formError} />}
+
       <Button
+        type="button"
         className="w-full"
-        onClick={handleConfirm}
-        disabled={isPending || !selected}
+        onClick={() => {
+          setFormError(null);
+          mint({});
+        }}
+        disabled={isPending}
       >
-        {isPending ? "Confirming…" : "Designate selected address"}
+        {isPending ? "Minting…" : "Mint gladiator"}
       </Button>
     </SectionCard>
   );
 }
 
-function NoVerificationsCard() {
+function PendingFundingCard({
+  gladiator,
+  arenaAddress,
+  balance,
+  minDepositUsdc,
+  onFundingConfirmed,
+}: {
+  gladiator: GladiatorSummary;
+  arenaAddress: string;
+  balance: ArenaBalance;
+  minDepositUsdc: number;
+  onFundingConfirmed: () => void;
+}) {
+  const progressPct = Math.min(
+    100,
+    Math.round((balance.usdc / minDepositUsdc) * 100),
+  );
+
   return (
-    <SectionCard className="space-y-2">
-      <h2 className="text-sm font-semibold">Add a verified address</h2>
-      <p className="text-xs text-muted-foreground">
-        Commodus trades from a Farcaster-verified address. Add one in your
-        Farcaster client (Settings → Verified addresses), then come back
-        here to designate it.
+    <section className="rounded-xl border border-amber-900/10 bg-amber-50 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-amber-800">
+          Pending funding
+        </span>
+        <span className="text-[11px] text-amber-800/70 font-mono">
+          {gladiator.name}
+        </span>
+      </div>
+
+      <p className="text-sm text-black/80">
+        Fund your gladiator with ≥ ${minDepositUsdc.toFixed(2)} USDC on
+        Base. Trading unlocks as soon as the deposit confirms.
       </p>
-    </SectionCard>
+
+      <DepositButton
+        arenaAddress={arenaAddress}
+        minDepositUsdc={minDepositUsdc}
+        onFundingConfirmed={onFundingConfirmed}
+      />
+
+      <div className="space-y-1">
+        <div className="flex items-baseline justify-between text-xs">
+          <span className="text-black/80">
+            ${balance.usdc.toFixed(2)} / ${minDepositUsdc.toFixed(2)} USDC
+          </span>
+          <span className="text-amber-800/80 font-mono">{progressPct}%</span>
+        </div>
+        <div
+          className="h-2 w-full rounded-full bg-amber-900/10 overflow-hidden"
+          role="progressbar"
+          aria-valuenow={progressPct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Funding progress"
+        >
+          <div
+            className="h-full bg-amber-500 transition-[width] duration-500"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
+
+      <p className="text-[11px] text-muted-foreground" aria-live="polite">
+        Trading is disabled until your gladiator is alive.
+      </p>
+    </section>
+  );
+}
+
+function AliveCard({
+  gladiator,
+  arenaAddress,
+  balance,
+  dailySlotsRemaining,
+  maxTradesPerDay,
+  maxTradeUsdc,
+}: {
+  gladiator: GladiatorSummary;
+  arenaAddress: string;
+  balance: ArenaBalance;
+  dailySlotsRemaining: number;
+  maxTradesPerDay: number;
+  maxTradeUsdc: number;
+}) {
+  const [isCopied, setIsCopied] = useState(false);
+  const addressShort = useMemo(
+    () => formatWalletAddress(arenaAddress),
+    [arenaAddress],
+  );
+
+  return (
+    <section className="rounded-xl border border-green-900/10 bg-green-50 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-green-800">
+          Gladiator alive
+        </span>
+        <span className="text-[11px] text-green-800/70">
+          {dailySlotsRemaining}/{maxTradesPerDay} trades left today
+        </span>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-semibold">{gladiator.name}</h2>
+        <button
+          type="button"
+          onClick={() => copyToClipboard(arenaAddress, setIsCopied)}
+          className="text-xs font-mono text-black/70 hover:text-black underline-offset-2 hover:underline"
+          aria-label="Copy arena address"
+        >
+          {isCopied ? "Copied!" : addressShort}
+        </button>
+      </div>
+
+      <BalanceBlock balance={balance} />
+
+      <div className="rounded-md bg-white/70 border border-green-900/10 p-2">
+        <p className="text-[11px] uppercase tracking-wider text-green-900/70 mb-1">
+          Decree a trade
+        </p>
+        <ul className="space-y-0.5 text-xs font-mono text-black/80">
+          <li>@commodus buy {Math.min(10, maxTradeUsdc)} usdc of aero</li>
+          <li>@commodus sell 50% of aero</li>
+          <li>@commodus status</li>
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function BalanceBlock({ balance }: { balance: ArenaBalance }) {
+  return (
+    <div className="rounded-md bg-white/70 border border-green-900/10 p-2 space-y-1">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11px] uppercase tracking-wider text-green-900/70">
+          Balance
+        </span>
+        <span className="font-mono text-sm">${balance.usdc.toFixed(2)} USDC</span>
+      </div>
+      {balance.positions.length > 0 && (
+        <ul className="divide-y divide-green-900/10">
+          {balance.positions.map((p) => (
+            <PositionRow key={p.symbol} position={p} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function PositionRow({ position }: { position: PositionBalance }) {
+  return (
+    <li className="flex items-baseline justify-between py-1">
+      <span className="text-xs font-mono text-black/80">{position.symbol}</span>
+      <span className="text-xs font-mono text-black/80">
+        {position.quantity.toLocaleString(undefined, {
+          maximumFractionDigits: 6,
+        })}
+        {position.notional_usdc != null && (
+          <span className="text-black/60">
+            {" "}· ${position.notional_usdc.toFixed(2)}
+          </span>
+        )}
+      </span>
+    </li>
   );
 }
 
@@ -315,9 +392,16 @@ function RulesCard({ rules }: { rules: ArenaRules }) {
       <ul className="text-xs text-black/80 space-y-1">
         <li>
           Max ${rules.max_trade_usdc} per trade · {rules.max_trades_per_day}{" "}
-          trades/day
+          trades/day · ${rules.wallet_cap_usdc} wallet cap
         </li>
-        <li>You sign every swap — Commodus never holds your keys.</li>
+        <li>
+          {(rules.swap_fee_bps / 100).toFixed(1)}% swap fee
+          {" "}(min ${rules.swap_fee_min_usdc.toFixed(2)}) · gas sponsored
+        </li>
+        <li>
+          Commodus custodies the arena wallet via Privy (TEE-backed).
+          Withdrawals are operator-mediated in MVP.
+        </li>
       </ul>
       <div>
         <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
@@ -358,27 +442,6 @@ function SectionCard({
   );
 }
 
-function SampleCommandHint() {
-  return (
-    <div className="mt-2 rounded-md bg-white/60 border border-green-900/10 p-2">
-      <p className="text-[11px] uppercase tracking-wider text-green-900/70 mb-0.5">
-        Try it
-      </p>
-      <code className="text-xs font-mono text-black/80">
-        @commodus buy 5 $WETH
-      </code>
-    </div>
-  );
-}
-
-function ConnectedBadge() {
-  return (
-    <span className="inline-flex self-start items-center rounded-full bg-black text-white text-[10px] px-1.5 py-0.5 uppercase tracking-wide">
-      Connected
-    </span>
-  );
-}
-
 function ErrorLine({ message }: { message: string }) {
   return (
     <p className="text-xs text-red-600" role="alert">
@@ -396,19 +459,19 @@ function Centered({ children }: { children: React.ReactNode }) {
 }
 
 // `useApiMutation` only surfaces `API Error: <status>` with no body, so
-// the best we can do client-side is switch on the status code.
-function mapDesignateError(err: Error): string {
+// we switch on the status code to pick user-facing copy. With the
+// auto-derived-name flow, 400/409 are effectively unreachable (Farcaster
+// usernames are globally unique and the `gladiator-{fid}` fallback is
+// too) — kept as defensive fallbacks in case an admin surface later
+// reintroduces an explicit-name path.
+function mapMintError(err: Error): string {
   const status = Number(err.message.match(/API Error: (\d+)/)?.[1]);
   switch (status) {
-    case 400:
-      return "That address doesn't look valid.";
     case 401:
       return "Your session expired. Please sign in again.";
-    case 403:
-      return "That address isn't in your Farcaster verifications. We refreshed the list — try again.";
-    case 409:
-      return "That address is already designated by another Farcaster account.";
+    case 503:
+      return "Arena wallet provisioning is down. Try again shortly.";
     default:
-      return "Couldn't designate that address. Try again.";
+      return "Couldn't mint your gladiator. Try again.";
   }
 }

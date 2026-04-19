@@ -19,6 +19,21 @@ export const env = createEnv({
     KV_REST_API_URL: z.string().url(),
     KV_REST_API_TOKEN: z.string().min(1),
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+    // Privy server-wallet API credentials. Optional at build so the app
+    // can start without them; the mint endpoint throws a clean 500 at
+    // runtime when either is missing. See README § Privy setup.
+    PRIVY_APP_ID: z.string().min(1).optional(),
+    PRIVY_APP_SECRET: z.string().min(1).optional(),
+    // Base-mainnet EOA that receives fee-on-swap transfers. Required at
+    // runtime by the execution pipeline (#8) but not by mint itself; kept
+    // optional here so environments that haven't wired it yet still boot.
+    OPERATOR_TREASURY_ADDRESS: z
+      .string()
+      .regex(/^0x[a-fA-F0-9]{40}$/)
+      .optional(),
+    // Base mainnet RPC for reading on-chain state (USDC + position
+    // balances). Defaults to the public endpoint; override for production.
+    BASE_RPC_URL: z.string().url().default("https://mainnet.base.org"),
   },
   client: {
     NEXT_PUBLIC_URL: z.string().min(1),

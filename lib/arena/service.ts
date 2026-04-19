@@ -1,69 +1,31 @@
 import "server-only";
 
-import { fetchUser } from "@/lib/neynar";
+import type { TradableAsset } from "@/lib/chain/balances";
+import { readArenaBalance } from "@/lib/chain/balances";
+import { deriveGladiatorName } from "@/lib/gladiators/service";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
-import type { ArenaProfile, ArenaRules, WhitelistEntry } from "./types";
+import { DEFAULT_POLICY } from "./policy";
+import type {
+  ArenaBalance,
+  ArenaProfile,
+  ArenaRules,
+  GladiatorStatus,
+  WhitelistEntry,
+} from "./types";
 
-export class InvalidAddressError extends Error {
-  constructor(message = "Invalid Ethereum address") {
-    super(message);
-    this.name = "InvalidAddressError";
-  }
-}
+const EMPTY_BALANCE: ArenaBalance = {
+  usdc: 0,
+  positions: [],
+};
 
-export class AddressNotVerifiedError extends Error {
-  constructor(message = "Address is not a Farcaster-verified address") {
-    super(message);
-    this.name = "AddressNotVerifiedError";
-  }
-}
-
-export class AddressAlreadyClaimedError extends Error {
-  constructor(message = "Address already designated by another user") {
-    super(message);
-    this.name = "AddressAlreadyClaimedError";
-  }
-}
-
-const ADDRESS_REGEX = /^0x[a-f0-9]{40}$/;
-
-/**
- * Policy defaults mirrored from the Postgres defaults on `wallet_policies`.
- *
- * These render on the Arena rules card before the user has a wallet row,
- * so the page is useful during onboarding. Once designation creates a
- * `wallet_policies` row, its actual values are preferred.
- *
- * Keep these in sync with `supabase/migrations/**` definitions.
- */
-const DEFAULT_POLICY = {
-  max_trade_usdc: 10,
-  max_trades_per_day: 10,
-} as const;
-
-/**
- * Normalize and validate a hex Ethereum address.
- *
- * Accepts mixed case and leading/trailing whitespace. Returns the
- * lowercase canonical form used throughout the system
- * (`arena_wallets.wallet_address` and `verifications[]` are stored
- * lowercase). Throws `InvalidAddressError` for anything that isn't a
- * 40-char lowercase hex with `0x` prefix after normalization.
- */
-function normalizeAddress(input: string): string {
-  const trimmed = input?.trim().toLowerCase() ?? "";
-  if (!ADDRESS_REGEX.test(trimmed)) {
-    throw new InvalidAddressError();
-  }
-  return trimmed;
-}
-
-async function loadWhitelist(): Promise<WhitelistEntry[]> {
+async function loadWhitelist(): Promise<{
+  cards: WhitelistEntry[];
+  tradable: TradableAsset[];
+}> {
   const { data, error } = await supabaseAdmin
     .from("asset_whitelist")
-    .select("symbol, name")
-    .eq("is_tradable", true)
+    .select("symbol, name, address, decimals, is_tradable")
     .eq("is_blocklisted", false)
     .eq("active", true)
     .order("symbol");
@@ -72,182 +34,243 @@ async function loadWhitelist(): Promise<WhitelistEntry[]> {
     throw new Error(`Failed to load asset whitelist: ${error.message}`);
   }
 
-  return data ?? [];
+  const rows = data ?? [];
+  return {
+    cards: rows.map(({ symbol, name }) => ({ symbol, name })),
+    tradable: rows
+      .filter((r) => r.is_tradable)
+      .map((r) => ({
+        symbol: r.symbol,
+        name: r.name,
+        address: r.address,
+        decimals: r.decimals,
+      })),
+  };
 }
 
-async function loadCachedVerifications(fid: number): Promise<string[]> {
-  const { data, error } = await supabaseAdmin
-    .from("farcaster_accounts")
-    .select("verifications")
-    .eq("fid", fid)
-    .maybeSingle();
+/**
+ * Count non-rejected trade intents the wallet issued since 00:00 UTC
+ * today. Matches the policy-engine semantics used by `policy_validate`
+ * in #8: rejected intents don't consume a daily slot.
+ *
+ * Returns 0 until the execution pipeline ships — there are no rows to
+ * count yet. Implemented now so the Arena page's "slots remaining"
+ * chip is correct the moment trading goes live.
+ */
+async function countTodaysIntents(walletId: string): Promise<number> {
+  const startOfDayUtc = new Date();
+  startOfDayUtc.setUTCHours(0, 0, 0, 0);
+
+  const { count, error } = await supabaseAdmin
+    .from("trade_intents")
+    .select("id", { head: true, count: "exact" })
+    .eq("wallet_id", walletId)
+    .neq("status", "rejected")
+    .gte("created_at", startOfDayUtc.toISOString());
 
   if (error) {
-    throw new Error(`Failed to read verifications: ${error.message}`);
+    console.error("Failed to count daily intents", error);
+    return 0;
   }
 
-  const raw = data?.verifications;
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-
-  return raw
-    .filter((v): v is string => typeof v === "string")
-    .map((v) => v.toLowerCase());
+  return count ?? 0;
 }
 
 /**
  * Load the Arena profile for a signed-in user.
  *
- * Returns enough for the onboarding UI to render every state:
- * not-designated (with 0/1/2+ verifications) or designated. The
- * verifications come from the cached `farcaster_accounts` row written
- * on sign-in — fresh enough for rendering, and `designateArenaAddress`
- * re-checks against Neynar before any write.
+ * Returns enough for the onboarding UI to render every state: no
+ * gladiator, pending funding, or alive. Balance is always live on-chain
+ * from Base so the pending-funding progress meter reflects reality.
+ *
+ * Also self-heals `pending_funding → alive` inline: when on-chain USDC
+ * clears `min_mint_deposit_usdc`, the status bit flips during this read
+ * (see `maybeMarkAlive`). The Arena page's 5s poll is the implicit
+ * watcher — there is no cron.
  */
 export async function getArenaProfile(
   userId: string,
   fid: number,
 ): Promise<ArenaProfile> {
-  const [wallet, verifications, whitelist] = await Promise.all([
+  const [wallet, gladiator, whitelist] = await Promise.all([
     supabaseAdmin
       .from("arena_wallets")
       .select("id, wallet_address")
       .eq("user_id", userId)
       .maybeSingle(),
-    loadCachedVerifications(fid),
+    supabaseAdmin
+      .from("gladiators")
+      .select("id, name, status, minted_at, funded_at")
+      .eq("user_id", userId)
+      .maybeSingle(),
     loadWhitelist(),
   ]);
 
   if (wallet.error) {
     throw new Error(`Failed to read arena_wallets: ${wallet.error.message}`);
   }
-
-  let rules: ArenaRules = {
-    whitelist,
-    max_trade_usdc: DEFAULT_POLICY.max_trade_usdc,
-    max_trades_per_day: DEFAULT_POLICY.max_trades_per_day,
-  };
-
-  if (wallet.data?.id) {
-    const { data: policy, error: policyErr } = await supabaseAdmin
-      .from("wallet_policies")
-      .select("max_trade_usdc, max_trades_per_day")
-      .eq("wallet_id", wallet.data.id)
-      .maybeSingle();
-
-    if (policyErr) {
-      throw new Error(
-        `Failed to read wallet_policies: ${policyErr.message}`,
-      );
-    }
-
-    if (policy) {
-      rules = {
-        whitelist,
-        max_trade_usdc: Number(policy.max_trade_usdc),
-        max_trades_per_day: policy.max_trades_per_day,
-      };
-    }
+  if (gladiator.error) {
+    throw new Error(`Failed to read gladiators: ${gladiator.error.message}`);
   }
 
+  const rules = await loadRules(wallet.data?.id ?? null, whitelist.cards);
+
+  if (!wallet.data?.wallet_address) {
+    const suggestedName = await deriveGladiatorName(fid).catch((err) => {
+      console.error("Failed to derive suggested name", err);
+      return `gladiator-${fid}`;
+    });
+    return {
+      gladiator: null,
+      arena_address: null,
+      balance: EMPTY_BALANCE,
+      rules,
+      needs_funding: false,
+      daily_slots_remaining: rules.max_trades_per_day,
+      suggested_name: suggestedName,
+    };
+  }
+
+  const currentStatus = gladiator.data?.status as GladiatorStatus | undefined;
+  const isPendingFunding = currentStatus === "pending_funding";
+
+  // While pending_funding the UI only shows the balance progress meter,
+  // not the daily-slots chip — skip the Supabase count to drop one
+  // round-trip per 5s poll tick.
+  const [balance, intentCount] = await Promise.all([
+    readArenaBalance(wallet.data.wallet_address, whitelist.tradable).catch(
+      (err) => {
+        console.error("Failed to read arena balance", err);
+        return EMPTY_BALANCE;
+      },
+    ),
+    isPendingFunding ? Promise.resolve(0) : countTodaysIntents(wallet.data.id),
+  ]);
+
+  // Self-heal: if the Arena page is polling a gladiator whose client-side
+  // refetch landed before the server's RPC saw the deposit, flip the
+  // status inline on a later tick. The 5s poll is the implicit watcher.
+  const effective = await maybeMarkAlive({
+    userId,
+    gladiatorId: gladiator.data?.id ?? null,
+    mintedAt: gladiator.data?.minted_at ?? null,
+    currentStatus,
+    currentFundedAt: gladiator.data?.funded_at ?? null,
+    balanceUsdc: balance.usdc,
+    thresholdUsdc: rules.min_mint_deposit_usdc,
+  });
+
   return {
-    arena_address: wallet.data?.wallet_address ?? null,
-    verifications,
-    is_designated: Boolean(wallet.data?.wallet_address),
+    gladiator: gladiator.data
+      ? {
+          name: gladiator.data.name,
+          status: effective.status ?? (gladiator.data.status as GladiatorStatus),
+          minted_at: gladiator.data.minted_at,
+          funded_at: effective.fundedAt,
+        }
+      : null,
+    arena_address: wallet.data.wallet_address,
+    balance,
     rules,
+    needs_funding: effective.status === "pending_funding",
+    daily_slots_remaining: Math.max(
+      0,
+      rules.max_trades_per_day - intentCount,
+    ),
+    suggested_name: null,
   };
 }
 
-/**
- * Designate the Arena address for `userId`.
- *
- * Fetches fresh verifications from Neynar (not the cached copy on
- * `farcaster_accounts`) so a revoked verification can't be designated
- * during the window before the cache catches up. The DB-level UNIQUE
- * on `arena_wallets.wallet_address` is the backstop for the claim
- * check — the pre-read just lets us return a clean 409 instead of
- * leaking a constraint error.
- *
- * Idempotent: re-designating the same address succeeds silently.
- * Swapping to a different address updates the existing row (the
- * wallet `id` — and any `wallet_policies` tied to it — is preserved).
- */
-export async function designateArenaAddress(params: {
+async function maybeMarkAlive(params: {
   userId: string;
-  fid: number;
-  address: string;
-}): Promise<string> {
-  const { userId, fid } = params;
-  const normalized = normalizeAddress(params.address);
+  gladiatorId: string | null;
+  mintedAt: string | null;
+  currentStatus: GladiatorStatus | undefined;
+  currentFundedAt: string | null;
+  balanceUsdc: number;
+  thresholdUsdc: number;
+}): Promise<{ status: GladiatorStatus | undefined; fundedAt: string | null }> {
+  const {
+    userId,
+    gladiatorId,
+    mintedAt,
+    currentStatus,
+    currentFundedAt,
+    balanceUsdc,
+    thresholdUsdc,
+  } = params;
 
-  const profile = await fetchUser(fid.toString());
-  const fresh = (profile.verifications ?? []).map((v) => v.toLowerCase());
-
-  if (!fresh.includes(normalized)) {
-    throw new AddressNotVerifiedError();
+  if (
+    currentStatus !== "pending_funding" ||
+    balanceUsdc + 1e-9 < thresholdUsdc
+  ) {
+    return { status: currentStatus, fundedAt: currentFundedAt };
   }
 
-  // Only on the happy path do we pay for the cache refresh + claim
-  // check; they're independent so we run them concurrently.
-  const [cacheRes, claimRes] = await Promise.all([
-    supabaseAdmin
-      .from("farcaster_accounts")
-      .update({ verifications: fresh })
-      .eq("fid", fid),
-    supabaseAdmin
-      .from("arena_wallets")
-      .select("user_id")
-      .eq("wallet_address", normalized)
-      .maybeSingle(),
-  ]);
+  const now = new Date().toISOString();
+  const { error } = await supabaseAdmin
+    .from("gladiators")
+    .update({ status: "alive", funded_at: now })
+    .eq("user_id", userId)
+    .eq("status", "pending_funding");
 
-  if (cacheRes.error) {
-    // Non-fatal: the next successful designation / sign-in refreshes
-    // this cache, and the UI re-fetches /api/arena/me on write.
-    console.error("Failed to refresh cached verifications", cacheRes.error);
+  if (error) {
+    console.error("arena.profile.autoheal_failed", {
+      user_id: userId,
+      reason: error.message,
+    });
+    return { status: currentStatus, fundedAt: currentFundedAt };
   }
 
-  if (claimRes.error) {
-    throw new Error(
-      `Failed to check arena_wallets ownership: ${claimRes.error.message}`,
-    );
+  // Telemetry: spec'd by #19. `time_to_fund_seconds` may be null on the
+  // unlikely path where `minted_at` was missing from the read.
+  const timeToFundSeconds = mintedAt
+    ? Math.max(0, (Date.parse(now) - Date.parse(mintedAt)) / 1000)
+    : null;
+  console.info("gladiator.funded", {
+    user_id: userId,
+    gladiator_id: gladiatorId,
+    deposit_usdc: balanceUsdc,
+    time_to_fund_seconds: timeToFundSeconds,
+  });
+
+  return { status: "alive", fundedAt: now };
+}
+
+async function loadRules(
+  walletId: string | null,
+  whitelist: WhitelistEntry[],
+): Promise<ArenaRules> {
+  if (!walletId) {
+    return {
+      whitelist,
+      ...DEFAULT_POLICY,
+    };
   }
 
-  if (claimRes.data && claimRes.data.user_id !== userId) {
-    throw new AddressAlreadyClaimedError();
-  }
-
-  const { data: upserted, error: upsertErr } = await supabaseAdmin
-    .from("arena_wallets")
-    .upsert(
-      {
-        user_id: userId,
-        wallet_address: normalized,
-        source: "user_verified",
-        status: "active",
-      },
-      { onConflict: "user_id" },
-    )
-    .select("id, wallet_address")
-    .single();
-
-  if (upsertErr || !upserted) {
-    throw new Error(
-      `Failed to upsert arena_wallets: ${upsertErr?.message ?? "no row"}`,
-    );
-  }
-
-  const { error: policyErr } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("wallet_policies")
-    .upsert(
-      { wallet_id: upserted.id },
-      { onConflict: "wallet_id", ignoreDuplicates: true },
-    );
+    .select(
+      "max_trade_usdc, max_trades_per_day, wallet_cap_usdc, min_mint_deposit_usdc, swap_fee_bps, swap_fee_min_usdc",
+    )
+    .eq("wallet_id", walletId)
+    .maybeSingle();
 
-  if (policyErr) {
-    throw new Error(`Failed to ensure wallet_policies: ${policyErr.message}`);
+  if (error) {
+    throw new Error(`Failed to read wallet_policies: ${error.message}`);
   }
 
-  return upserted.wallet_address;
+  if (!data) {
+    return { whitelist, ...DEFAULT_POLICY };
+  }
+
+  return {
+    whitelist,
+    max_trade_usdc: Number(data.max_trade_usdc),
+    max_trades_per_day: data.max_trades_per_day,
+    wallet_cap_usdc: Number(data.wallet_cap_usdc),
+    min_mint_deposit_usdc: Number(data.min_mint_deposit_usdc),
+    swap_fee_bps: data.swap_fee_bps,
+    swap_fee_min_usdc: Number(data.swap_fee_min_usdc),
+  };
 }

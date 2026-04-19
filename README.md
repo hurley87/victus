@@ -143,6 +143,54 @@ Pre-configured Wagmi setup with:
 - **Type-safe environment variables** - Using `@t3-oss/env-nextjs` with Zod validation
 - **Secure headers** - CSP and security headers configured via `next-secure-headers`
 
+## Commodus: Arena wallets & Privy setup
+
+The Arena page (`/arena`) handles the gladiator mint ritual. A successful
+mint lazily provisions a custodial **Privy server wallet** on Base that
+Commodus signs from on the user's behalf (TEE-custodied, non-extractable).
+See `docs/mvp.md` § Gladiator Mint for the full flow.
+
+### Required env vars
+
+```bash
+# Privy server-wallet API credentials (https://dashboard.privy.io)
+PRIVY_APP_ID=
+PRIVY_APP_SECRET=
+
+# Base EOA that receives fee-on-swap transfers from arena wallets.
+# Configure the same wallet in the Privy dashboard as the
+# gas-sponsorship top-up destination so fees self-refill the balance.
+OPERATOR_TREASURY_ADDRESS=
+
+# Base mainnet RPC for reading on-chain state (USDC +
+# position balances). Defaults to the public endpoint.
+BASE_RPC_URL=https://mainnet.base.org
+```
+
+### Privy dashboard checklist
+
+1. Create a **server wallet policy** that limits signing authz to
+   `sign_transaction` on Base mainnet. No `export`, no `transfer_out`,
+   no `rotate`. The app server holds authorization, not key material.
+2. Enable **gas sponsorship** on Base and fund the sponsorship balance
+   (~$500 for launch week per `docs/mvp.md` § Launch Choreography).
+3. Configure the operator treasury wallet as the top-up destination so
+   the 0.5% fee-on-swap collected at execution time self-refills the
+   sponsorship balance.
+
+### Funding recheck
+
+There is no cron and no dedicated recheck endpoint. The in-Mini-App
+deposit button waits for the tx receipt client-side and nudges the
+Arena page to refetch `/api/arena/me`; `getArenaProfile` reads the
+arena wallet's live USDC balance and, if it clears the
+`min_mint_deposit_usdc` threshold ($5), flips `gladiators.status` from
+`pending_funding` to `alive` inline. The page keeps polling
+`/api/arena/me` every 5s while `needs_funding` is true, so if the
+server's RPC trails the client's preconf RPC (typically 2–30s), the
+next poll catches up. For the rare support case, operators can flip
+`gladiators.status` directly in Supabase.
+
 ## Project Structure
 
 ```

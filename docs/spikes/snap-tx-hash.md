@@ -48,7 +48,7 @@ If the docs already specify a standard tx-hash callback, the spike collapses to 
 
 Look at the existing routes to stay in house style; do not invent new patterns:
 
-- `app/api/arena/address/route.ts` — request validation with Zod, explicit named error classes, `NextResponse.json` with status codes
+- `app/api/gladiators/mint/route.ts` — request validation with Zod, explicit named error classes, `NextResponse.json` with status codes
 - `app/api/webhooks/neynar/route.ts` — raw-body read → HMAC verify → Zod parse → rate-limit → Redis dedupe → Supabase insert → fire-and-forget `workflow/api` `start()`
 - `lib/supabase/server.ts` — use `supabaseAdmin` for server-only writes
 - `lib/env.ts` — add any new env vars here (typed)

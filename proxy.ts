@@ -6,8 +6,14 @@ export const config = {
   matcher: ["/api/:path*"],
 };
 
+// JWT_SECRET is immutable for the lifetime of the runtime; encode once
+// instead of per-request to avoid an allocation on every authed API hit.
+const JWT_SECRET_BYTES = new TextEncoder().encode(env.JWT_SECRET);
+
 export default async function proxy(req: NextRequest) {
-  // Skip auth check for sign-in endpoint
+  // Skip the session-cookie check for endpoints that authenticate
+  // themselves (sign-in exchanges a Farcaster Quick Auth token for our
+  // cookie; webhooks verify an HMAC signature; OG routes are public).
   if (
     req.nextUrl.pathname === "/api/auth/sign-in" ||
     req.nextUrl.pathname.includes("/api/og") ||
@@ -27,8 +33,7 @@ export default async function proxy(req: NextRequest) {
   }
 
   try {
-    const secret = new TextEncoder().encode(env.JWT_SECRET);
-    const { payload } = await jose.jwtVerify(token, secret);
+    const { payload } = await jose.jwtVerify(token, JWT_SECRET_BYTES);
 
     const fid = payload.fid;
     const userId = payload.user_id;
