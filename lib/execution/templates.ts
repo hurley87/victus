@@ -9,17 +9,27 @@ import type { TradeIntent } from "./intents";
  */
 
 export function buildIntentReply(intent: TradeIntent): string {
-  const verb = intent.action === "buy" ? "deploy" : "retire";
-  const amount = intent.amount_value.toString();
-  return `Decree accepted, gladiator. Commodus shall ${verb} ${amount} USDC into ${intent.symbol}. Await the arena's judgement.`;
+  if (intent.action === "buy") {
+    return (
+      `Decree accepted, gladiator. Commodus shall deploy ${intent.amount_value} USDC into ` +
+      `${intent.symbol}. Await the arena's judgement.`
+    );
+  }
+  return (
+    `Decree accepted, gladiator. Commodus shall retire ${intent.amount_value}% of ` +
+    `${intent.symbol}. Await the arena's judgement.`
+  );
 }
 
 export type OutcomeSuccess = {
   kind: "success";
+  action: "buy" | "sell";
   symbol: string;
   quantity: number;
   notionalUsdc: number;
   txHash: string;
+  /** Gross USDC leg on buys; gross USDC received on sells (before swap fee). */
+  realizedPnlUsdc?: number;
 };
 
 export type OutcomeFailure = {
@@ -37,6 +47,21 @@ export function buildOutcomeReply(outcome: Outcome): string {
     const notional = outcome.notionalUsdc.toLocaleString("en-US", {
       maximumFractionDigits: 2,
     });
+    const pnlPart =
+      outcome.action === "sell" && outcome.realizedPnlUsdc != null
+        ? ` Realized PnL ${outcome.realizedPnlUsdc.toLocaleString("en-US", {
+            maximumFractionDigits: 2,
+            signDisplay: "exceptZero",
+          })} USDC.`
+        : "";
+
+    if (outcome.action === "sell") {
+      return (
+        `Victory. Retired ${qty} ${outcome.symbol} for ${notional} USDC gross.${pnlPart} ` +
+        `Tx ${outcome.txHash.slice(0, 10)}…`
+      );
+    }
+
     return `Victory. ${qty} ${outcome.symbol} secured for ${notional} USDC. Tx ${outcome.txHash.slice(0, 10)}…`;
   }
   return `Order failed in the arena. Reason: ${outcome.reason}.`;
@@ -53,20 +78,6 @@ export const POLICY_REJECTION_COPY: Record<PolicyRejectionReason, string> = {
     "Order denied. The decree exceeds thy allotted size for a single trade.",
   wallet_cap_usdc:
     "Order denied. Thy arena coffers have reached their cap. Withdraw before deploying more.",
+  insufficient_position:
+    "Order denied. Thy position in that asset is too small for this decree.",
 };
-
-/**
- * Non-policy templated rejection copy used by the workflow for states
- * that aren't a `PolicyRejectionReason` — features that have passed
- * every gate but are not yet fully wired.
- *
- * TODO(#10): remove `sell_not_yet_supported` once sell execution is
- *            implemented; sells should then flow through the full
- *            pipeline like buys.
- */
-export const HANDOFF_REJECTION_COPY = {
-  sell_not_yet_supported:
-    "The decree is understood, gladiator, but the arena does not yet accept sales. Return when the forges of Rome are ready.",
-} as const satisfies Record<string, string>;
-
-export type HandoffRejectionReason = keyof typeof HANDOFF_REJECTION_COPY;

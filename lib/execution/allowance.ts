@@ -43,18 +43,24 @@ export type EnsureAllowanceResult =
   | { kind: "already-approved" }
   | { kind: "approved"; txHash: Hex };
 
-export async function ensureUsdcAllowance(params: {
+/**
+ * Generic ERC-20 MAX approval against the Allowance Holder spender.
+ * `ensureUsdcAllowance` is a thin wrapper for the USDC leg on buys.
+ */
+export async function ensureErc20Allowance(params: {
+  tokenAddress: string;
   walletAddress: string;
   privyWalletId: string;
   spender: string;
   minRequired: bigint;
   referenceId: string;
 }): Promise<EnsureAllowanceResult> {
+  const token = getAddress(params.tokenAddress);
   const owner = getAddress(params.walletAddress);
   const spender = getAddress(params.spender);
 
   const current = await basePublicClient.readContract({
-    address: USDC_BASE_ADDRESS,
+    address: token,
     abi: erc20Abi,
     functionName: "allowance",
     args: [owner, spender],
@@ -72,7 +78,7 @@ export async function ensureUsdcAllowance(params: {
 
   const submitted = await signAndSendTransaction({
     walletId: params.privyWalletId,
-    to: USDC_BASE_ADDRESS,
+    to: token,
     data,
     sponsor: env.PRIVY_SPONSOR_GAS,
     referenceId: `${params.referenceId}:approve`,
@@ -108,4 +114,21 @@ export async function ensureUsdcAllowance(params: {
   });
 
   return { kind: "approved", txHash: hash as Hex };
+}
+
+export async function ensureUsdcAllowance(params: {
+  walletAddress: string;
+  privyWalletId: string;
+  spender: string;
+  minRequired: bigint;
+  referenceId: string;
+}): Promise<EnsureAllowanceResult> {
+  return ensureErc20Allowance({
+    tokenAddress: USDC_BASE_ADDRESS,
+    walletAddress: params.walletAddress,
+    privyWalletId: params.privyWalletId,
+    spender: params.spender,
+    minRequired: params.minRequired,
+    referenceId: params.referenceId,
+  });
 }

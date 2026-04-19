@@ -19,10 +19,9 @@ import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
  * token, filtered to the USDC <-> asset pair we care about, and returns
  * the *net* flows in and out of the arena wallet.
  *
- * For MVP we only decode buys (`usdc_to_asset`). Sell decoding is
- * structurally symmetric — tracked by #10 — and is gated behind the
- * `direction` parameter so the downstream types can extend without a
- * rewrite.
+ * Both buy (`usdc_to_asset`) and sell (`asset_to_usdc`) directions are
+ * supported; callers pass `direction` explicitly so the netting math is
+ * never ambiguous.
  *
  * Multi-hop caveat: aggregators typically route through one or two
  * intermediate pool contracts, so the same token can appear on multiple
@@ -95,15 +94,6 @@ export function decodeSwapReceipt(
 ): DecodedSwap {
   const direction: SwapDirection = params.direction ?? "usdc_to_asset";
 
-  if (direction !== "usdc_to_asset") {
-    // Sell-side decoding is deliberately left for #10. Guarding here
-    // keeps this module's contract explicit instead of silently
-    // returning an inverted (and wrong) result.
-    throw new Error(
-      `decodeSwapReceipt: direction '${direction}' is not implemented (see #10)`,
-    );
-  }
-
   const wallet = getAddress(params.walletAddress);
   const usdc = USDC_BASE_ADDRESS;
   const asset = getAddress(params.assetAddress);
@@ -153,24 +143,52 @@ export function decodeSwapReceipt(
   }
 
   const netUsdcOut = usdcOut - usdcIn;
+  const netUsdcIn = usdcIn - usdcOut;
   const netAssetIn = assetIn - assetOut;
+  const netAssetOut = assetOut - assetIn;
 
-  if (netUsdcOut <= zero || netAssetIn <= zero) {
+  if (direction === "usdc_to_asset") {
+    if (netUsdcOut <= zero || netAssetIn <= zero) {
+      throw new SwapLogMissingError();
+    }
+
+    const quantity = formatUnits(netAssetIn, params.assetDecimals);
+    const usdcHuman = formatUnits(netUsdcOut, USDC_DECIMALS);
+    const executionPriceUsdc = computePriceUsdc({
+      usdcBaseUnits: netUsdcOut,
+      assetBaseUnits: netAssetIn,
+      assetDecimals: params.assetDecimals,
+    });
+
+    return {
+      direction,
+      usdcBaseUnits: netUsdcOut,
+      assetBaseUnits: netAssetIn,
+      quantity,
+      executionPriceUsdc,
+      quantityNumber: Number(quantity),
+      executionPriceUsdcNumber: Number(executionPriceUsdc),
+      usdcHumanNumber: Number(usdcHuman),
+    };
+  }
+
+  // asset_to_usdc — arena sends asset, receives USDC (symmetric netting).
+  if (netAssetOut <= zero || netUsdcIn <= zero) {
     throw new SwapLogMissingError();
   }
 
-  const quantity = formatUnits(netAssetIn, params.assetDecimals);
-  const usdcHuman = formatUnits(netUsdcOut, USDC_DECIMALS);
+  const quantity = formatUnits(netAssetOut, params.assetDecimals);
+  const usdcHuman = formatUnits(netUsdcIn, USDC_DECIMALS);
   const executionPriceUsdc = computePriceUsdc({
-    usdcBaseUnits: netUsdcOut,
-    assetBaseUnits: netAssetIn,
+    usdcBaseUnits: netUsdcIn,
+    assetBaseUnits: netAssetOut,
     assetDecimals: params.assetDecimals,
   });
 
   return {
     direction,
-    usdcBaseUnits: netUsdcOut,
-    assetBaseUnits: netAssetIn,
+    usdcBaseUnits: netUsdcIn,
+    assetBaseUnits: netAssetOut,
     quantity,
     executionPriceUsdc,
     quantityNumber: Number(quantity),

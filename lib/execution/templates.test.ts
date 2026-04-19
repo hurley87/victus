@@ -24,9 +24,11 @@ describe("buildIntentReply", () => {
       action: "sell",
       symbol: "AERO",
       amount_type: "percent_out",
-      amount_value: 100,
+      amount_value: 50,
     });
     expect(text).toContain("retire");
+    expect(text).toContain("50%");
+    expect(text).toContain("AERO");
   });
 });
 
@@ -34,6 +36,7 @@ describe("buildOutcomeReply", () => {
   it("includes quantity + notional + short tx hash on success", () => {
     const text = buildOutcomeReply({
       kind: "success",
+      action: "buy",
       symbol: "AERO",
       quantity: 12.34567,
       notionalUsdc: 4.95,
@@ -61,5 +64,22 @@ describe("POLICY_REJECTION_COPY", () => {
     expect(POLICY_REJECTION_COPY.max_trades_per_day).toBeTruthy();
     expect(POLICY_REJECTION_COPY.max_trade_usdc).toBeTruthy();
     expect(POLICY_REJECTION_COPY.wallet_cap_usdc).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.insufficient_position).toBeTruthy();
+  });
+
+  it("includes realized PnL on sell success outcomes", () => {
+    const text = buildOutcomeReply({
+      kind: "success",
+      action: "sell",
+      symbol: "AERO",
+      quantity: 2,
+      notionalUsdc: 10,
+      txHash: "0x0123456789abcdef0123456789abcdef",
+      realizedPnlUsdc: 1.25,
+    });
+    expect(text).toContain("Retired");
+    expect(text).toContain("Realized PnL");
+    expect(text).toContain("1.25");
+    expect(text).toContain("USDC");
   });
 });

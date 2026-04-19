@@ -280,17 +280,39 @@ describe("decodeSwapReceipt — missing data", () => {
   });
 });
 
-describe("decodeSwapReceipt — sell direction (not yet implemented)", () => {
-  it("throws a clear error for asset_to_usdc until #10 lands", () => {
-    const receipt = makeReceipt([]);
+describe("decodeSwapReceipt — sell (asset_to_usdc)", () => {
+  it("extracts net asset-out + USDC-in with correct price", () => {
+    const aeroSold = BigInt("821400000000000000"); // 0.8214 AERO
+    const usdcReceived = BigInt(1_000_000); // 1 USDC
 
-    expect(() =>
-      decodeSwapReceipt(receipt, {
-        walletAddress: ARENA_WALLET,
-        assetAddress: AERO_ADDRESS,
-        assetDecimals: 18,
-        direction: "asset_to_usdc",
+    const receipt = makeReceipt([
+      makeTransferLog({
+        token: AERO_ADDRESS,
+        from: ARENA_WALLET,
+        to: POOL_ONE,
+        value: aeroSold,
+        logIndex: 0,
       }),
-    ).toThrow(/not implemented/);
+      makeTransferLog({
+        token: USDC_BASE_ADDRESS,
+        from: POOL_ONE,
+        to: ARENA_WALLET,
+        value: usdcReceived,
+        logIndex: 1,
+      }),
+    ]);
+
+    const decoded = decodeSwapReceipt(receipt, {
+      walletAddress: ARENA_WALLET,
+      assetAddress: AERO_ADDRESS,
+      assetDecimals: 18,
+      direction: "asset_to_usdc",
+    });
+
+    expect(decoded.direction).toBe("asset_to_usdc");
+    expect(decoded.usdcBaseUnits).toBe(usdcReceived);
+    expect(decoded.assetBaseUnits).toBe(aeroSold);
+    expect(decoded.quantity).toBe("0.8214");
+    expect(decoded.usdcHumanNumber).toBeCloseTo(1, 6);
   });
 });
