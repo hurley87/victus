@@ -15,16 +15,36 @@ export const runtime = "nodejs";
 const CAST_DEDUPE_TTL_SECONDS = 60;
 
 /**
- * Neynar `cast.created` webhook → Commodus command workflow.
+ * Neynar `cast.created` webhook → durable Commodus command pipeline.
+ *
+ * This route is the single ingress for the durable execution pipeline
+ * described in PRD § Durable Execution Architecture (and issue #8). It
+ * is deliberately a pure intake: the only work done synchronously is
+ * authentication, rate limiting, and idempotency + landing-row
+ * bookkeeping. Every downstream step — parse, policy, quote, Privy
+ * submit, verify, score, reply — runs in the `process-trade-command`
+ * workflow so the webhook can ACK 200 in under 100 ms.
  *
  * Defense-in-depth ordering:
- *  1. Read raw body (required for HMAC verification).
- *  2. Verify HMAC-SHA512 signature against NEYNAR_WEBHOOK_SECRET.
- *  3. Parse JSON only after signature passes.
- *  4. Rate-limit per author FID to shield downstream paid APIs.
- *  5. Fast idempotency guard via Redis SETNX cast:{hash} TTL 60s.
- *  6. Durable idempotency via cast_commands unique (cast_hash).
- *  7. Enqueue durable workflow and ack 200 (< 500ms target).
+ *   1. Read raw body (required for HMAC verification).
+ *   2. Verify HMAC-SHA512 signature against NEYNAR_WEBHOOK_SECRET.
+ *   3. Parse JSON only after signature passes.
+ *   4. Rate-limit per author FID to shield downstream paid APIs.
+ *   5. Fast idempotency guard via Redis SETNX cast:{hash} TTL 60s.
+ *   6. Durable idempotency via cast_commands unique (cast_hash).
+ *   7. Hand off to the workflow runtime and ack 200.
+ *
+ * Named-queue note: issue #8 calls for a named Vercel Queue
+ * `trade-commands` with `idempotency_key = cast_hash`. The workflow
+ * SDK v4.2.4 used here does not expose `idempotencyKey` on `start()`;
+ * the Vercel Workflow runtime is itself the durable queue. Idempotency
+ * is layered at the webhook (Redis SETNX + cast_commands UNIQUE),
+ * workflow (`load_command` short-circuits terminal statuses), reserve
+ * (`trade_executions.execution_id` UNIQUE), and chain
+ * (`trade_executions.tx_hash` / `fee_tx_hash` UNIQUE) levels. If the
+ * SDK exposes an `idempotencyKey` option in a later release, wire it
+ * here; until then the layered guards cover the same correctness
+ * surface.
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();

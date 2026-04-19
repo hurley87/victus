@@ -136,6 +136,38 @@ export type Database = {
         }
         Relationships: []
       }
+      cast_replies: {
+        Row: {
+          cast_hash: string
+          id: string
+          published_at: string
+          reply_cast_hash: string | null
+          reply_kind: string
+        }
+        Insert: {
+          cast_hash: string
+          id?: string
+          published_at?: string
+          reply_cast_hash?: string | null
+          reply_kind: string
+        }
+        Update: {
+          cast_hash?: string
+          id?: string
+          published_at?: string
+          reply_cast_hash?: string | null
+          reply_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cast_replies_cast_hash_fkey"
+            columns: ["cast_hash"]
+            isOneToOne: false
+            referencedRelation: "cast_commands"
+            referencedColumns: ["cast_hash"]
+          },
+        ]
+      }
       farcaster_accounts: {
         Row: {
           created_at: string
@@ -516,6 +548,7 @@ export type Database = {
           fee_tx_hash: string | null
           id: string
           notional_usdc: number | null
+          privy_transaction_id: string | null
           quantity: number | null
           sponsored_gas_usdc: number | null
           status: string
@@ -532,6 +565,7 @@ export type Database = {
           fee_tx_hash?: string | null
           id?: string
           notional_usdc?: number | null
+          privy_transaction_id?: string | null
           quantity?: number | null
           sponsored_gas_usdc?: number | null
           status?: string
@@ -548,6 +582,7 @@ export type Database = {
           fee_tx_hash?: string | null
           id?: string
           notional_usdc?: number | null
+          privy_transaction_id?: string | null
           quantity?: number | null
           sponsored_gas_usdc?: number | null
           status?: string
