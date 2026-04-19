@@ -1,6 +1,6 @@
 import "server-only";
 
-import { type Address, getAddress } from "viem";
+import { parseUnits, type Address, getAddress } from "viem";
 
 import { readUsdcBalance } from "@/lib/chain/erc20";
 import { supabaseAdmin } from "@/lib/supabase/server";
@@ -20,6 +20,8 @@ import type { TradeIntent } from "./intents";
  *   3. max_trades_per_day   — slot count for the UTC day
  *   4. max_trade_usdc       — size cap (buys only)
  *   5. wallet_cap_usdc      — live arena-wallet USDC via viem (buys only)
+ *   6. insufficient_position — sells: DB position missing, zero-size, or
+ *                              computed sell amount rounds to zero on-chain
  *
  * Per-intent-type rules apply only where stated: sell intents skip
  * size and wallet-cap checks (sells pay out USDC; they don't consume it).
@@ -33,7 +35,8 @@ export type PolicyRejectionReason =
   | "asset_not_whitelisted"
   | "max_trades_per_day"
   | "max_trade_usdc"
-  | "wallet_cap_usdc";
+  | "wallet_cap_usdc"
+  | "insufficient_position";
 
 export type PolicyResult =
   | { ok: true; context: PolicyContext }
@@ -50,6 +53,11 @@ export type PolicyContext = {
   privyWalletId: string;
   assetAddress: Address;
   assetDecimals: number;
+  /**
+   * Sells only — exact asset base units computed from `positions.quantity`
+   * × percent (integer 1–100), floored, used as the 0x `sellAmount`.
+   */
+  sellAssetBaseUnits?: string;
   policy: {
     maxTradeUsdc: number;
     maxTradesPerDay: number;
@@ -102,6 +110,39 @@ export async function validatePolicy(
     }
   }
 
+  let sellAssetBaseUnits: string | undefined;
+  if (!isBuy) {
+    const position = await loadPositionQuantity(
+      params.walletId,
+      params.intent.symbol,
+    );
+    if (!position) {
+      return { ok: false, reason: "insufficient_position" };
+    }
+
+    let positionWei: bigint;
+    try {
+      positionWei = parseUnits(
+        String(position.quantity).trim(),
+        asset.decimals,
+      );
+    } catch {
+      return { ok: false, reason: "insufficient_position" };
+    }
+
+    if (positionWei <= BigInt(0)) {
+      return { ok: false, reason: "insufficient_position" };
+    }
+
+    const sellWei =
+      (positionWei * BigInt(params.intent.amount_value)) / BigInt(100);
+    if (sellWei <= BigInt(0)) {
+      return { ok: false, reason: "insufficient_position" };
+    }
+
+    sellAssetBaseUnits = sellWei.toString();
+  }
+
   return {
     ok: true,
     context: {
@@ -110,6 +151,7 @@ export async function validatePolicy(
       privyWalletId: params.privyWalletId,
       assetAddress: getAddress(asset.address),
       assetDecimals: asset.decimals,
+      sellAssetBaseUnits,
       policy,
     },
   };
@@ -182,6 +224,28 @@ async function countTradesToday(walletId: string): Promise<number> {
 }
 
 type PolicyRow = PolicyContext["policy"];
+
+async function loadPositionQuantity(
+  walletId: string,
+  assetSymbol: string,
+): Promise<{ quantity: string } | null> {
+  const { data, error } = await supabaseAdmin
+    .from("positions")
+    .select("quantity")
+    .eq("wallet_id", walletId)
+    .eq("asset_symbol", assetSymbol)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`positions lookup failed: ${error.message}`);
+  }
+  if (!data) return null;
+
+  const qty = String(data.quantity).trim();
+  if (!qty || Number(qty) <= 0) return null;
+
+  return { quantity: qty };
+}
 
 async function loadPolicy(walletId: string): Promise<PolicyRow> {
   const { data, error } = await supabaseAdmin

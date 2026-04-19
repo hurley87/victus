@@ -1,5 +1,5 @@
 import { FatalError } from "workflow";
-import { parseUnits, type Hex } from "viem";
+import { formatUnits, parseUnits, type Hex } from "viem";
 
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { basePublicClient } from "@/lib/chain/client";
@@ -18,7 +18,7 @@ import {
   ZeroxNotConfiguredError,
 } from "@/lib/zerox/quote";
 
-import { ensureUsdcAllowance } from "@/lib/execution/allowance";
+import { ensureErc20Allowance, ensureUsdcAllowance } from "@/lib/execution/allowance";
 import {
   submitFeeTransfer,
   OperatorTreasuryNotConfiguredError,
@@ -32,17 +32,18 @@ import {
   reserveOrLoadExecution,
   type ReservedExecution,
 } from "@/lib/execution/reserve";
+import { applyLotsAndPositionsForExecution } from "@/lib/execution/lot-persistence";
 import {
   decodeSwapReceipt,
   SwapLogMissingError,
+  type SwapDirection,
 } from "@/lib/execution/swap-logs";
 import {
   buildIntentReply,
   buildOutcomeReply,
-  HANDOFF_REJECTION_COPY,
   POLICY_REJECTION_COPY,
 } from "@/lib/execution/templates";
-import type { CommandIntent, TradeIntent } from "@/lib/execution/intents";
+import type { CommandIntent, SellIntent, TradeIntent } from "@/lib/execution/intents";
 
 /**
  * Payload forwarded from the Neynar `cast.created` webhook. Narrow by
@@ -61,8 +62,8 @@ export interface CommandContext {
  *
  * Flow (issue #8 § Workflow):
  *   load_command → parse → policy_validate → compute_fee → quote_swap →
- *   publish_intent_reply → ensure_allowance → submit_swap → transfer_fee →
- *   verify_tx → decode_swap_log → score_time_enforcement →
+ *   publish_intent_reply → ensure_allowance → submit_swap → verify_tx →
+ *   decode_swap_log → transfer_fee → score_time_enforcement →
  *   update_lots_and_positions → score_trade → publish_outcome_reply
  *
  * Every step is `'use step'` and either pure or idempotent check-then-
@@ -70,10 +71,9 @@ export interface CommandContext {
  * from the furthest-forward populated column (`tx_hash`, `confirmed_at`,
  * `cast_replies` rows, etc.).
  *
- * The happy path is fully implemented through `decode_swap_log` (#26);
- * FIFO bookkeeping (#10) / score-time price-impact (#12) / full scoring
- * are minimal placeholders with TODO markers — the replay-safety and
- * outcome-reply invariants hold regardless of how those are fleshed out.
+ * The happy path is fully implemented through `decode_swap_log` (#26)
+ * and FIFO lot accounting (#10). Score-time price-impact (#12) / full
+ * scoring beyond `trade_executed` remain minimal placeholders.
  */
 export async function handleCommodusCommand(ctx: CommandContext) {
   "use workflow";
@@ -132,24 +132,140 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
   await markStatus(ctx.castHash, "validated");
 
-  // Sell handoff — #9 reaches `policy_validate` and stops here. Full
-  // sell execution (quote, submit, FIFO lot consumption, realized PnL)
-  // is issue #10. Leaving the `TODO(#10)` markers below so the pickup
-  // PR knows what to remove.
   if (intent.action === "sell") {
-    await markRejected(ctx.castHash, "sell_not_yet_supported");
+    const sellIntent = intent;
+    const sellAssetBaseUnits = policy.context.sellAssetBaseUnits;
+    if (!sellAssetBaseUnits) {
+      throw new Error("sell pipeline: sellAssetBaseUnits missing from policy context");
+    }
+
+    const sellReservation = await quoteAndReserveSell({
+      castHash: ctx.castHash,
+      castCommandId: loaded.id,
+      ctx: policy.context,
+      intent: sellIntent,
+      sellAssetBaseUnits,
+    });
+    const sellExecutionId = sellReservation.executionId;
+
+    if (sellReservation.reservedFillUsdc <= sellReservation.feeUsdc) {
+      await markRejected(ctx.castHash, "max_trade_usdc");
+      await publishOutcomeReply(
+        ctx.castHash,
+        POLICY_REJECTION_COPY.max_trade_usdc,
+      );
+      return { status: "rejected" as const, reason: "fee_exceeds_notional" };
+    }
+
+    await markStatus(ctx.castHash, "quoted");
+
+    await publishIntentReply(ctx.castHash, buildIntentReply(sellIntent));
+
+    await ensureSellAssetAllowance({
+      ctx: policy.context,
+      spender: sellReservation.txTo,
+      sellAssetBaseUnits,
+      executionId: sellExecutionId,
+    });
+
+    const sellSubmitted: { txHash: string; privyTransactionId: string | null } =
+      sellReservation.txHash
+        ? {
+            txHash: sellReservation.txHash,
+            privyTransactionId: sellReservation.privyTransactionId,
+          }
+        : await submitSwap({
+            executionId: sellExecutionId,
+            tradeExecutionId: sellReservation.tradeExecutionId,
+            ctx: policy.context,
+            quoteTxTo: sellReservation.txTo,
+            quoteTxData: sellReservation.txData,
+            quoteTxValue: sellReservation.txValue,
+          });
+
+    await markStatus(ctx.castHash, "executing");
+
+    const sellConfirmed = sellReservation.confirmedAt
+      ? { txHash: sellSubmitted.txHash, confirmedAt: sellReservation.confirmedAt }
+      : await verifyTxOnchain({
+          tradeExecutionId: sellReservation.tradeExecutionId,
+          txHash: sellSubmitted.txHash,
+        });
+
+    const sellDecoded = await decodeSwapLog({
+      tradeExecutionId: sellReservation.tradeExecutionId,
+      txHash: sellConfirmed.txHash,
+      walletAddress: policy.context.walletAddress,
+      assetAddress: policy.context.assetAddress,
+      assetDecimals: policy.context.assetDecimals,
+      reservedFillUsdc: sellReservation.reservedFillUsdc,
+      direction: "asset_to_usdc",
+    });
+
+    if (!sellDecoded.ok) {
+      await markTradeExecutionFailed(sellReservation.tradeExecutionId);
+      await markRejected(ctx.castHash, sellDecoded.reason, "failed");
+      await publishOutcomeReply(
+        ctx.castHash,
+        buildOutcomeReply({ kind: "failure", reason: sellDecoded.reason }),
+      );
+      return { status: "failed" as const, reason: sellDecoded.reason };
+    }
+
+    await transferFeeLeg({
+      tradeExecutionId: sellReservation.tradeExecutionId,
+      walletId: policy.context.privyWalletId,
+      feeUsdc: sellReservation.feeUsdc,
+      executionId: sellExecutionId,
+    });
+
+    const sellEnforcement = await scoreTimeEnforcement({
+      tradeExecutionId: sellReservation.tradeExecutionId,
+      quotedNotional: sellReservation.reservedFillUsdc,
+      maxPriceImpactBps: policy.context.policy.maxPriceImpactBps,
+    });
+
+    if (!sellEnforcement.ok) {
+      await markRejected(ctx.castHash, sellEnforcement.reason, "failed");
+      await publishOutcomeReply(
+        ctx.castHash,
+        buildOutcomeReply({ kind: "failure", reason: sellEnforcement.reason }),
+      );
+      return { status: "failed" as const, reason: sellEnforcement.reason };
+    }
+
+    const sellPnl = await updateLotsAndPositions({
+      tradeExecutionId: sellReservation.tradeExecutionId,
+      intentAction: "sell",
+    });
+
+    await scoreTrade({
+      castCommandId: loaded.id,
+      userId: walletLookup.userId,
+      tradeExecutionId: sellReservation.tradeExecutionId,
+    });
+
+    await markStatus(ctx.castHash, "executed");
     await publishOutcomeReply(
       ctx.castHash,
-      HANDOFF_REJECTION_COPY.sell_not_yet_supported,
+      buildOutcomeReply({
+        kind: "success",
+        action: "sell",
+        symbol: sellIntent.symbol,
+        quantity: sellDecoded.quantity,
+        notionalUsdc: sellDecoded.fillUsdcHuman,
+        txHash: sellConfirmed.txHash,
+        realizedPnlUsdc: sellPnl.realizedPnlUsdc ?? undefined,
+      }),
     );
+
     return {
-      status: "rejected" as const,
-      reason: "sell_not_yet_supported" as const,
+      status: "executed" as const,
+      txHash: sellConfirmed.txHash,
+      executionId: sellExecutionId,
     };
   }
 
-  // `intent` is now narrowed to `BuyIntent` — sells branched out above
-  // and status branched out before wallet lookup.
   const feeUsdc = await computeFee({
     notionalUsdc: intent.amount_value,
     swapFeeBps: policy.context.policy.swapFeeBps,
@@ -207,13 +323,6 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
   await markStatus(ctx.castHash, "executing");
 
-  await transferFeeLeg({
-    tradeExecutionId: reservation.tradeExecutionId,
-    walletId: policy.context.privyWalletId,
-    feeUsdc,
-    executionId,
-  });
-
   const confirmed = reservation.confirmedAt
     ? { txHash: submitted.txHash, confirmedAt: reservation.confirmedAt }
     : await verifyTxOnchain({
@@ -227,7 +336,8 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     walletAddress: policy.context.walletAddress,
     assetAddress: policy.context.assetAddress,
     assetDecimals: policy.context.assetDecimals,
-    reservedNotionalUsdc: netNotional,
+    reservedFillUsdc: reservation.reservedFillUsdc,
+    direction: "usdc_to_asset",
   });
 
   if (!decoded.ok) {
@@ -240,9 +350,16 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     return { status: "failed" as const, reason: decoded.reason };
   }
 
+  await transferFeeLeg({
+    tradeExecutionId: reservation.tradeExecutionId,
+    walletId: policy.context.privyWalletId,
+    feeUsdc: reservation.feeUsdc,
+    executionId,
+  });
+
   const enforcement = await scoreTimeEnforcement({
     tradeExecutionId: reservation.tradeExecutionId,
-    quotedNotional: netNotional,
+    quotedNotional: reservation.reservedFillUsdc,
     maxPriceImpactBps: policy.context.policy.maxPriceImpactBps,
   });
 
@@ -257,6 +374,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
   await updateLotsAndPositions({
     tradeExecutionId: reservation.tradeExecutionId,
+    intentAction: "buy",
   });
   await scoreTrade({
     castCommandId: loaded.id,
@@ -269,9 +387,10 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     ctx.castHash,
     buildOutcomeReply({
       kind: "success",
+      action: "buy",
       symbol: intent.symbol,
       quantity: decoded.quantity,
-      notionalUsdc: decoded.usdcSpent,
+      notionalUsdc: decoded.fillUsdcHuman,
       txHash: confirmed.txHash,
     }),
   );
@@ -432,8 +551,11 @@ type QuoteAndReserveReturn = ReservedExecution & {
   txTo: string;
   txData: string;
   txValue: string;
-  /** USDC sell amount in base units, serialized as a string (BigInt → string). */
+  /** Sell-token amount in base units, serialized as a string (BigInt → string). */
   sellAmountBaseUnits: string;
+  /** USDC anchor for decode tolerance (net swap leg on buys; gross USDC in on sells). */
+  reservedFillUsdc: number;
+  feeUsdc: number;
 };
 
 async function quoteAndReserve(params: {
@@ -490,6 +612,70 @@ async function quoteAndReserve(params: {
     txData: quote.transaction.data,
     txValue: quote.transaction.value,
     sellAmountBaseUnits: sellAmount.toString(),
+    reservedFillUsdc: params.netNotional,
+    feeUsdc: params.feeUsdc,
+  };
+}
+
+async function quoteAndReserveSell(params: {
+  castHash: string;
+  castCommandId: string;
+  ctx: PolicyContext;
+  intent: SellIntent;
+  sellAssetBaseUnits: string;
+}): Promise<QuoteAndReserveReturn> {
+  "use step";
+
+  const executionId = deriveExecutionId(params.castHash);
+
+  let quote;
+  try {
+    quote = await getAllowanceHolderQuote({
+      sellToken: params.ctx.assetAddress,
+      buyToken: USDC_BASE_ADDRESS,
+      sellAmount: params.sellAssetBaseUnits,
+      taker: params.ctx.walletAddress,
+      slippageBps: params.ctx.policy.maxSlippageBps,
+    });
+  } catch (err) {
+    if (err instanceof ZeroxNotConfiguredError) {
+      throw new FatalError(err.message);
+    }
+    throw err;
+  }
+
+  if (!quote.liquidityAvailable) {
+    throw new Error("quote_swap_sell: 0x reports no liquidity for pair");
+  }
+
+  const grossUsdcExpected = Number(
+    formatUnits(BigInt(quote.buyAmount), USDC_DECIMALS),
+  );
+
+  const feeUsdc = computeSwapFeeUsdc({
+    notionalUsdc: grossUsdcExpected,
+    swapFeeBps: params.ctx.policy.swapFeeBps,
+    swapFeeMinUsdc: params.ctx.policy.swapFeeMinUsdc,
+  });
+
+  const reservation = await reserveOrLoadExecution({
+    castCommandId: params.castCommandId,
+    ctx: params.ctx,
+    intent: params.intent,
+    executionId,
+    feeUsdc,
+    notionalUsdc: grossUsdcExpected,
+  });
+
+  return {
+    ...reservation,
+    executionId,
+    txTo: quote.transaction.to,
+    txData: quote.transaction.data,
+    txValue: quote.transaction.value,
+    sellAmountBaseUnits: params.sellAssetBaseUnits,
+    reservedFillUsdc: grossUsdcExpected,
+    feeUsdc,
   };
 }
 
@@ -531,6 +717,24 @@ async function ensureAllowanceStep(params: {
     privyWalletId: params.ctx.privyWalletId,
     spender: params.spender,
     minRequired: BigInt(params.sellAmountBaseUnits),
+    referenceId: params.executionId,
+  });
+}
+
+async function ensureSellAssetAllowance(params: {
+  ctx: PolicyContext;
+  spender: string;
+  sellAssetBaseUnits: string;
+  executionId: string;
+}): Promise<void> {
+  "use step";
+
+  await ensureErc20Allowance({
+    tokenAddress: params.ctx.assetAddress,
+    walletAddress: params.ctx.walletAddress,
+    privyWalletId: params.ctx.privyWalletId,
+    spender: params.spender,
+    minRequired: BigInt(params.sellAssetBaseUnits),
     referenceId: params.executionId,
   });
 }
@@ -718,7 +922,8 @@ type DecodeSwapLogResult =
       ok: true;
       quantity: number;
       executionPriceUsdc: number;
-      usdcSpent: number;
+      /** Realized USDC leg: spent on buys, received (gross) on sells. */
+      fillUsdcHuman: number;
     }
   | { ok: false; reason: DecodeFailureReason };
 
@@ -728,7 +933,8 @@ async function decodeSwapLog(params: {
   walletAddress: string;
   assetAddress: string;
   assetDecimals: number;
-  reservedNotionalUsdc: number;
+  reservedFillUsdc: number;
+  direction: SwapDirection;
 }): Promise<DecodeSwapLogResult> {
   "use step";
 
@@ -737,7 +943,7 @@ async function decodeSwapLog(params: {
   // is cheap on retries.
   const { data: existing, error: readErr } = await supabaseAdmin
     .from("trade_executions")
-    .select("quantity, execution_price_usdc")
+    .select("quantity, execution_price_usdc, notional_usdc")
     .eq("id", params.tradeExecutionId)
     .maybeSingle();
 
@@ -749,11 +955,15 @@ async function decodeSwapLog(params: {
     existing?.quantity != null &&
     existing?.execution_price_usdc != null
   ) {
+    const fillUsdcHuman =
+      existing.notional_usdc != null
+        ? Number(existing.notional_usdc)
+        : params.reservedFillUsdc;
     return {
       ok: true,
       quantity: Number(existing.quantity),
       executionPriceUsdc: Number(existing.execution_price_usdc),
-      usdcSpent: params.reservedNotionalUsdc,
+      fillUsdcHuman,
     };
   }
 
@@ -771,6 +981,7 @@ async function decodeSwapLog(params: {
       walletAddress: params.walletAddress,
       assetAddress: params.assetAddress,
       assetDecimals: params.assetDecimals,
+      direction: params.direction,
     });
   } catch (err) {
     if (err instanceof SwapLogMissingError) {
@@ -784,9 +995,9 @@ async function decodeSwapLog(params: {
   // realized USDC-out almost always means we're decoding the wrong tx
   // or against the wrong asset — fail fast rather than booking bad P&L.
   const tolerance =
-    (params.reservedNotionalUsdc * DECODE_TOLERANCE_BPS) / 10_000;
+    (params.reservedFillUsdc * DECODE_TOLERANCE_BPS) / 10_000;
   if (
-    Math.abs(decoded.usdcHumanNumber - params.reservedNotionalUsdc) > tolerance
+    Math.abs(decoded.usdcHumanNumber - params.reservedFillUsdc) > tolerance
   ) {
     return { ok: false, reason: "decode_log_mismatch" };
   }
@@ -798,6 +1009,7 @@ async function decodeSwapLog(params: {
     .update({
       quantity: decoded.quantity as unknown as number,
       execution_price_usdc: decoded.executionPriceUsdc as unknown as number,
+      notional_usdc: decoded.usdcHumanNumber as unknown as number,
     })
     .eq("id", params.tradeExecutionId);
 
@@ -809,7 +1021,7 @@ async function decodeSwapLog(params: {
     ok: true,
     quantity: decoded.quantityNumber,
     executionPriceUsdc: decoded.executionPriceUsdcNumber,
-    usdcSpent: decoded.usdcHumanNumber,
+    fillUsdcHuman: decoded.usdcHumanNumber,
   };
 }
 
@@ -856,13 +1068,30 @@ async function scoreTimeEnforcement(params: {
 
 async function updateLotsAndPositions(params: {
   tradeExecutionId: string;
-}): Promise<void> {
+  intentAction: "buy" | "sell";
+}): Promise<{ realizedPnlUsdc: number | null }> {
   "use step";
 
-  // TODO: realize quantity + avg_cost from swap log; insert lots row
-  // keyed on opening_execution_id (unique), upsert positions. For now
-  // intentionally a no-op; see issue #8 follow-ups.
-  return;
+  await applyLotsAndPositionsForExecution(params.tradeExecutionId);
+
+  if (params.intentAction !== "sell") {
+    return { realizedPnlUsdc: null };
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("trade_executions")
+    .select("realized_pnl_usdc")
+    .eq("id", params.tradeExecutionId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`update_lots_and_positions: read pnl failed: ${error.message}`);
+  }
+
+  return {
+    realizedPnlUsdc:
+      data?.realized_pnl_usdc != null ? Number(data.realized_pnl_usdc) : null,
+  };
 }
 
 // ---------------------------------------------------------------------------

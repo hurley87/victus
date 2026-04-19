@@ -26,7 +26,7 @@ import { env } from "@/lib/env";
  *     current on-chain allowance and submits a MAX_UINT approval only
  *     when the wallet is under-approved.
  *   - Price vs quote distinction (we only need quote+calldata).
- *   - Sell-side sizing (MVP is buy-only; sells add post-MVP).
+ *   - Sell-side sizing — callers pass `sellToken` / `sellAmount` for asset→USDC.
  */
 
 const ZEROX_API_BASE = "https://api.0x.org";

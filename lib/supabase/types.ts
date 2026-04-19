@@ -550,6 +550,8 @@ export type Database = {
           notional_usdc: number | null
           privy_transaction_id: string | null
           quantity: number | null
+          realized_pnl_usdc: number | null
+          realized_return_pct: number | null
           sponsored_gas_usdc: number | null
           status: string
           swap_fee_usdc: number | null
@@ -567,6 +569,8 @@ export type Database = {
           notional_usdc?: number | null
           privy_transaction_id?: string | null
           quantity?: number | null
+          realized_pnl_usdc?: number | null
+          realized_return_pct?: number | null
           sponsored_gas_usdc?: number | null
           status?: string
           swap_fee_usdc?: number | null
@@ -584,6 +588,8 @@ export type Database = {
           notional_usdc?: number | null
           privy_transaction_id?: string | null
           quantity?: number | null
+          realized_pnl_usdc?: number | null
+          realized_return_pct?: number | null
           sponsored_gas_usdc?: number | null
           status?: string
           swap_fee_usdc?: number | null

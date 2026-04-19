@@ -72,6 +72,12 @@ const CASES: ReadonlyArray<Case> = [
     expect: { kind: "ok", action: "sell" },
   },
   {
+    label: "casual sell — 'half of' (no possessive)",
+    text: "@commodus sell half of aero",
+    path: "llm",
+    expect: { kind: "ok", action: "sell" },
+  },
+  {
     label: "casual sell — 'N% of my'",
     text: "@commodus sell 25% of my aero",
     path: "llm",
