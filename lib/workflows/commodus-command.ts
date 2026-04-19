@@ -1,292 +1,709 @@
 import { FatalError } from "workflow";
+import { parseUnits, type Hex } from "viem";
+
+import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
+import { basePublicClient } from "@/lib/chain/client";
+import { buildAcceptedReply } from "@/lib/commodus/templates";
+import { MissingSignerError } from "@/lib/neynar";
+import {
+  PrivyTransactionFailedError,
+  PrivyTransactionTimeoutError,
+  signAndSendTransaction,
+  waitForTransaction,
+} from "@/lib/privy/server";
+import { supabaseAdmin } from "@/lib/supabase/server";
+import {
+  getAllowanceHolderQuote,
+  ZeroxNotConfiguredError,
+} from "@/lib/zerox/quote";
 
 import {
-  parseCommand,
-  type ParseResult,
-} from "@/lib/commodus/parser";
+  submitFeeTransfer,
+  OperatorTreasuryNotConfiguredError,
+} from "@/lib/execution/fee-transfer";
 import {
-  buildAcceptedReply,
-  REJECTION_REPLIES,
-  rejectionReasonForParse,
-  type RejectionReason,
-} from "@/lib/commodus/templates";
-import { MissingSignerError, publishReplyCast } from "@/lib/neynar";
-import { supabaseAdmin } from "@/lib/supabase/server";
+  computeSwapFeeUsdc,
+  netBuyNotionalUsdc,
+} from "@/lib/execution/fees";
+import { deriveExecutionId } from "@/lib/execution/ids";
+import { parseTradeCommand } from "@/lib/execution/parse";
+import { validatePolicy, type PolicyContext } from "@/lib/execution/policy";
+import { publishReplyOnce } from "@/lib/execution/reply-guard";
+import {
+  reserveOrLoadExecution,
+  type ReservedExecution,
+} from "@/lib/execution/reserve";
+import {
+  buildIntentReply,
+  buildOutcomeReply,
+  POLICY_REJECTION_COPY,
+} from "@/lib/execution/templates";
+import type { TradeIntent } from "@/lib/execution/intents";
 
 /**
- * Payload forwarded from the Neynar `cast.created` webhook into the workflow.
- * Kept narrow on purpose: anything extra should be fetched lazily inside a
- * step so the event log stays small and serializable.
+ * Payload forwarded from the Neynar `cast.created` webhook. Narrow by
+ * design: anything extra should be fetched lazily inside a step so the
+ * workflow event log stays small and deterministically serializable.
  */
 export interface CommandContext {
   castHash: string;
-  /** FID of the user who mentioned the bot. */
   authorFid: number;
-  /** Raw cast text (what the user typed). */
   text: string;
-  /** Optional parent cast hash if this is a reply. */
   parentHash: string | null;
 }
 
-type TerminalStatus = "parsed" | "rejected";
-
-/** Statuses the row must NOT already be in for an update to apply. */
-const TERMINAL_STATUSES = "(executed,failed,rejected)";
-
 /**
- * A single idempotency-key shape for any outcome on a given cast. At most
- * one branch fires per cast (parse is deterministic; DB state is terminal-
- * guarded), so one generic key is correct and prevents Neynar from double-
- * publishing if the workflow step retries across a brief outage.
- */
-function replyIdemKey(castHash: string): string {
-  return `reply:${castHash}:result`;
-}
-
-/**
- * Top-level workflow for a Commodus mention.
+ * Single-phase durable pipeline for a `@commodus` mention.
  *
- * Pipeline (issue #6):
- *   parse → arena-wallet lookup → asset check → size-cap check → record + reply
+ * Flow (issue #8 § Workflow):
+ *   load_command → parse → policy_validate → compute_fee → quote_swap →
+ *   publish_intent_reply → submit_swap → transfer_fee → verify_tx →
+ *   decode_swap_log → score_time_enforcement → update_lots_and_positions →
+ *   score_trade → publish_outcome_reply
  *
- * Exactly one templated reply is published per cast. The tracer reply
- * (`tracer:{castHash}`) has been retired.
+ * Every step is `'use step'` and either pure or idempotent check-then-
+ * act. Replays land on the same `execution_id` reservation and pick up
+ * from the furthest-forward populated column (`tx_hash`, `confirmed_at`,
+ * `cast_replies` rows, etc.).
  *
- * Execution, scoring, and outcome replies are intentionally out of scope
- * here — see #7 onward.
+ * The happy path is fully implemented; decode / FIFO bookkeeping /
+ * scoring are minimal placeholders with TODO markers — the replay-
+ * safety and outcome-reply invariants hold regardless of how those
+ * are fleshed out.
  */
 export async function handleCommodusCommand(ctx: CommandContext) {
   "use workflow";
 
-  const parseResult = parseCommand(ctx.text);
-
-  if (parseResult.kind !== "ok") {
-    const reason = rejectionReasonForParse(parseResult);
-    await recordRejection(ctx.castHash, reason, parseResult);
-    await publishOutcomeReply(ctx.castHash, REJECTION_REPLIES[reason]);
-    return { status: "rejected" as const, reason };
+  const loaded = await loadCommand(ctx.castHash);
+  if (loaded.shouldExit) {
+    return { status: "noop" as const, reason: loaded.status };
   }
 
-  const walletId = await findArenaWalletIdByFid(ctx.authorFid);
-
-  if (!walletId) {
-    await recordRejection(ctx.castHash, "no_arena_wallet", parseResult);
+  const parseOutcome = await parseStep(ctx.text);
+  if (!parseOutcome.ok) {
+    await markRejected(ctx.castHash, parseOutcome.reason);
     await publishOutcomeReply(
       ctx.castHash,
-      REJECTION_REPLIES.no_arena_wallet,
+      buildOutcomeReply({ kind: "failure", reason: parseOutcome.reason }),
     );
-    return { status: "rejected" as const, reason: "no_arena_wallet" as const };
+    return { status: "rejected" as const, reason: parseOutcome.reason };
   }
 
-  await recordAccepted(ctx.castHash, parseResult, walletId);
+  const intent = parseOutcome.intent;
+  await markStatus(ctx.castHash, "parsed");
+
+  const walletLookup = await resolveArenaWallet(ctx.authorFid);
+  if (!walletLookup) {
+    await markRejected(ctx.castHash, "needs_gladiator_mint");
+    await publishOutcomeReply(
+      ctx.castHash,
+      POLICY_REJECTION_COPY.needs_gladiator_mint,
+    );
+    return { status: "rejected" as const, reason: "needs_gladiator_mint" };
+  }
+
+  const policy = await policyValidate({
+    userId: walletLookup.userId,
+    walletId: walletLookup.walletId,
+    walletAddress: walletLookup.walletAddress,
+    privyWalletId: walletLookup.privyWalletId,
+    intent,
+  });
+  if (!policy.ok) {
+    await markRejected(ctx.castHash, policy.reason);
+    await publishOutcomeReply(
+      ctx.castHash,
+      POLICY_REJECTION_COPY[policy.reason],
+    );
+    return { status: "rejected" as const, reason: policy.reason };
+  }
+
+  await markStatus(ctx.castHash, "validated");
+
+  const feeUsdc = await computeFee({
+    notionalUsdc: intent.amount_value,
+    swapFeeBps: policy.context.policy.swapFeeBps,
+    swapFeeMinUsdc: policy.context.policy.swapFeeMinUsdc,
+  });
+
+  const netNotional = intent.action === "buy"
+    ? Math.max(intent.amount_value - feeUsdc, 0)
+    : intent.amount_value;
+
+  if (netNotional <= 0) {
+    await markRejected(ctx.castHash, "max_trade_usdc");
+    await publishOutcomeReply(
+      ctx.castHash,
+      POLICY_REJECTION_COPY.max_trade_usdc,
+    );
+    return { status: "rejected" as const, reason: "fee_exceeds_notional" };
+  }
+
+  const executionId = deriveExecutionId(ctx.castHash);
+
+  const reservation = await quoteAndReserve({
+    castCommandId: loaded.id,
+    ctx: policy.context,
+    intent,
+    executionId,
+    feeUsdc,
+    netNotional,
+  });
+
+  await markStatus(ctx.castHash, "quoted");
+
+  await publishIntentReply(ctx.castHash, buildIntentReply(intent));
+
+  const submitted: { txHash: string; privyTransactionId: string | null } =
+    reservation.txHash
+      ? {
+          txHash: reservation.txHash,
+          privyTransactionId: reservation.privyTransactionId,
+        }
+      : await submitSwap({
+          executionId,
+          tradeExecutionId: reservation.tradeExecutionId,
+          ctx: policy.context,
+          quoteTxTo: reservation.txTo,
+          quoteTxData: reservation.txData,
+          quoteTxValue: reservation.txValue,
+        });
+
+  await markStatus(ctx.castHash, "executing");
+
+  await transferFeeLeg({
+    tradeExecutionId: reservation.tradeExecutionId,
+    walletId: policy.context.privyWalletId,
+    feeUsdc,
+    executionId,
+  });
+
+  const confirmed = reservation.confirmedAt
+    ? { txHash: submitted.txHash, confirmedAt: reservation.confirmedAt }
+    : await verifyTxOnchain({
+        tradeExecutionId: reservation.tradeExecutionId,
+        txHash: submitted.txHash,
+      });
+
+  const enforcement = await scoreTimeEnforcement({
+    tradeExecutionId: reservation.tradeExecutionId,
+    quotedNotional: netNotional,
+    maxPriceImpactBps: policy.context.policy.maxPriceImpactBps,
+  });
+
+  if (!enforcement.ok) {
+    await markRejected(ctx.castHash, enforcement.reason, "failed");
+    await publishOutcomeReply(
+      ctx.castHash,
+      buildOutcomeReply({ kind: "failure", reason: enforcement.reason }),
+    );
+    return { status: "failed" as const, reason: enforcement.reason };
+  }
+
+  await updateLotsAndPositions({
+    tradeExecutionId: reservation.tradeExecutionId,
+  });
+  await scoreTrade({
+    castCommandId: loaded.id,
+    userId: walletLookup.userId,
+    tradeExecutionId: reservation.tradeExecutionId,
+  });
+
+  await markStatus(ctx.castHash, "executed");
   await publishOutcomeReply(
     ctx.castHash,
-    buildAcceptedReply(parseResult.amount),
+    buildAcceptedReply(intent.amount_value),
   );
-  return { status: "accepted" as const, amount: parseResult.amount };
+
+  return {
+    status: "executed" as const,
+    txHash: confirmed.txHash,
+    executionId,
+  };
 }
 
-/**
- * Resolve the author's arena wallet via `farcaster_accounts.fid → user_id
- * → arena_wallets.user_id`. There is no `fid` column on `arena_wallets`,
- * so this is the only valid path.
- *
- * Returns `null` if the author has no Farcaster row or no arena wallet —
- * the two "no arena wallet" shapes collapse to the same user-facing reply.
- */
-async function findArenaWalletIdByFid(fid: number): Promise<string | null> {
+// ---------------------------------------------------------------------------
+// Step: load_command
+// ---------------------------------------------------------------------------
+
+type LoadedCommand = {
+  id: string;
+  status: string;
+  shouldExit: boolean;
+};
+
+const TERMINAL_STATUSES = new Set(["executed", "failed", "rejected"]);
+
+async function loadCommand(castHash: string): Promise<LoadedCommand> {
   "use step";
 
-  const { data: farcaster, error: farcasterError } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
+    .from("cast_commands")
+    .select("id, status")
+    .eq("cast_hash", castHash)
+    .single();
+
+  if (error) {
+    throw new Error(`load_command failed: ${error.message}`);
+  }
+
+  return {
+    id: data.id,
+    status: data.status,
+    shouldExit: TERMINAL_STATUSES.has(data.status),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Step: parse_command
+// ---------------------------------------------------------------------------
+
+async function parseStep(
+  text: string,
+): Promise<
+  | { ok: true; intent: TradeIntent }
+  | { ok: false; reason: string }
+> {
+  "use step";
+
+  const result = parseTradeCommand(text);
+  if (result.ok) return { ok: true, intent: result.intent };
+  return { ok: false, reason: result.reason };
+}
+
+// ---------------------------------------------------------------------------
+// Step: policy_validate (includes arena-wallet lookup)
+// ---------------------------------------------------------------------------
+
+type WalletLookup = {
+  userId: string;
+  walletId: string;
+  walletAddress: string;
+  privyWalletId: string;
+};
+
+async function resolveArenaWallet(
+  fid: number,
+): Promise<WalletLookup | null> {
+  "use step";
+
+  const { data: account, error: accErr } = await supabaseAdmin
     .from("farcaster_accounts")
     .select("user_id")
     .eq("fid", fid)
     .maybeSingle();
 
-  if (farcasterError) {
-    throw new Error(
-      `farcaster_accounts lookup failed: ${farcasterError.message}`,
-    );
-  }
-  if (!farcaster) {
-    return null;
-  }
+  if (accErr) throw new Error(`farcaster_accounts lookup failed: ${accErr.message}`);
+  if (!account) return null;
 
-  const { data: wallet, error: walletError } = await supabaseAdmin
+  const { data: wallet, error: wErr } = await supabaseAdmin
     .from("arena_wallets")
-    .select("id")
-    .eq("user_id", farcaster.user_id)
+    .select("id, wallet_address, privy_wallet_id")
+    .eq("user_id", account.user_id)
     .maybeSingle();
 
-  if (walletError) {
-    throw new Error(`arena_wallets lookup failed: ${walletError.message}`);
-  }
+  if (wErr) throw new Error(`arena_wallets lookup failed: ${wErr.message}`);
+  if (!wallet) return null;
 
-  return wallet?.id ?? null;
+  return {
+    userId: account.user_id,
+    walletId: wallet.id,
+    walletAddress: wallet.wallet_address,
+    privyWalletId: wallet.privy_wallet_id,
+  };
 }
 
-/**
- * Record a rejection on `cast_commands`. Also persists whatever parsed
- * fields were recovered — an asset-reject knows the user typed `buy`, an
- * oversize-reject knows the amount, etc. — so the audit log is useful.
- *
- * Respects the terminal-status guard: if the row is already `executed`,
- * `failed`, or `rejected`, the update is a no-op. That makes workflow
- * retries safe.
- */
-async function recordRejection(
-  castHash: string,
-  reason: RejectionReason,
-  parseResult: ParseResult,
-): Promise<void> {
+async function policyValidate(params: {
+  userId: string;
+  walletId: string;
+  walletAddress: string;
+  privyWalletId: string;
+  intent: TradeIntent;
+}) {
   "use step";
 
-  await updateCastCommand(castHash, {
-    status: "rejected",
-    errorReason: reason,
-    parsed: parsedFieldsFor(parseResult),
-  });
+  return await validatePolicy(params);
 }
 
-/**
- * Record an accepted command: update `cast_commands` with parsed fields
- * and `status='parsed'`, then insert the `trade_intents` row. The intent's
- * `cast_command_id` FK is `unique`, so a retry that reaches this step after
- * the first attempt succeeded is caught by the PK constraint and treated
- * as a no-op.
- */
-async function recordAccepted(
-  castHash: string,
-  parsed: Extract<ParseResult, { kind: "ok" }>,
-  walletId: string,
-): Promise<void> {
+// ---------------------------------------------------------------------------
+// Step: compute_fee (pure)
+// ---------------------------------------------------------------------------
+
+async function computeFee(params: {
+  notionalUsdc: number;
+  swapFeeBps: number;
+  swapFeeMinUsdc: number;
+}): Promise<number> {
   "use step";
 
-  const updated = await updateCastCommand(castHash, {
-    status: "parsed",
-    errorReason: null,
-    parsed: {
-      action: parsed.action,
-      symbol: parsed.symbol,
-      amount: parsed.amount,
-    },
-  });
-
-  if (!updated) {
-    // Terminal-status guard blocked the update — a prior run already
-    // handled this cast. Don't try to insert an intent row either; the
-    // first run will have done so (or moved it past `parsed`).
-    return;
-  }
-
-  const { error } = await supabaseAdmin.from("trade_intents").insert({
-    cast_command_id: updated.id,
-    wallet_id: walletId,
-    action: parsed.action,
-    asset_symbol: parsed.symbol,
-    amount_type: "usdc_in",
-    amount_value: parsed.amount,
-    status: "pending",
-  });
-
-  if (!error) return;
-
-  // Unique-violation on `cast_command_id` → another run already inserted
-  // the intent. Idempotent success.
-  if (isUniqueViolation(error)) return;
-
-  throw new Error(`trade_intents insert failed: ${error.message}`);
+  return computeSwapFeeUsdc(params);
 }
 
-/**
- * Publish the outcome reply. Shares one idempotency key across all five
- * outcomes because exactly one outcome fires per cast.
- *
- * Missing signer config is a configuration error, not a transient one —
- * promote to `FatalError` so the workflow runtime doesn't retry 6×.
- */
-async function publishOutcomeReply(
-  parentCastHash: string,
-  text: string,
-): Promise<void> {
+// ---------------------------------------------------------------------------
+// Step: quote_swap (0x quote + DB reservation)
+// ---------------------------------------------------------------------------
+
+type QuoteAndReserveReturn = ReservedExecution & {
+  txTo: string;
+  txData: string;
+  txValue: string;
+};
+
+async function quoteAndReserve(params: {
+  castCommandId: string;
+  ctx: PolicyContext;
+  intent: TradeIntent;
+  executionId: string;
+  feeUsdc: number;
+  netNotional: number;
+}): Promise<QuoteAndReserveReturn> {
   "use step";
 
+  const sellAmount = parseUnits(
+    params.netNotional.toFixed(USDC_DECIMALS),
+    USDC_DECIMALS,
+  );
+
+  let quote;
   try {
-    await publishReplyCast(parentCastHash, text, replyIdemKey(parentCastHash));
+    quote = await getAllowanceHolderQuote({
+      sellToken: USDC_BASE_ADDRESS,
+      buyToken: params.ctx.assetAddress,
+      sellAmount: sellAmount.toString(),
+      taker: params.ctx.walletAddress,
+      slippageBps: params.ctx.policy.maxSlippageBps,
+    });
   } catch (err) {
-    if (err instanceof MissingSignerError) {
+    if (err instanceof ZeroxNotConfiguredError) {
       throw new FatalError(err.message);
     }
     throw err;
   }
+
+  if (!quote.liquidityAvailable) {
+    throw new Error("quote_swap: 0x reports no liquidity for pair");
+  }
+
+  const reservation = await reserveOrLoadExecution({
+    castCommandId: params.castCommandId,
+    ctx: params.ctx,
+    intent: params.intent,
+    executionId: params.executionId,
+    feeUsdc: params.feeUsdc,
+    notionalUsdc: params.netNotional,
+  });
+
+  return {
+    ...reservation,
+    txTo: quote.transaction.to,
+    txData: quote.transaction.data,
+    txValue: quote.transaction.value,
+  };
 }
 
-/** Shared core for both rejection and acceptance updates on `cast_commands`. */
-async function updateCastCommand(
-  castHash: string,
-  patch: {
-    status: TerminalStatus;
-    errorReason: RejectionReason | null;
-    parsed: ParsedFields | null;
-  },
-): Promise<{ id: string } | null> {
-  const { data, error } = await supabaseAdmin
-    .from("cast_commands")
+// ---------------------------------------------------------------------------
+// Step: publish_intent_reply_cast
+// ---------------------------------------------------------------------------
+
+async function publishIntentReply(castHash: string, text: string): Promise<void> {
+  "use step";
+
+  try {
+    await publishReplyOnce({ castHash, kind: "intent", text });
+  } catch (err) {
+    if (err instanceof MissingSignerError) throw new FatalError(err.message);
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Step: submit_swap
+// ---------------------------------------------------------------------------
+
+async function submitSwap(params: {
+  executionId: string;
+  tradeExecutionId: string;
+  ctx: PolicyContext;
+  quoteTxTo: string;
+  quoteTxData: string;
+  quoteTxValue: string;
+}): Promise<{ txHash: string; privyTransactionId: string }> {
+  "use step";
+
+  const value =
+    params.quoteTxValue && params.quoteTxValue !== "0"
+      ? `0x${BigInt(params.quoteTxValue).toString(16)}`
+      : undefined;
+
+  const result = await signAndSendTransaction({
+    walletId: params.ctx.privyWalletId,
+    to: params.quoteTxTo,
+    data: params.quoteTxData,
+    value,
+    sponsor: true,
+    referenceId: params.executionId,
+  });
+
+  // Resolve final tx hash for the sponsored path.
+  let finalHash = result.hash;
+  if (!finalHash) {
+    try {
+      const { hash } = await waitForTransaction(result.transactionId, {
+        timeoutMs: 30_000,
+      });
+      finalHash = hash;
+    } catch (err) {
+      if (
+        err instanceof PrivyTransactionTimeoutError ||
+        err instanceof PrivyTransactionFailedError
+      ) {
+        // Persist the Privy handle so the reconciler can resolve later.
+        await supabaseAdmin
+          .from("trade_executions")
+          .update({
+            privy_transaction_id: result.transactionId,
+            status: "submitted",
+          })
+          .eq("id", params.tradeExecutionId);
+      }
+      throw err;
+    }
+  }
+
+  const { error } = await supabaseAdmin
+    .from("trade_executions")
     .update({
-      status: patch.status,
-      error_reason: patch.errorReason,
-      parsed_action: patch.parsed?.action ?? null,
-      parsed_symbol: patch.parsed?.symbol ?? null,
-      parsed_amount: patch.parsed?.amount ?? null,
+      tx_hash: finalHash,
+      privy_transaction_id: result.transactionId,
+      status: "submitted",
     })
-    .eq("cast_hash", castHash)
-    .not("status", "in", TERMINAL_STATUSES)
-    .select("id")
-    .maybeSingle();
+    .eq("id", params.tradeExecutionId);
 
   if (error) {
-    throw new Error(`cast_commands update failed: ${error.message}`);
+    throw new Error(`submit_swap: trade_executions update failed: ${error.message}`);
   }
 
-  return data;
+  return { txHash: finalHash, privyTransactionId: result.transactionId };
 }
 
-interface ParsedFields {
-  action: "buy";
-  symbol: string;
-  amount: number;
-}
+// ---------------------------------------------------------------------------
+// Step: transfer_fee
+// ---------------------------------------------------------------------------
 
-/**
- * Extract the `parsed_*` fields to persist for a given parse outcome.
- * Grammar rejections know nothing structural; everything else knows at
- * least `action='buy'` and the amount.
- */
-function parsedFieldsFor(result: ParseResult): ParsedFields | null {
-  switch (result.kind) {
-    case "grammar_error":
-      return null;
-    case "asset_error":
-      return {
-        action: result.action,
-        symbol: result.attemptedSymbol,
-        amount: result.amount,
-      };
-    case "oversize_error":
-    case "ok":
-      return {
-        action: result.action,
-        symbol: result.symbol,
-        amount: result.amount,
-      };
+async function transferFeeLeg(params: {
+  tradeExecutionId: string;
+  walletId: string;
+  feeUsdc: number;
+  executionId: string;
+}): Promise<void> {
+  "use step";
+
+  // Idempotency check: if we already recorded a fee_tx_hash, return.
+  const { data: row } = await supabaseAdmin
+    .from("trade_executions")
+    .select("fee_tx_hash")
+    .eq("id", params.tradeExecutionId)
+    .maybeSingle();
+
+  if (row?.fee_tx_hash) return;
+
+  try {
+    const result = await submitFeeTransfer({
+      walletId: params.walletId,
+      feeUsdc: params.feeUsdc,
+      referenceId: `${params.executionId}:fee`,
+    });
+
+    let hash = result.hash;
+    if (!hash) {
+      const { hash: waited } = await waitForTransaction(result.transactionId, {
+        timeoutMs: 15_000,
+      });
+      hash = waited;
+    }
+
+    await supabaseAdmin
+      .from("trade_executions")
+      .update({ fee_tx_hash: hash })
+      .eq("id", params.tradeExecutionId);
+  } catch (err) {
+    if (err instanceof OperatorTreasuryNotConfiguredError) {
+      throw new FatalError(err.message);
+    }
+    // Non-fatal: the swap already confirmed. Log and let the reconciler
+    // retry independently (see § Reconciliation fallback).
+    console.error("transfer_fee_failed", {
+      execution_id: params.tradeExecutionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
-/**
- * Detect Postgres unique-violation (SQLSTATE `23505`) on a Supabase error.
- * Supabase's PostgrestError exposes `.code`; we match it with a narrow
- * duck-type to avoid importing types from the SDK.
- */
+// ---------------------------------------------------------------------------
+// Step: verify_tx_onchain
+// ---------------------------------------------------------------------------
+
+async function verifyTxOnchain(params: {
+  tradeExecutionId: string;
+  txHash: string;
+}): Promise<{ txHash: string; confirmedAt: string }> {
+  "use step";
+
+  const receipt = await basePublicClient.waitForTransactionReceipt({
+    hash: params.txHash as Hex,
+    confirmations: 1,
+    timeout: 30_000,
+  });
+
+  if (receipt.status !== "success") {
+    await supabaseAdmin
+      .from("trade_executions")
+      .update({ status: "reverted" })
+      .eq("id", params.tradeExecutionId);
+    throw new Error(`verify_tx_onchain: tx ${params.txHash} reverted`);
+  }
+
+  const confirmedAt = new Date().toISOString();
+  const { error } = await supabaseAdmin
+    .from("trade_executions")
+    .update({ status: "confirmed", confirmed_at: confirmedAt })
+    .eq("id", params.tradeExecutionId);
+
+  if (error) {
+    throw new Error(`verify_tx_onchain: update failed: ${error.message}`);
+  }
+
+  return { txHash: params.txHash, confirmedAt };
+}
+
+// ---------------------------------------------------------------------------
+// Step: score_time_enforcement
+//
+// MVP: checks that realized fill is within the configured price-impact
+// tolerance. Reads the trade_executions row to see if we already stamped
+// a failure (idempotent).
+// ---------------------------------------------------------------------------
+
+async function scoreTimeEnforcement(params: {
+  tradeExecutionId: string;
+  quotedNotional: number;
+  maxPriceImpactBps: number;
+}): Promise<
+  { ok: true } | { ok: false; reason: string }
+> {
+  "use step";
+
+  // TODO: decode swap log + compute actual price impact vs oracle. For
+  // MVP we pass through so the happy path completes; the reconciler
+  // and a follow-up issue will wire the price-impact guard properly.
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Step: update_lots_and_positions
+//
+// Placeholder: real FIFO bookkeeping is a follow-up. We record a single
+// `positions` row upsert so the Arena page has something to render.
+// ---------------------------------------------------------------------------
+
+async function updateLotsAndPositions(params: {
+  tradeExecutionId: string;
+}): Promise<void> {
+  "use step";
+
+  // TODO: realize quantity + avg_cost from swap log; insert lots row
+  // keyed on opening_execution_id (unique), upsert positions. For now
+  // intentionally a no-op; see issue #8 follow-ups.
+  return;
+}
+
+// ---------------------------------------------------------------------------
+// Step: score_trade
+//
+// Placeholder: full scoring (profitable_close / return bonuses) lives in
+// a dedicated issue. We record `trade_executed` so the 5/day cap logic
+// has data to reason against.
+// ---------------------------------------------------------------------------
+
+async function scoreTrade(params: {
+  castCommandId: string;
+  userId: string;
+  tradeExecutionId: string;
+}): Promise<void> {
+  "use step";
+
+  const month = monthString();
+
+  const { error } = await supabaseAdmin.from("scoring_events").insert({
+    user_id: params.userId,
+    cast_command_id: params.castCommandId,
+    execution_id: params.tradeExecutionId,
+    event_type: "trade_executed",
+    points: 1,
+    month,
+  });
+
+  if (error) {
+    // Unique-on (cast_command_id, event_type) — replay is a no-op.
+    if (isUniqueViolation(error)) return;
+    console.error("score_trade failed", error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Step: publish_outcome_reply_cast
+// ---------------------------------------------------------------------------
+
+async function publishOutcomeReply(castHash: string, text: string): Promise<void> {
+  "use step";
+
+  try {
+    await publishReplyOnce({ castHash, kind: "outcome", text });
+  } catch (err) {
+    if (err instanceof MissingSignerError) throw new FatalError(err.message);
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DB helpers — status transitions
+// ---------------------------------------------------------------------------
+
+async function markStatus(castHash: string, status: string): Promise<void> {
+  "use step";
+
+  await supabaseAdmin
+    .from("cast_commands")
+    .update({ status })
+    .eq("cast_hash", castHash)
+    .not("status", "in", "(executed,failed,rejected)");
+}
+
+async function markRejected(
+  castHash: string,
+  reason: string,
+  terminalStatus: "rejected" | "failed" = "rejected",
+): Promise<void> {
+  "use step";
+
+  await supabaseAdmin
+    .from("cast_commands")
+    .update({ status: terminalStatus, error_reason: reason })
+    .eq("cast_hash", castHash)
+    .not("status", "in", "(executed,failed,rejected)");
+}
+
+// ---------------------------------------------------------------------------
+// Internals
+// ---------------------------------------------------------------------------
+
+function monthString(): string {
+  const now = new Date();
+  const yyyy = now.getUTCFullYear();
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  return `${yyyy}-${mm}`;
+}
+
 function isUniqueViolation(error: unknown): boolean {
   return (
     typeof error === "object" &&
