@@ -12,12 +12,20 @@ const JWT_SECRET_BYTES = new TextEncoder().encode(env.JWT_SECRET);
 
 export default async function proxy(req: NextRequest) {
   // Skip the session-cookie check for endpoints that authenticate
-  // themselves (sign-in exchanges a Farcaster Quick Auth token for our
-  // cookie; webhooks verify an HMAC signature; OG routes are public).
+  // themselves. Each one has its own credential path so we do not
+  // want the Farcaster session cookie layered on top:
+  //   - sign-in  → exchanges a Farcaster Quick Auth token for our cookie
+  //   - og       → public image routes
+  //   - webhooks → HMAC signature in the request body (e.g. Neynar)
+  //   - cron     → Authorization: Bearer ${CRON_SECRET} from Vercel Cron
+  //   - admin    → Authorization: Bearer ${ADMIN_API_TOKEN} from operators
+  const { pathname } = req.nextUrl;
   if (
-    req.nextUrl.pathname === "/api/auth/sign-in" ||
-    req.nextUrl.pathname.includes("/api/og") ||
-    req.nextUrl.pathname.includes("/api/webhook")
+    pathname === "/api/auth/sign-in" ||
+    pathname.startsWith("/api/og/") ||
+    pathname.startsWith("/api/webhooks/") ||
+    pathname.startsWith("/api/cron/") ||
+    pathname.startsWith("/api/admin/")
   ) {
     return NextResponse.next();
   }
