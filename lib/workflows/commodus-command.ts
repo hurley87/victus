@@ -3,10 +3,7 @@ import { parseUnits, type Hex } from "viem";
 
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { basePublicClient } from "@/lib/chain/client";
-import {
-  REJECTION_REPLIES,
-  buildAcceptedReply,
-} from "@/lib/commodus/templates";
+import { REJECTION_REPLIES } from "@/lib/commodus/templates";
 import { env } from "@/lib/env";
 import { MissingSignerError } from "@/lib/neynar";
 import {
@@ -35,6 +32,10 @@ import {
   reserveOrLoadExecution,
   type ReservedExecution,
 } from "@/lib/execution/reserve";
+import {
+  decodeSwapReceipt,
+  SwapLogMissingError,
+} from "@/lib/execution/swap-logs";
 import {
   buildIntentReply,
   buildOutcomeReply,
@@ -69,10 +70,10 @@ export interface CommandContext {
  * from the furthest-forward populated column (`tx_hash`, `confirmed_at`,
  * `cast_replies` rows, etc.).
  *
- * The happy path is fully implemented; decode / FIFO bookkeeping /
- * scoring are minimal placeholders with TODO markers — the replay-
- * safety and outcome-reply invariants hold regardless of how those
- * are fleshed out.
+ * The happy path is fully implemented through `decode_swap_log` (#26);
+ * FIFO bookkeeping (#10) / score-time price-impact (#12) / full scoring
+ * are minimal placeholders with TODO markers — the replay-safety and
+ * outcome-reply invariants hold regardless of how those are fleshed out.
  */
 export async function handleCommodusCommand(ctx: CommandContext) {
   "use workflow";
@@ -220,6 +221,25 @@ export async function handleCommodusCommand(ctx: CommandContext) {
         txHash: submitted.txHash,
       });
 
+  const decoded = await decodeSwapLog({
+    tradeExecutionId: reservation.tradeExecutionId,
+    txHash: confirmed.txHash,
+    walletAddress: policy.context.walletAddress,
+    assetAddress: policy.context.assetAddress,
+    assetDecimals: policy.context.assetDecimals,
+    reservedNotionalUsdc: netNotional,
+  });
+
+  if (!decoded.ok) {
+    await markTradeExecutionFailed(reservation.tradeExecutionId);
+    await markRejected(ctx.castHash, decoded.reason, "failed");
+    await publishOutcomeReply(
+      ctx.castHash,
+      buildOutcomeReply({ kind: "failure", reason: decoded.reason }),
+    );
+    return { status: "failed" as const, reason: decoded.reason };
+  }
+
   const enforcement = await scoreTimeEnforcement({
     tradeExecutionId: reservation.tradeExecutionId,
     quotedNotional: netNotional,
@@ -247,7 +267,13 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   await markStatus(ctx.castHash, "executed");
   await publishOutcomeReply(
     ctx.castHash,
-    buildAcceptedReply(intent.amount_value),
+    buildOutcomeReply({
+      kind: "success",
+      symbol: intent.symbol,
+      quantity: decoded.quantity,
+      notionalUsdc: decoded.usdcSpent,
+      txHash: confirmed.txHash,
+    }),
   );
 
   return {
@@ -667,6 +693,135 @@ async function verifyTxOnchain(params: {
   }
 
   return { txHash: params.txHash, confirmedAt };
+}
+
+// ---------------------------------------------------------------------------
+// Step: decode_swap_log
+//
+// Pulls the confirmed receipt, decodes the USDC-out + asset-in Transfer
+// events, and persists the realized `quantity` + `execution_price_usdc`
+// onto `trade_executions`. Idempotent: a replay after both columns are
+// populated short-circuits without touching the RPC.
+//
+// Failure modes mirror the issue spec (#26):
+//   - No matching Transfer → terminal failure, `decode_log_missing`.
+//   - Decoded USDC-out drifts from the reserved notional by >10 bps →
+//     terminal failure, `decode_log_mismatch`.
+//   - Receipt not yet indexed → viem throws, the workflow retries.
+// ---------------------------------------------------------------------------
+
+const DECODE_TOLERANCE_BPS = 10;
+type DecodeFailureReason = "decode_log_missing" | "decode_log_mismatch";
+
+type DecodeSwapLogResult =
+  | {
+      ok: true;
+      quantity: number;
+      executionPriceUsdc: number;
+      usdcSpent: number;
+    }
+  | { ok: false; reason: DecodeFailureReason };
+
+async function decodeSwapLog(params: {
+  tradeExecutionId: string;
+  txHash: string;
+  walletAddress: string;
+  assetAddress: string;
+  assetDecimals: number;
+  reservedNotionalUsdc: number;
+}): Promise<DecodeSwapLogResult> {
+  "use step";
+
+  // Idempotency short-circuit. The row is the single source of truth —
+  // a replay never re-fetches the receipt or re-decodes, so this step
+  // is cheap on retries.
+  const { data: existing, error: readErr } = await supabaseAdmin
+    .from("trade_executions")
+    .select("quantity, execution_price_usdc")
+    .eq("id", params.tradeExecutionId)
+    .maybeSingle();
+
+  if (readErr) {
+    throw new Error(`decode_swap_log: read failed: ${readErr.message}`);
+  }
+
+  if (
+    existing?.quantity != null &&
+    existing?.execution_price_usdc != null
+  ) {
+    return {
+      ok: true,
+      quantity: Number(existing.quantity),
+      executionPriceUsdc: Number(existing.execution_price_usdc),
+      usdcSpent: params.reservedNotionalUsdc,
+    };
+  }
+
+  // Receipt must be present by this point — verify_tx_onchain already
+  // waited for one confirmation. `getTransactionReceipt` throws a
+  // retryable `TransactionReceiptNotFoundError` if the RPC hasn't
+  // caught up; that's the desired "non-fatal retry" per the spec.
+  const receipt = await basePublicClient.getTransactionReceipt({
+    hash: params.txHash as Hex,
+  });
+
+  let decoded;
+  try {
+    decoded = decodeSwapReceipt(receipt, {
+      walletAddress: params.walletAddress,
+      assetAddress: params.assetAddress,
+      assetDecimals: params.assetDecimals,
+    });
+  } catch (err) {
+    if (err instanceof SwapLogMissingError) {
+      return { ok: false, reason: "decode_log_missing" };
+    }
+    throw err;
+  }
+
+  // 10 bps sanity check: aggregator routing can round dust in either
+  // direction, but a >0.1% gap between the reserved notional and the
+  // realized USDC-out almost always means we're decoding the wrong tx
+  // or against the wrong asset — fail fast rather than booking bad P&L.
+  const tolerance =
+    (params.reservedNotionalUsdc * DECODE_TOLERANCE_BPS) / 10_000;
+  if (
+    Math.abs(decoded.usdcHumanNumber - params.reservedNotionalUsdc) > tolerance
+  ) {
+    return { ok: false, reason: "decode_log_mismatch" };
+  }
+
+  // Supabase accepts string values on `numeric` columns, so the decimal
+  // strings from `formatUnits` land verbatim — no float round-trip.
+  const { error: updErr } = await supabaseAdmin
+    .from("trade_executions")
+    .update({
+      quantity: decoded.quantity as unknown as number,
+      execution_price_usdc: decoded.executionPriceUsdc as unknown as number,
+    })
+    .eq("id", params.tradeExecutionId);
+
+  if (updErr) {
+    throw new Error(`decode_swap_log: update failed: ${updErr.message}`);
+  }
+
+  return {
+    ok: true,
+    quantity: decoded.quantityNumber,
+    executionPriceUsdc: decoded.executionPriceUsdcNumber,
+    usdcSpent: decoded.usdcHumanNumber,
+  };
+}
+
+async function markTradeExecutionFailed(
+  tradeExecutionId: string,
+): Promise<void> {
+  "use step";
+
+  await supabaseAdmin
+    .from("trade_executions")
+    .update({ status: "failed" })
+    .eq("id", tradeExecutionId);
 }
 
 // ---------------------------------------------------------------------------
