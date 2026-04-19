@@ -3,7 +3,10 @@ import { parseUnits, type Hex } from "viem";
 
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { basePublicClient } from "@/lib/chain/client";
-import { buildAcceptedReply } from "@/lib/commodus/templates";
+import {
+  REJECTION_REPLIES,
+  buildAcceptedReply,
+} from "@/lib/commodus/templates";
 import { env } from "@/lib/env";
 import { MissingSignerError } from "@/lib/neynar";
 import {
@@ -23,12 +26,9 @@ import {
   submitFeeTransfer,
   OperatorTreasuryNotConfiguredError,
 } from "@/lib/execution/fee-transfer";
-import {
-  computeSwapFeeUsdc,
-  netBuyNotionalUsdc,
-} from "@/lib/execution/fees";
+import { computeSwapFeeUsdc } from "@/lib/execution/fees";
 import { deriveExecutionId } from "@/lib/execution/ids";
-import { parseTradeCommand } from "@/lib/execution/parse";
+import { parseCommandIntent } from "@/lib/execution/parse";
 import { validatePolicy, type PolicyContext } from "@/lib/execution/policy";
 import { publishReplyOnce } from "@/lib/execution/reply-guard";
 import {
@@ -38,9 +38,10 @@ import {
 import {
   buildIntentReply,
   buildOutcomeReply,
+  HANDOFF_REJECTION_COPY,
   POLICY_REJECTION_COPY,
 } from "@/lib/execution/templates";
-import type { TradeIntent } from "@/lib/execution/intents";
+import type { CommandIntent, TradeIntent } from "@/lib/execution/intents";
 
 /**
  * Payload forwarded from the Neynar `cast.created` webhook. Narrow by
@@ -83,16 +84,24 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
   const parseOutcome = await parseStep(ctx.text);
   if (!parseOutcome.ok) {
-    await markRejected(ctx.castHash, parseOutcome.reason);
-    await publishOutcomeReply(
-      ctx.castHash,
-      buildOutcomeReply({ kind: "failure", reason: parseOutcome.reason }),
-    );
-    return { status: "rejected" as const, reason: parseOutcome.reason };
+    const rejection = parseRejectionFor(parseOutcome.reason);
+    await markRejected(ctx.castHash, rejection.errorReason);
+    await publishOutcomeReply(ctx.castHash, rejection.reply);
+    return { status: "rejected" as const, reason: rejection.errorReason };
   }
 
-  const intent = parseOutcome.intent;
+  const commandIntent = parseOutcome.intent;
   await markStatus(ctx.castHash, "parsed");
+
+  // Status branch — short-circuit before the entire trade pipeline.
+  // Real reply behavior (Snap card + rank) is issue #13; this issue
+  // only wires the no-op handoff point.
+  if (commandIntent.action === "status") {
+    await handleStatusNoop({ castHash: ctx.castHash });
+    return { status: "status_ack" as const };
+  }
+
+  const intent: TradeIntent = commandIntent;
 
   const walletLookup = await resolveArenaWallet(ctx.authorFid);
   if (!walletLookup) {
@@ -122,15 +131,31 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
   await markStatus(ctx.castHash, "validated");
 
+  // Sell handoff — #9 reaches `policy_validate` and stops here. Full
+  // sell execution (quote, submit, FIFO lot consumption, realized PnL)
+  // is issue #10. Leaving the `TODO(#10)` markers below so the pickup
+  // PR knows what to remove.
+  if (intent.action === "sell") {
+    await markRejected(ctx.castHash, "sell_not_yet_supported");
+    await publishOutcomeReply(
+      ctx.castHash,
+      HANDOFF_REJECTION_COPY.sell_not_yet_supported,
+    );
+    return {
+      status: "rejected" as const,
+      reason: "sell_not_yet_supported" as const,
+    };
+  }
+
+  // `intent` is now narrowed to `BuyIntent` — sells branched out above
+  // and status branched out before wallet lookup.
   const feeUsdc = await computeFee({
     notionalUsdc: intent.amount_value,
     swapFeeBps: policy.context.policy.swapFeeBps,
     swapFeeMinUsdc: policy.context.policy.swapFeeMinUsdc,
   });
 
-  const netNotional = intent.action === "buy"
-    ? Math.max(intent.amount_value - feeUsdc, 0)
-    : intent.amount_value;
+  const netNotional = Math.max(intent.amount_value - feeUsdc, 0);
 
   if (netNotional <= 0) {
     await markRejected(ctx.castHash, "max_trade_usdc");
@@ -271,14 +296,37 @@ async function loadCommand(castHash: string): Promise<LoadedCommand> {
 async function parseStep(
   text: string,
 ): Promise<
-  | { ok: true; intent: TradeIntent }
+  | { ok: true; intent: CommandIntent }
   | { ok: false; reason: string }
 > {
   "use step";
 
-  const result = parseTradeCommand(text);
+  const result = await parseCommandIntent(text);
   if (result.ok) return { ok: true, intent: result.intent };
   return { ok: false, reason: result.reason };
+}
+
+// ---------------------------------------------------------------------------
+// Step: handle_status_noop
+//
+// Placeholder for the status command. Marks the cast terminal so
+// replays don't re-enter the workflow; the real Snap-card reply lives
+// in issue #13.
+//
+// TODO(#13): replace this with a real status reply step that builds
+//            the portfolio summary + rank and publishes an outcome
+//            cast. The terminal status marker here becomes the
+//            `status_ack` -> `executed` transition at that point.
+// ---------------------------------------------------------------------------
+
+async function handleStatusNoop(params: { castHash: string }): Promise<void> {
+  "use step";
+
+  await supabaseAdmin
+    .from("cast_commands")
+    .update({ status: "executed" })
+    .eq("cast_hash", params.castHash)
+    .not("status", "in", "(executed,failed,rejected)");
 }
 
 // ---------------------------------------------------------------------------
@@ -756,4 +804,35 @@ function isUniqueViolation(error: unknown): boolean {
     "code" in error &&
     (error as { code?: unknown }).code === "23505"
   );
+}
+
+/**
+ * Maps a parser rejection reason onto the templated Commodus reply +
+ * the `cast_commands.error_reason` string. Parse-level rejections use
+ * the voice catalog in `lib/commodus/templates.ts`, not the generic
+ * execution outcome copy — the grammar rejection text is pinned to
+ * the PRD § Commodus Voice exemplar.
+ */
+function parseRejectionFor(reason: string): {
+  errorReason: string;
+  reply: string;
+} {
+  if (reason === "grammar_error") {
+    return { errorReason: "grammar", reply: REJECTION_REPLIES.grammar };
+  }
+  if (reason === "asset_error") {
+    return {
+      errorReason: "non_whitelisted_token",
+      reply: REJECTION_REPLIES.non_whitelisted_token,
+    };
+  }
+  if (reason === "oversize_error") {
+    return { errorReason: "oversize", reply: REJECTION_REPLIES.oversize };
+  }
+  // Defensive: unknown reasons fall through to the generic outcome copy
+  // so a future parser shape doesn't silently drop the reply.
+  return {
+    errorReason: reason,
+    reply: buildOutcomeReply({ kind: "failure", reason }),
+  };
 }

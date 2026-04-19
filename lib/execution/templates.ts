@@ -54,3 +54,19 @@ export const POLICY_REJECTION_COPY: Record<PolicyRejectionReason, string> = {
   wallet_cap_usdc:
     "Order denied. Thy arena coffers have reached their cap. Withdraw before deploying more.",
 };
+
+/**
+ * Non-policy templated rejection copy used by the workflow for states
+ * that aren't a `PolicyRejectionReason` — features that have passed
+ * every gate but are not yet fully wired.
+ *
+ * TODO(#10): remove `sell_not_yet_supported` once sell execution is
+ *            implemented; sells should then flow through the full
+ *            pipeline like buys.
+ */
+export const HANDOFF_REJECTION_COPY = {
+  sell_not_yet_supported:
+    "The decree is understood, gladiator, but the arena does not yet accept sales. Return when the forges of Rome are ready.",
+} as const satisfies Record<string, string>;
+
+export type HandoffRejectionReason = keyof typeof HANDOFF_REJECTION_COPY;

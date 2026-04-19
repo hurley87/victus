@@ -19,7 +19,7 @@ export type RejectionReason =
  */
 export const REJECTION_REPLIES: Record<RejectionReason, string> = {
   grammar:
-    "Speak as Rome taught you, gladiator. Valid decrees: `buy N usdc of aero`.",
+    "Speak as Rome taught you, gladiator. Valid decrees: `buy N usdc of SYMBOL`, `sell N% of SYMBOL`, `status`.",
   no_arena_wallet:
     "Enter the arena first, gladiator. Open the Mini App to designate thine arena address.",
   non_whitelisted_token: "Order denied. Asset not approved for this arena.",
