@@ -52,10 +52,19 @@ export const env = createEnv({
     // the quote_swap pipeline step; optional at build so environments
     // without it still boot.
     ZEROX_API_KEY: z.string().min(1).optional(),
-    // OpenAI API key for the Vercel AI SDK `generateObject` fallback in
-    // the parser. The regex pre-filter handles the happy path without it;
-    // unset environments fall back to regex-only behavior.
+    // OpenAI API key for direct-provider fallback. Kept for forward-compat
+    // with providers that haven't moved behind the gateway yet; the
+    // command parser (#9) routes via the AI Gateway. Optional at build,
+    // so unset environments still boot.
     OPENAI_API_KEY: z.string().min(1).optional(),
+    // Vercel AI Gateway API key used by the command parser's LLM fallback
+    // (issue #9). Vercel deployments auto-authenticate via OIDC and don't
+    // need it set; self-hosted envs do. Optional at build (the regex
+    // pre-filter handles canonical `buy N usdc of SYMBOL` phrasing
+    // without any LLM call, so `pnpm build` succeeds without it). The
+    // LLM fallback path throws at runtime if both this and OIDC are
+    // unavailable.
+    AI_GATEWAY_API_KEY: z.string().min(1).optional(),
     // Shared secret for `/api/admin/*` endpoints (reconciler trigger,
     // future ops tooling). Bearer token in Authorization header. Required
     // at runtime by the admin reconciler route; optional at build.

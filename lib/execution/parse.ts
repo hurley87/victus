@@ -1,31 +1,39 @@
 import "server-only";
 
 import {
+  normalizeCommandText,
   parseCommand,
   type ParseResult,
 } from "@/lib/commodus/parser";
 
-import { TradeIntentSchema, type TradeIntent } from "./intents";
+import type { CommandIntent } from "./intents";
+import {
+  parseCommandIntentWithLlm,
+  type ParseWithLlmOptions,
+} from "./llm-parse";
 
 /**
- * Parser step entry point for the durable pipeline.
+ * Two-stage parser for the `parse_command` workflow step.
  *
- * Today this is a regex pre-filter only. Future-compat: if the regex
- * does not match, fall through to a Vercel AI SDK `generateObject`
- * call against the AI Gateway with `TradeIntentSchema`. That fallback
- * is intentionally stubbed for now — the tradeoff is observability:
- * the regex handles 95% of canonical `buy N usdc of SYMBOL` phrasing,
- * and falling back for the 5% of casual grammar costs latency + AI
- * spend that we'd rather not pay before the pipeline is seasoned.
+ * Stage 1 — regex pre-filter (`lib/commodus/parser.ts`).
+ *   The canonical AERO buy path (`buy N usdc of aero`) is matched
+ *   without any LLM call and returns a buy `CommandIntent` directly.
+ *   Grammar mismatches fall through to Stage 2. Structurally-valid
+ *   buys that fail the hardcoded whitelist / size heuristics
+ *   (`asset_error`, `oversize_error`) short-circuit here — the
+ *   parser is the right layer to surface "you typed a real command
+ *   but it's not tradable", and `policy_validate` will redundantly
+ *   reject the same cases for LLM-parsed variants.
  *
- * The parse result is normalized to one of two shapes the workflow
- * can switch on:
+ * Stage 2 — Vercel AI SDK fallback (`llm-parse.ts`).
+ *   Handles casual phrasings for buy/sell/status that the regex
+ *   cannot: `"sell half my aero"`, `"@commodus status"`,
+ *   `"what's my rank"`, etc. Returns a `CommandIntent` or signals
+ *   `grammar` after retry-once.
  *
- *   - `{ ok: true, intent }` — a validated `TradeIntent` (Zod-parsed,
- *     ready for policy + fee + quote steps).
- *   - `{ ok: false, reason }` — a rejection reason matching the
- *     `lib/commodus/templates` catalog so outcome-reply wiring is
- *     deterministic.
+ * The result is a narrow `{ ok: true, intent } | { ok: false, reason }`
+ * shape. Callers (the workflow) switch on `reason` for templated
+ * outcome replies.
  */
 
 export type ParseReason =
@@ -33,22 +41,40 @@ export type ParseReason =
   | "asset_error"
   | "oversize_error";
 
-export type ParseOutcome =
-  | { ok: true; intent: TradeIntent }
-  | { ok: false; reason: ParseReason; raw: ParseResult };
+export type ParseCommandOutcome =
+  | { ok: true; intent: CommandIntent }
+  | { ok: false; reason: ParseReason; raw?: ParseResult };
 
-export function parseTradeCommand(text: string): ParseOutcome {
-  const result = parseCommand(text);
+export type ParseCommandOptions = {
+  /** Passthrough for the LLM fallback (injected in tests). */
+  llm?: ParseWithLlmOptions;
+};
 
-  if (result.kind === "ok") {
-    const intent = TradeIntentSchema.parse({
-      action: result.action,
-      symbol: result.symbol,
-      amount_type: "usdc_in",
-      amount_value: result.amount,
-    });
-    return { ok: true, intent };
+export async function parseCommandIntent(
+  text: string,
+  opts: ParseCommandOptions = {},
+): Promise<ParseCommandOutcome> {
+  const regex = parseCommand(text);
+
+  if (regex.kind === "ok") {
+    return {
+      ok: true,
+      intent: {
+        action: "buy",
+        symbol: regex.symbol,
+        amount_type: "usdc_in",
+        amount_value: regex.amount,
+      },
+    };
   }
 
-  return { ok: false, reason: result.kind, raw: result };
+  if (regex.kind === "asset_error" || regex.kind === "oversize_error") {
+    return { ok: false, reason: regex.kind, raw: regex };
+  }
+
+  const normalized = normalizeCommandText(text);
+  const llm = await parseCommandIntentWithLlm(normalized, opts.llm);
+  if (llm.ok) return { ok: true, intent: llm.intent };
+
+  return { ok: false, reason: "grammar_error", raw: regex };
 }

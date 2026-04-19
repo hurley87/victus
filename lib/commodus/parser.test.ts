@@ -139,7 +139,10 @@ describe("parseCommand — grammar rejections", () => {
     });
   });
 
-  it("rejects sell and status verbs (deferred to #9/#13)", () => {
+  it("rejects sell and status verbs at the regex layer (handled by the LLM fallback in #9)", () => {
+    // Stage 1 is a strict AERO-buy regex; sell and status verbs miss
+    // the pattern here and are routed to `parseCommandIntent`'s LLM
+    // fallback. See `lib/execution/parse.ts` + `llm-parse.ts`.
     expect(parseCommand("@commo sell 100% of aero")).toEqual({
       kind: "grammar_error",
     });
