@@ -9,10 +9,8 @@ import { env } from "@/lib/env";
  *
  * We use the Allowance Holder flow so the arena wallet approves a
  * single canonical contract (0x's AllowanceHolder) for MAX_UINT once
- * per token, then every subsequent swap is a single `eth_sendTransaction`
- * to that same contract. No per-swap approval dance — relevant given
- * every tx is gas-sponsored and we want to minimize the sponsored
- * surface area.
+ * per token; every subsequent swap is a single `eth_sendTransaction`
+ * to that same contract.
  *
  * Docs: https://0x.org/docs/api#tag/Swap/operation/swap::allowanceHolder::getQuote
  *
@@ -22,8 +20,11 @@ import { env } from "@/lib/env";
  *     workflow step can branch on them cleanly.
  *
  * What it intentionally does NOT cover:
- *   - Approval bookkeeping (callers should track per-wallet allowance
- *     state separately; for MVP we set max approval at mint time).
+ *   - Approval issuance — handled by `lib/execution/allowance.ts`
+ *     (`ensureUsdcAllowance`), invoked from the workflow's
+ *     `ensure_allowance` step before each swap. Stateless: reads the
+ *     current on-chain allowance and submits a MAX_UINT approval only
+ *     when the wallet is under-approved.
  *   - Price vs quote distinction (we only need quote+calldata).
  *   - Sell-side sizing (MVP is buy-only; sells add post-MVP).
  */
