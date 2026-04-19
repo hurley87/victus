@@ -18,6 +18,7 @@ import {
   ZeroxNotConfiguredError,
 } from "@/lib/zerox/quote";
 
+import { ensureUsdcAllowance } from "@/lib/execution/allowance";
 import {
   submitFeeTransfer,
   OperatorTreasuryNotConfiguredError,
@@ -58,9 +59,9 @@ export interface CommandContext {
  *
  * Flow (issue #8 § Workflow):
  *   load_command → parse → policy_validate → compute_fee → quote_swap →
- *   publish_intent_reply → submit_swap → transfer_fee → verify_tx →
- *   decode_swap_log → score_time_enforcement → update_lots_and_positions →
- *   score_trade → publish_outcome_reply
+ *   publish_intent_reply → ensure_allowance → submit_swap → transfer_fee →
+ *   verify_tx → decode_swap_log → score_time_enforcement →
+ *   update_lots_and_positions → score_trade → publish_outcome_reply
  *
  * Every step is `'use step'` and either pure or idempotent check-then-
  * act. Replays land on the same `execution_id` reservation and pick up
@@ -153,6 +154,15 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   await markStatus(ctx.castHash, "quoted");
 
   await publishIntentReply(ctx.castHash, buildIntentReply(intent));
+
+  // Guarantees `USDC.allowance(arenaWallet, AllowanceHolder) >= sellAmount`.
+  // A no-op read for wallets that already MAX-approved on a prior swap.
+  await ensureAllowanceStep({
+    ctx: policy.context,
+    spender: reservation.txTo,
+    sellAmountBaseUnits: reservation.sellAmountBaseUnits,
+    executionId,
+  });
 
   const submitted: { txHash: string; privyTransactionId: string | null } =
     reservation.txHash
@@ -348,6 +358,8 @@ type QuoteAndReserveReturn = ReservedExecution & {
   txTo: string;
   txData: string;
   txValue: string;
+  /** USDC sell amount in base units, serialized as a string (BigInt → string). */
+  sellAmountBaseUnits: string;
 };
 
 async function quoteAndReserve(params: {
@@ -403,6 +415,7 @@ async function quoteAndReserve(params: {
     txTo: quote.transaction.to,
     txData: quote.transaction.data,
     txValue: quote.transaction.value,
+    sellAmountBaseUnits: sellAmount.toString(),
   };
 }
 
@@ -419,6 +432,33 @@ async function publishIntentReply(castHash: string, text: string): Promise<void>
     if (err instanceof MissingSignerError) throw new FatalError(err.message);
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Step: ensure_allowance
+// ---------------------------------------------------------------------------
+
+/**
+ * Guarantees the arena wallet has approved the 0x Allowance Holder
+ * contract to pull its USDC. The first swap for a wallet broadcasts a
+ * one-time MAX_UINT approve; subsequent swaps short-circuit on the
+ * allowance view call. See `lib/execution/allowance.ts` for details.
+ */
+async function ensureAllowanceStep(params: {
+  ctx: PolicyContext;
+  spender: string;
+  sellAmountBaseUnits: string;
+  executionId: string;
+}): Promise<void> {
+  "use step";
+
+  await ensureUsdcAllowance({
+    walletAddress: params.ctx.walletAddress,
+    privyWalletId: params.ctx.privyWalletId,
+    spender: params.spender,
+    minRequired: BigInt(params.sellAmountBaseUnits),
+    referenceId: params.executionId,
+  });
 }
 
 // ---------------------------------------------------------------------------
