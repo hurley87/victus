@@ -4,6 +4,7 @@ import { parseUnits, type Hex } from "viem";
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { basePublicClient } from "@/lib/chain/client";
 import { buildAcceptedReply } from "@/lib/commodus/templates";
+import { env } from "@/lib/env";
 import { MissingSignerError } from "@/lib/neynar";
 import {
   PrivyTransactionFailedError,
@@ -444,7 +445,7 @@ async function submitSwap(params: {
     to: params.quoteTxTo,
     data: params.quoteTxData,
     value,
-    sponsor: true,
+    sponsor: env.PRIVY_SPONSOR_GAS,
     referenceId: params.executionId,
   });
 

@@ -157,6 +157,16 @@ See `docs/mvp.md` § Gladiator Mint for the full flow.
 PRIVY_APP_ID=
 PRIVY_APP_SECRET=
 
+# Whether Privy sponsors gas for arena-wallet transactions.
+#   true  (default) — platform-sponsored; requires an active Privy
+#                     sponsorship subscription. Arena wallets never
+#                     hold ETH.
+#   false           — arena wallets pay their own gas. Each needs
+#                     ~0.0005 ETH on Base (dust — covers thousands of
+#                     swaps). Use this in any environment without an
+#                     active Privy sponsorship plan.
+PRIVY_SPONSOR_GAS=true
+
 # Base EOA that receives fee-on-swap transfers from arena wallets.
 # Configure the same wallet in the Privy dashboard as the
 # gas-sponsorship top-up destination so fees self-refill the balance.

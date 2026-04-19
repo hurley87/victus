@@ -5,6 +5,7 @@ import { getAddress, isAddress, parseUnits, type Address } from "viem";
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { readUsdcBalance } from "@/lib/chain/erc20";
 import { buildErc20TransferCalldata } from "@/lib/chain/erc20-calldata";
+import { env } from "@/lib/env";
 import { fetchUser } from "@/lib/neynar";
 import {
   PrivyApiError,
@@ -172,7 +173,7 @@ export async function withdrawUsdc(params: {
       walletId: arena.privyWalletId,
       to: USDC_BASE_ADDRESS,
       data: calldata,
-      sponsor: true,
+      sponsor: env.PRIVY_SPONSOR_GAS,
       referenceId,
     });
 

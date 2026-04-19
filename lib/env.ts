@@ -24,6 +24,20 @@ export const env = createEnv({
     // runtime when either is missing. See README § Privy setup.
     PRIVY_APP_ID: z.string().min(1).optional(),
     PRIVY_APP_SECRET: z.string().min(1).optional(),
+    // Whether Privy should sponsor gas for arena-wallet transactions.
+    // `true`  — platform-sponsored via Privy's subscription (the
+    //            long-term posture; arena wallets never hold ETH).
+    // `false` — arena wallets pay their own gas. Set this for any
+    //            environment without an active Privy sponsorship plan.
+    //            Each wallet needs a small ETH balance on Base
+    //            (~0.0005 ETH covers thousands of swaps).
+    // Accepts `true`/`false`/`1`/`0` (case-insensitive). Defaults to
+    // true so existing deployments are unaffected.
+    PRIVY_SPONSOR_GAS: z
+      .enum(["true", "false", "1", "0"])
+      .optional()
+      .default("true")
+      .transform((v) => v === "true" || v === "1"),
     // Base-mainnet EOA that receives fee-on-swap transfers. Required at
     // runtime by the execution pipeline (#8) but not by mint itself; kept
     // optional here so environments that haven't wired it yet still boot.
