@@ -53,19 +53,37 @@ export const DEFAULT_COMMAND_PARSER_MODEL = "openai/gpt-5.4-mini";
  * Schema sent to the LLM. Includes an `invalid` arm so the model can
  * surface "no command present" without having to throw. The outer
  * helper collapses `invalid` into `{ ok: false, reason: "grammar" }`.
+ *
+ * IMPORTANT: OpenAI's structured-output mode has two constraints that
+ * shape this schema:
+ *   1. The root MUST be `type: "object"` — a bare union serializes to
+ *      a top-level `anyOf` with no `type` and is rejected with
+ *      `"schema must be a JSON Schema of 'type: \"object\"'"`.
+ *   2. `oneOf` is not permitted anywhere — so Zod's
+ *      `z.discriminatedUnion(...)` (which serializes to `oneOf`) is
+ *      rejected with `"'oneOf' is not permitted"` even when nested.
+ *
+ * Workaround: wrap the intent in a single-field object envelope, and
+ * use `z.union(...)` for the intent arms (Zod 4 serializes this to
+ * `anyOf`, which OpenAI accepts). We unwrap `intent` on the way out
+ * and TypeScript still narrows correctly on the `action` literal.
  */
 const InvalidIntentSchema = z.object({
   action: z.literal("invalid"),
 });
 
-const LlmCommandIntentSchema = z.discriminatedUnion("action", [
+const LlmCommandIntentUnion = z.union([
   BuyIntentSchema,
   SellIntentSchema,
   StatusIntentSchema,
   InvalidIntentSchema,
 ]);
 
-export type LlmCommandIntent = z.infer<typeof LlmCommandIntentSchema>;
+const LlmResponseSchema = z.object({
+  intent: LlmCommandIntentUnion,
+});
+
+export type LlmCommandIntent = z.infer<typeof LlmCommandIntentUnion>;
 
 export type LlmParseResult =
   | { ok: true; intent: CommandIntent }
@@ -73,12 +91,19 @@ export type LlmParseResult =
 
 const SYSTEM_PROMPT = `You are the grammar validator for the Commodus Roman-arena trading bot.
 
-Your only job is to classify a single cast text into exactly one of four shapes:
+Your only job is to classify a single cast text and return a JSON object
+of shape { "intent": <one of four intents below> }:
 
   1. buy:    { "action": "buy",    "symbol": "<TICKER>",   "amount_type": "usdc_in",     "amount_value": <positive number> }
   2. sell:   { "action": "sell",   "symbol": "<TICKER>",   "amount_type": "percent_out", "amount_value": <integer 1..100> }
   3. status: { "action": "status" }
   4. invalid:{ "action": "invalid" }
+
+Examples of the full envelope:
+  - { "intent": { "action": "buy",  "symbol": "AERO", "amount_type": "usdc_in",     "amount_value": 5  } }
+  - { "intent": { "action": "sell", "symbol": "AERO", "amount_type": "percent_out", "amount_value": 50 } }
+  - { "intent": { "action": "status" } }
+  - { "intent": { "action": "invalid" } }
 
 Canonical PRD grammar:
   - "buy N usdc of SYMBOL"       e.g. "buy 5 usdc of aero"
@@ -142,7 +167,7 @@ export async function parseCommandIntentWithLlm(
     try {
       const result = await generate({
         model,
-        output: Output.object({ schema: LlmCommandIntentSchema }),
+        output: Output.object({ schema: LlmResponseSchema }),
         system: SYSTEM_PROMPT,
         prompt: `Cast text (already lowercased + mention-stripped): ${JSON.stringify(text)}`,
       });
@@ -150,11 +175,12 @@ export async function parseCommandIntentWithLlm(
       // `result.output` is typed by `Output.object`, but the SDK does
       // not validate against our schema end-to-end — we re-validate so
       // a provider that silently drops fields lands in the retry loop.
-      const parsed = LlmCommandIntentSchema.safeParse(result.output);
+      const parsed = LlmResponseSchema.safeParse(result.output);
       if (!parsed.success) continue;
-      if (parsed.data.action === "invalid") continue;
+      const intent = parsed.data.intent;
+      if (intent.action === "invalid") continue;
 
-      return { ok: true, intent: parsed.data };
+      return { ok: true, intent };
     } catch {
       // Swallow — any gateway or schema error burns one attempt and
       // falls through to the retry or hard-fail below.

@@ -23,9 +23,12 @@ type FakeResult = Awaited<ReturnType<GenerateText>>;
 
 /**
  * Tiny helper that builds a `generateText` stand-in returning a
- * scripted sequence of outputs (object) or errors. Keeps the test
- * surface focused on behavior, not on re-casting the SDK's full
- * result shape.
+ * scripted sequence of intents (or errors). Each non-error value is
+ * wrapped in the `{ intent: ... }` envelope the parser expects — this
+ * matches the OpenAI structured-output contract (schemas must be root
+ * `type: "object"`, so the discriminated union is nested under
+ * `intent`). Keeps the test surface focused on behavior, not on
+ * re-casting the SDK's full result shape.
  */
 function makeFakeLlm(
   sequence: ReadonlyArray<unknown | Error>,
@@ -35,7 +38,7 @@ function makeFakeLlm(
     const value = sequence[calls] ?? sequence[sequence.length - 1];
     calls += 1;
     if (value instanceof Error) throw value;
-    return { output: value } as FakeResult;
+    return { output: { intent: value } } as FakeResult;
   }) as unknown as GenerateText;
   return { generate, callCount: () => calls };
 }
