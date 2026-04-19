@@ -18,6 +18,7 @@ import type {
 } from "@/lib/arena/types";
 import { cn, copyToClipboard, formatWalletAddress } from "@/lib/utils";
 import { Button } from "@/components/shared/ui/button";
+import Link from "next/link";
 import { DepositButton } from "./deposit-button";
 import { WithdrawButton } from "./withdraw-button";
 import { Website } from "../website";
@@ -349,6 +350,21 @@ function AliveCard({
           <li>@commodus sell 50% of aero</li>
           <li>@commodus status</li>
         </ul>
+      </div>
+
+      <div className="flex flex-wrap gap-3 text-sm">
+        <Link
+          href="/leaderboard"
+          className="text-purple-700 font-medium hover:underline"
+        >
+          Leaderboard
+        </Link>
+        <Link
+          href="/portfolio"
+          className="text-purple-700 font-medium hover:underline"
+        >
+          Portfolio
+        </Link>
       </div>
     </section>
   );
