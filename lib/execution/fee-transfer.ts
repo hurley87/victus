@@ -79,7 +79,7 @@ export async function submitFeeTransfer(
     walletId: params.walletId,
     to: USDC_BASE_ADDRESS,
     data,
-    sponsor: true,
+    sponsor: env.PRIVY_SPONSOR_GAS,
     referenceId: params.referenceId,
   });
 }
