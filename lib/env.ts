@@ -34,6 +34,21 @@ export const env = createEnv({
     // Base mainnet RPC for reading on-chain state (USDC + position
     // balances). Defaults to the public endpoint; override for production.
     BASE_RPC_URL: z.string().url().default("https://mainnet.base.org"),
+    // 0x Swap API key (Allowance Holder endpoint). Required at runtime by
+    // the quote_swap pipeline step; optional at build so environments
+    // without it still boot.
+    ZEROX_API_KEY: z.string().min(1).optional(),
+    // OpenAI API key for the Vercel AI SDK `generateObject` fallback in
+    // the parser. The regex pre-filter handles the happy path without it;
+    // unset environments fall back to regex-only behavior.
+    OPENAI_API_KEY: z.string().min(1).optional(),
+    // Shared secret for `/api/admin/*` endpoints (reconciler trigger,
+    // future ops tooling). Bearer token in Authorization header. Required
+    // at runtime by the admin reconciler route; optional at build.
+    ADMIN_API_TOKEN: z.string().min(1).optional(),
+    // Vercel-provisioned cron secret. Required at runtime by the cron
+    // reconciler route; absent in dev.
+    CRON_SECRET: z.string().min(1).optional(),
   },
   client: {
     NEXT_PUBLIC_URL: z.string().min(1),
