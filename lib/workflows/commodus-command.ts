@@ -33,6 +33,7 @@ import {
   type ReservedExecution,
 } from "@/lib/execution/reserve";
 import { applyLotsAndPositionsForExecution } from "@/lib/execution/lot-persistence";
+import { scoreTradeAfterExecution } from "@/lib/scoring/score-trade";
 import {
   decodeSwapReceipt,
   SwapLogMissingError,
@@ -71,9 +72,9 @@ export interface CommandContext {
  * from the furthest-forward populated column (`tx_hash`, `confirmed_at`,
  * `cast_replies` rows, etc.).
  *
- * The happy path is fully implemented through `decode_swap_log` (#26)
- * and FIFO lot accounting (#10). Score-time price-impact (#12) / full
- * scoring beyond `trade_executed` remain minimal placeholders.
+ * The happy path is fully implemented through `decode_swap_log` (#26),
+ * FIFO lot accounting (#10), and the scoring engine (#11). Score-time
+ * price-impact (#12) remains a pass-through placeholder.
  */
 export async function handleCommodusCommand(ctx: CommandContext) {
   "use workflow";
@@ -239,10 +240,11 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       intentAction: "sell",
     });
 
-    await scoreTrade({
+    await scoreTradeStep({
       castCommandId: loaded.id,
       userId: walletLookup.userId,
       tradeExecutionId: sellReservation.tradeExecutionId,
+      intentAction: "sell",
     });
 
     await markStatus(ctx.castHash, "executed");
@@ -376,10 +378,11 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     tradeExecutionId: reservation.tradeExecutionId,
     intentAction: "buy",
   });
-  await scoreTrade({
+  await scoreTradeStep({
     castCommandId: loaded.id,
     userId: walletLookup.userId,
     tradeExecutionId: reservation.tradeExecutionId,
+    intentAction: "buy",
   });
 
   await markStatus(ctx.castHash, "executed");
@@ -1094,37 +1097,15 @@ async function updateLotsAndPositions(params: {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Step: score_trade
-//
-// Placeholder: full scoring (profitable_close / return bonuses) lives in
-// a dedicated issue. We record `trade_executed` so the 5/day cap logic
-// has data to reason against.
-// ---------------------------------------------------------------------------
-
-async function scoreTrade(params: {
+async function scoreTradeStep(params: {
   castCommandId: string;
   userId: string;
   tradeExecutionId: string;
+  intentAction: "buy" | "sell";
 }): Promise<void> {
   "use step";
 
-  const month = monthString();
-
-  const { error } = await supabaseAdmin.from("scoring_events").insert({
-    user_id: params.userId,
-    cast_command_id: params.castCommandId,
-    execution_id: params.tradeExecutionId,
-    event_type: "trade_executed",
-    points: 1,
-    month,
-  });
-
-  if (error) {
-    // Unique-on (cast_command_id, event_type) — replay is a no-op.
-    if (isUniqueViolation(error)) return;
-    console.error("score_trade failed", error);
-  }
+  await scoreTradeAfterExecution(params);
 }
 
 // ---------------------------------------------------------------------------
@@ -1173,22 +1154,6 @@ async function markRejected(
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
-
-function monthString(): string {
-  const now = new Date();
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  return `${yyyy}-${mm}`;
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "23505"
-  );
-}
 
 /**
  * Maps a parser rejection reason onto the templated Commodus reply +

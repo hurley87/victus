@@ -50,6 +50,12 @@ export const validateImageUrl = async (url: string): Promise<string | null> => {
  * formatNumberWithSuffix(1234) => "1.23k"
  * formatNumberWithSuffix(1234567) => "1.23M"
  */
+/** USDC (or dollar) amounts for display in Mini App tables and portfolio. */
+export function formatUsd(n: number): string {
+  const sign = n < 0 ? "-" : "";
+  return `${sign}$${Math.abs(n).toFixed(2)}`;
+}
+
 export const formatNumberWithSuffix = (value: number, decimals = 2): string => {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return "0";
