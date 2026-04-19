@@ -6,6 +6,7 @@ import { useFarcaster } from "@/contexts/farcaster-context";
 import { useUser } from "@/contexts/user-context";
 import { useApiMutation } from "@/hooks/use-api-mutation";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { ApiError } from "@/lib/api-error";
 import type {
   ArenaBalance,
   ArenaProfile,
@@ -18,6 +19,7 @@ import type {
 import { cn, copyToClipboard, formatWalletAddress } from "@/lib/utils";
 import { Button } from "@/components/shared/ui/button";
 import { DepositButton } from "./deposit-button";
+import { WithdrawButton } from "./withdraw-button";
 import { Website } from "../website";
 
 /**
@@ -151,6 +153,7 @@ function renderState(profile: ArenaProfile, onChange: () => void) {
         dailySlotsRemaining={profile.daily_slots_remaining}
         maxTradesPerDay={profile.rules.max_trades_per_day}
         maxTradeUsdc={profile.rules.max_trade_usdc}
+        onWithdrawn={onChange}
       />
     );
   }
@@ -294,6 +297,7 @@ function AliveCard({
   dailySlotsRemaining,
   maxTradesPerDay,
   maxTradeUsdc,
+  onWithdrawn,
 }: {
   gladiator: GladiatorSummary;
   arenaAddress: string;
@@ -301,6 +305,7 @@ function AliveCard({
   dailySlotsRemaining: number;
   maxTradesPerDay: number;
   maxTradeUsdc: number;
+  onWithdrawn: () => void;
 }) {
   const [isCopied, setIsCopied] = useState(false);
   const addressShort = useMemo(
@@ -332,6 +337,8 @@ function AliveCard({
       </div>
 
       <BalanceBlock balance={balance} />
+
+      <WithdrawButton balanceUsdc={balance.usdc} onWithdrawn={onWithdrawn} />
 
       <div className="rounded-md bg-white/70 border border-green-900/10 p-2">
         <p className="text-[11px] uppercase tracking-wider text-green-900/70 mb-1">
@@ -458,14 +465,12 @@ function Centered({ children }: { children: React.ReactNode }) {
   );
 }
 
-// `useApiMutation` only surfaces `API Error: <status>` with no body, so
-// we switch on the status code to pick user-facing copy. With the
-// auto-derived-name flow, 400/409 are effectively unreachable (Farcaster
-// usernames are globally unique and the `gladiator-{fid}` fallback is
-// too) — kept as defensive fallbacks in case an admin surface later
-// reintroduces an explicit-name path.
+// With the auto-derived-name flow, 400/409 are effectively unreachable
+// (Farcaster usernames are globally unique and the `gladiator-{fid}`
+// fallback is too) — kept as defensive fallbacks in case an admin
+// surface later reintroduces an explicit-name path.
 function mapMintError(err: Error): string {
-  const status = Number(err.message.match(/API Error: (\d+)/)?.[1]);
+  const status = err instanceof ApiError ? err.status : 0;
   switch (status) {
     case 401:
       return "Your session expired. Please sign in again.";

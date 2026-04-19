@@ -1,5 +1,6 @@
 "use client";
 
+import { ApiError } from "@/lib/api-error";
 import type { AuthenticatedUser } from "@/lib/auth/types";
 import type { MiniAppContext } from "@farcaster/miniapp-core/dist/context";
 import sdk from "@farcaster/miniapp-sdk";
@@ -72,7 +73,7 @@ export const UserProvider = ({
       if (me.ok) return me.user;
 
       if (!autoSignIn || !context) {
-        throw new Error(`API Error: ${me.status}`);
+        throw new ApiError(me.status, `API Error: ${me.status}`);
       }
 
       return await performSignIn(context);
@@ -164,7 +165,7 @@ async function performSignIn(
   });
 
   if (!res.ok) {
-    throw new Error(`API Error: ${res.status}`);
+    throw await ApiError.fromResponse(res);
   }
 
   const body = (await res.json()) as { success: boolean; user: AuthenticatedUser };

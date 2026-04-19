@@ -1,5 +1,7 @@
 import { useMutation, UseMutationOptions } from "@tanstack/react-query";
 
+import { ApiError } from "@/lib/api-error";
+
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
 interface UseApiMutationOptions<TData, TVariables>
@@ -37,7 +39,7 @@ export const useApiMutation = <TData, TVariables = unknown>(
       });
 
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+        throw await ApiError.fromResponse(response);
       }
 
       return response.json();

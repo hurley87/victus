@@ -1,5 +1,14 @@
 # Custodial withdraw to Farcaster-verified address
 
+> **Revived as #14 on 2026-04-18.** The trigger condition below ("a true
+> custodial balance held by the platform") was established by #19, which
+> pivoted arena wallets to Privy server-wallets. This file is kept for
+> historical context; the live spec lives on the issue.
+
+---
+
+# Historical record (pre-revival)
+
 **Status:** cut (was GitHub issue #14, closed as wontfix)
 **Date cut:** 2026-04-18
 

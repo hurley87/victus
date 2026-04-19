@@ -7,12 +7,7 @@ import type {
   MintGladiatorRequest,
   MintGladiatorResponse,
 } from "@/lib/arena/types";
-import {
-  GladiatorMintUnavailableError,
-  GladiatorNameTakenError,
-  InvalidGladiatorNameError,
-  mintGladiator,
-} from "@/lib/gladiators/service";
+import { GladiatorMintError, mintGladiator } from "@/lib/gladiators/service";
 
 export const dynamic = "force-dynamic";
 
@@ -61,17 +56,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(body);
   } catch (err) {
-    if (err instanceof InvalidGladiatorNameError) {
-      return NextResponse.json({ error: err.message }, { status: 400 });
-    }
-    if (err instanceof GladiatorNameTakenError) {
-      return NextResponse.json({ error: err.message }, { status: 409 });
-    }
-    if (err instanceof GladiatorMintUnavailableError) {
-      console.error("Gladiator mint unavailable", err);
+    if (err instanceof GladiatorMintError) {
+      // Log 5xx only — 4xx are user-caused and already observable via
+      // access logs.
+      if (err.status >= 500) console.error(err.name, err);
       return NextResponse.json(
-        { error: "Mint temporarily unavailable, try again shortly" },
-        { status: 503 },
+        { error: err.message },
+        { status: err.status },
       );
     }
     console.error("Unexpected mint error", err);

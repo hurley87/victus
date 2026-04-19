@@ -9,26 +9,37 @@ import { supabaseAdmin } from "@/lib/supabase/server";
  * `arena_wallets` row, and a `gladiators` row (status `pending_funding`)
  * for the signed-in user. Wrapped in custom errors so the HTTP route
  * can render specific status codes.
+ *
+ * Each error carries its HTTP status so the route can collapse its
+ * error ladder to a single `instanceof GladiatorMintError` branch.
+ * Same pattern as `lib/arena/withdraw.ts::WithdrawError`.
  */
 
-export class InvalidGladiatorNameError extends Error {
+export class GladiatorMintError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = new.target.name;
+  }
+}
+
+export class InvalidGladiatorNameError extends GladiatorMintError {
   constructor(message = "Invalid gladiator name") {
-    super(message);
-    this.name = "InvalidGladiatorNameError";
+    super(message, 400);
   }
 }
 
-export class GladiatorNameTakenError extends Error {
+export class GladiatorNameTakenError extends GladiatorMintError {
   constructor() {
-    super("That name belongs to another gladiator");
-    this.name = "GladiatorNameTakenError";
+    super("That name belongs to another gladiator", 409);
   }
 }
 
-export class GladiatorMintUnavailableError extends Error {
+export class GladiatorMintUnavailableError extends GladiatorMintError {
   constructor(message = "Mint temporarily unavailable") {
-    super(message);
-    this.name = "GladiatorMintUnavailableError";
+    super(message, 503);
   }
 }
 

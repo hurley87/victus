@@ -1,9 +1,7 @@
 /**
- * Shared types for the Arena onboarding surface.
- *
- * These are the wire contracts for `GET /api/arena/me` and
- * `POST /api/gladiators/mint`. Keeping them colocated with the service
- * means the handler, the service, and the client stay in sync.
+ * Wire contracts for the Arena HTTP surface — `/api/arena/me`,
+ * `/api/arena/withdraw`, and `/api/gladiators/mint`. Colocated so
+ * the handler, the service, and the client stay in sync.
  */
 
 import type { ArenaBalance, PositionBalance } from "@/lib/chain/balances";
@@ -76,4 +74,19 @@ export type MintGladiatorResponse = {
   arena_address: string;
   gladiator: GladiatorSummary;
   min_mint_deposit_usdc: number;
+};
+
+/**
+ * Withdraw request body. Amount omitted = sweep full live USDC balance.
+ * USDC on Base only; non-USDC tokens are out of scope for MVP.
+ */
+export type WithdrawRequest = {
+  amount_usdc?: number;
+};
+
+export type WithdrawResponse = {
+  tx_hash: string;
+  amount_usdc: number;
+  to: string;
+  destination_source: "verification" | "custody";
 };

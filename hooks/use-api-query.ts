@@ -1,5 +1,7 @@
 import { useQuery, UseQueryOptions } from "@tanstack/react-query";
 
+import { ApiError } from "@/lib/api-error";
+
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
 interface UseApiQueryOptions<TData, TBody = unknown>
@@ -39,7 +41,7 @@ export const useApiQuery = <TData, TBody = unknown>(
       });
 
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+        throw await ApiError.fromResponse(response);
       }
 
       return response.json();
