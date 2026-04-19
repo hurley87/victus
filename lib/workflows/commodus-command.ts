@@ -139,16 +139,15 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     return { status: "rejected" as const, reason: "fee_exceeds_notional" };
   }
 
-  const executionId = deriveExecutionId(ctx.castHash);
-
   const reservation = await quoteAndReserve({
+    castHash: ctx.castHash,
     castCommandId: loaded.id,
     ctx: policy.context,
     intent,
-    executionId,
     feeUsdc,
     netNotional,
   });
+  const executionId = reservation.executionId;
 
   await markStatus(ctx.castHash, "quoted");
 
@@ -344,20 +343,24 @@ async function computeFee(params: {
 // ---------------------------------------------------------------------------
 
 type QuoteAndReserveReturn = ReservedExecution & {
+  executionId: string;
   txTo: string;
   txData: string;
   txValue: string;
 };
 
 async function quoteAndReserve(params: {
+  castHash: string;
   castCommandId: string;
   ctx: PolicyContext;
   intent: TradeIntent;
-  executionId: string;
   feeUsdc: number;
   netNotional: number;
 }): Promise<QuoteAndReserveReturn> {
   "use step";
+
+  // Derive inside the step — node:crypto is not allowed at workflow scope.
+  const executionId = deriveExecutionId(params.castHash);
 
   const sellAmount = parseUnits(
     params.netNotional.toFixed(USDC_DECIMALS),
@@ -388,13 +391,14 @@ async function quoteAndReserve(params: {
     castCommandId: params.castCommandId,
     ctx: params.ctx,
     intent: params.intent,
-    executionId: params.executionId,
+    executionId,
     feeUsdc: params.feeUsdc,
     notionalUsdc: params.netNotional,
   });
 
   return {
     ...reservation,
+    executionId,
     txTo: quote.transaction.to,
     txData: quote.transaction.data,
     txValue: quote.transaction.value,
