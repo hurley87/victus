@@ -7,13 +7,27 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import type { PortfolioResult } from "@/lib/portfolio/service";
 import { formatUsd } from "@/lib/utils";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Website } from "../website";
 import { Button } from "@/components/shared/ui/button";
+
+function parseFidQuery(raw: string | null): number | null {
+  if (raw == null || raw === "") return null;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  if (!Number.isSafeInteger(n) || n <= 0) return null;
+  return n;
+}
 
 export default function PortfolioPage() {
   const { isInBrowser } = useEnvironment();
   const { context } = useFarcaster();
   const { user, isSignedIn, signIn, isLoading: isSigningIn } = useUser();
+  const searchParams = useSearchParams();
+  const fidFromUrl = parseFidQuery(searchParams.get("fid"));
+  const fidParamInvalid =
+    searchParams.has("fid") && fidFromUrl === null;
 
   if (isInBrowser) {
     return <Website />;
@@ -41,20 +55,46 @@ export default function PortfolioPage() {
     );
   }
 
-  const fid = user.data.fid;
-  return <PortfolioContent fid={fid} username={user.data.username} />;
+  if (fidParamInvalid) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white text-black p-4 gap-2">
+        <p className="text-sm text-red-600 text-center">
+          This portfolio link is invalid (check the <code className="font-mono">fid</code>{" "}
+          in the URL).
+        </p>
+        <Button variant="outline" asChild>
+          <Link href="/portfolio">Open your portfolio</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  const viewerFid = user.data.fid;
+  const targetFid = fidFromUrl != null ? String(fidFromUrl) : viewerFid;
+  const isViewingOther =
+    fidFromUrl != null && String(fidFromUrl) !== String(viewerFid);
+
+  return (
+    <PortfolioContent
+      targetFid={targetFid}
+      viewerUsername={user.data.username}
+      isViewingOther={isViewingOther}
+    />
+  );
 }
 
 function PortfolioContent({
-  fid,
-  username,
+  targetFid,
+  viewerUsername,
+  isViewingOther,
 }: {
-  fid: string;
-  username: string;
+  targetFid: string;
+  viewerUsername: string;
+  isViewingOther: boolean;
 }) {
   const { data, isLoading, error, refetch } = useApiQuery<PortfolioResult>({
-    queryKey: ["portfolio", fid],
-    url: `/api/users/${fid}/portfolio`,
+    queryKey: ["portfolio", targetFid],
+    url: `/api/users/${targetFid}/portfolio`,
     isProtected: true,
     retry: false,
   });
@@ -78,18 +118,36 @@ function PortfolioContent({
     );
   }
 
+  const handle =
+    data.username != null && data.username !== ""
+      ? data.username
+      : isViewingOther
+        ? null
+        : viewerUsername;
   const title =
     data.gladiator_name ??
-    (data.display_name || (username ? `@${username}` : `fid ${fid}`));
+    (data.display_name || (handle ? `@${handle}` : `fid ${targetFid}`));
 
   return (
     <div className="bg-white text-black min-h-screen flex flex-col items-center p-4">
       <div className="w-full max-w-lg space-y-5 pt-8">
+        {isViewingOther ? (
+          <div
+            className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+            role="status"
+          >
+            Viewing this gladiator&apos;s ledger (shared link).{" "}
+            <Link href="/portfolio" className="font-medium text-purple-800 underline">
+              Open your portfolio
+            </Link>
+            .
+          </div>
+        ) : null}
         <header className="flex items-start justify-between gap-2">
           <div>
             <h1 className="text-2xl font-semibold">{title}</h1>
             <p className="text-sm text-muted-foreground">
-              @{username} · Realized PnL (closed sells)
+              @{handle ?? `fid ${targetFid}`} · Realized PnL (closed sells)
             </p>
           </div>
           <Link
