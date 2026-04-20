@@ -235,6 +235,8 @@ export function buildStatusReplyText(params: {
   points: number;
   portfolioUsdc: number;
   dailySlotsRemaining: number;
+  /** Absolute HTTPS URL of the Snap JSON endpoint for this FID (`NEXT_PUBLIC_URL` + path). */
+  snapUrl: string;
 }): string {
   const rankPart =
     params.rank != null ? `rank ${params.rank}` : "no rank yet on the monthly board";
@@ -248,6 +250,6 @@ export function buildStatusReplyText(params: {
   const opener = name.length > 0 ? `${name} — ` : "";
   return (
     `${opener}Commodus reads ${rankPart}, ${pts} monthly points, ${usd} USDC in the arena vault, ` +
-    `${slots} trade${params.dailySlotsRemaining === 1 ? "" : "s"} left this day. Tap the card for thy ledger.`
+    `${slots} trade${params.dailySlotsRemaining === 1 ? "" : "s"} left this day. Snap: ${params.snapUrl}`
   );
 }
