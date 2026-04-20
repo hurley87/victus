@@ -1,5 +1,11 @@
 import { FatalError } from "workflow";
-import { formatUnits, parseUnits, type Hex } from "viem";
+import {
+  formatUnits,
+  getAddress,
+  parseUnits,
+  type Address,
+  type Hex,
+} from "viem";
 
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { basePublicClient } from "@/lib/chain/client";
@@ -16,6 +22,7 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 import {
   getAllowanceHolderQuote,
   ZeroxNotConfiguredError,
+  type AllowanceHolderQuote,
 } from "@/lib/zerox/quote";
 
 import { ensureErc20Allowance, ensureUsdcAllowance } from "@/lib/execution/allowance";
@@ -26,7 +33,10 @@ import {
 import { computeSwapFeeUsdc } from "@/lib/execution/fees";
 import { deriveExecutionId } from "@/lib/execution/ids";
 import { parseCommandIntent } from "@/lib/execution/parse";
-import { validatePolicy, type PolicyContext } from "@/lib/execution/policy";
+import {
+  validatePolicy,
+  type PolicyContext,
+} from "@/lib/execution/policy";
 import { publishReplyOnce } from "@/lib/execution/reply-guard";
 import {
   reserveOrLoadExecution,
@@ -36,6 +46,7 @@ import { applyLotsAndPositionsForExecution } from "@/lib/execution/lot-persisten
 import { scoreTradeAfterExecution } from "@/lib/scoring/score-trade";
 import {
   decodeSwapReceipt,
+  findDisallowedWalletTokens,
   SwapLogMissingError,
   type SwapDirection,
 } from "@/lib/execution/swap-logs";
@@ -74,7 +85,7 @@ export interface CommandContext {
  *
  * The happy path is fully implemented through `decode_swap_log` (#26),
  * FIFO lot accounting (#10), and the scoring engine (#11). Score-time
- * price-impact (#12) remains a pass-through placeholder.
+ * price-impact (#12) compares the realized fill to a reference 0x quote.
  */
 export async function handleCommodusCommand(ctx: CommandContext) {
   "use workflow";
@@ -204,7 +215,10 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     });
 
     if (!sellDecoded.ok) {
-      await markTradeExecutionFailed(sellReservation.tradeExecutionId);
+      await markTradeExecutionFailed(
+        sellReservation.tradeExecutionId,
+        sellDecoded.reason,
+      );
       await markRejected(ctx.castHash, sellDecoded.reason, "failed");
       await publishOutcomeReply(
         ctx.castHash,
@@ -222,11 +236,18 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
     const sellEnforcement = await scoreTimeEnforcement({
       tradeExecutionId: sellReservation.tradeExecutionId,
-      quotedNotional: sellReservation.reservedFillUsdc,
       maxPriceImpactBps: policy.context.policy.maxPriceImpactBps,
+      maxSlippageBps: policy.context.policy.maxSlippageBps,
+      taker: policy.context.walletAddress,
+      assetAddress: policy.context.assetAddress,
+      assetDecimals: policy.context.assetDecimals,
     });
 
     if (!sellEnforcement.ok) {
+      await markTradeExecutionFailed(
+        sellReservation.tradeExecutionId,
+        sellEnforcement.reason,
+      );
       await markRejected(ctx.castHash, sellEnforcement.reason, "failed");
       await publishOutcomeReply(
         ctx.castHash,
@@ -343,7 +364,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   });
 
   if (!decoded.ok) {
-    await markTradeExecutionFailed(reservation.tradeExecutionId);
+    await markTradeExecutionFailed(reservation.tradeExecutionId, decoded.reason);
     await markRejected(ctx.castHash, decoded.reason, "failed");
     await publishOutcomeReply(
       ctx.castHash,
@@ -361,11 +382,18 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
   const enforcement = await scoreTimeEnforcement({
     tradeExecutionId: reservation.tradeExecutionId,
-    quotedNotional: reservation.reservedFillUsdc,
     maxPriceImpactBps: policy.context.policy.maxPriceImpactBps,
+    maxSlippageBps: policy.context.policy.maxSlippageBps,
+    taker: policy.context.walletAddress,
+    assetAddress: policy.context.assetAddress,
+    assetDecimals: policy.context.assetDecimals,
   });
 
   if (!enforcement.ok) {
+    await markTradeExecutionFailed(
+      reservation.tradeExecutionId,
+      enforcement.reason,
+    );
     await markRejected(ctx.castHash, enforcement.reason, "failed");
     await publishOutcomeReply(
       ctx.castHash,
@@ -519,6 +547,13 @@ async function resolveArenaWallet(
   };
 }
 
+function rethrowZeroxNotConfiguredAsFatal(err: unknown): never {
+  if (err instanceof ZeroxNotConfiguredError) {
+    throw new FatalError(err.message);
+  }
+  throw err;
+}
+
 async function policyValidate(params: {
   userId: string;
   walletId: string;
@@ -528,7 +563,11 @@ async function policyValidate(params: {
 }) {
   "use step";
 
-  return await validatePolicy(params);
+  try {
+    return await validatePolicy(params);
+  } catch (err) {
+    rethrowZeroxNotConfiguredAsFatal(err);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -589,10 +628,7 @@ async function quoteAndReserve(params: {
       slippageBps: params.ctx.policy.maxSlippageBps,
     });
   } catch (err) {
-    if (err instanceof ZeroxNotConfiguredError) {
-      throw new FatalError(err.message);
-    }
-    throw err;
+    rethrowZeroxNotConfiguredAsFatal(err);
   }
 
   if (!quote.liquidityAvailable) {
@@ -641,10 +677,7 @@ async function quoteAndReserveSell(params: {
       slippageBps: params.ctx.policy.maxSlippageBps,
     });
   } catch (err) {
-    if (err instanceof ZeroxNotConfiguredError) {
-      throw new FatalError(err.message);
-    }
-    throw err;
+    rethrowZeroxNotConfiguredAsFatal(err);
   }
 
   if (!quote.liquidityAvailable) {
@@ -884,7 +917,7 @@ async function verifyTxOnchain(params: {
   if (receipt.status !== "success") {
     await supabaseAdmin
       .from("trade_executions")
-      .update({ status: "reverted" })
+      .update({ status: "reverted", failure_reason: "revert" })
       .eq("id", params.tradeExecutionId);
     throw new Error(`verify_tx_onchain: tx ${params.txHash} reverted`);
   }
@@ -918,7 +951,10 @@ async function verifyTxOnchain(params: {
 // ---------------------------------------------------------------------------
 
 const DECODE_TOLERANCE_BPS = 10;
-type DecodeFailureReason = "decode_log_missing" | "decode_log_mismatch";
+type DecodeFailureReason =
+  | "decode_log_missing"
+  | "decode_log_mismatch"
+  | "non_whitelisted_token";
 
 type DecodeSwapLogResult =
   | {
@@ -993,6 +1029,15 @@ async function decodeSwapLog(params: {
     throw err;
   }
 
+  const rogue = findDisallowedWalletTokens(
+    receipt,
+    params.walletAddress,
+    getAddress(params.assetAddress),
+  );
+  if (rogue.length > 0) {
+    return { ok: false, reason: "non_whitelisted_token" };
+  }
+
   // 10 bps sanity check: aggregator routing can round dust in either
   // direction, but a >0.1% gap between the reserved notional and the
   // realized USDC-out almost always means we're decoding the wrong tx
@@ -1030,43 +1075,180 @@ async function decodeSwapLog(params: {
 
 async function markTradeExecutionFailed(
   tradeExecutionId: string,
+  failureReason: string,
 ): Promise<void> {
   "use step";
 
   await supabaseAdmin
     .from("trade_executions")
-    .update({ status: "failed" })
+    .update({ status: "failed", failure_reason: failureReason })
     .eq("id", tradeExecutionId);
+}
+
+function quantityFieldToParseString(q: number | string, fractionDigits: number) {
+  if (typeof q === "number") {
+    return q.toFixed(fractionDigits);
+  }
+  return String(q).trim();
+}
+
+async function fetchReferenceZeroxQuoteForImpactCheck(params: {
+  intentAction: "buy" | "sell";
+  assetAddress: `0x${string}`;
+  assetDecimals: number;
+  quantity: number | string | null;
+  notionalUsdc: number | string | null;
+  taker: `0x${string}`;
+  slippageBps: number;
+  blockNumber: bigint;
+}): Promise<AllowanceHolderQuote> {
+  const errors: string[] = [];
+
+  for (const delta of [BigInt(0), BigInt(1), BigInt(-1)]) {
+    const bn = params.blockNumber + delta;
+    if (bn < BigInt(0)) continue;
+    try {
+      if (params.intentAction === "buy") {
+        const usdcHuman = Number(params.notionalUsdc ?? 0);
+        const sellWei = parseUnits(
+          usdcHuman.toFixed(USDC_DECIMALS),
+          USDC_DECIMALS,
+        );
+        return await getAllowanceHolderQuote({
+          sellToken: USDC_BASE_ADDRESS,
+          buyToken: params.assetAddress,
+          sellAmount: sellWei.toString(),
+          taker: params.taker,
+          slippageBps: params.slippageBps,
+          blockNumber: bn,
+        });
+      }
+
+      const qtyStr = quantityFieldToParseString(
+        params.quantity ?? "0",
+        params.assetDecimals,
+      );
+      const sellWei = parseUnits(qtyStr, params.assetDecimals);
+      return await getAllowanceHolderQuote({
+        sellToken: params.assetAddress,
+        buyToken: USDC_BASE_ADDRESS,
+        sellAmount: sellWei.toString(),
+        taker: params.taker,
+        slippageBps: params.slippageBps,
+        blockNumber: bn,
+      });
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  throw new Error(
+    `reference 0x quote failed (±1 block): ${errors.join(" | ")}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Step: score_time_enforcement
 //
-// MVP: checks that realized fill is within the configured price-impact
-// tolerance. Reads the trade_executions row to see if we already stamped
-// a failure (idempotent).
+// Compares realized on-chain fill vs. a reference 0x quote at the confirm
+// block (±1). Breach → `price_impact` without scoring.
 // ---------------------------------------------------------------------------
 
 async function scoreTimeEnforcement(params: {
   tradeExecutionId: string;
-  quotedNotional: number;
   maxPriceImpactBps: number;
-}): Promise<
-  { ok: true } | { ok: false; reason: string }
-> {
+  maxSlippageBps: number;
+  taker: Address;
+  assetAddress: Address;
+  assetDecimals: number;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
   "use step";
 
-  // TODO: decode swap log + compute actual price impact vs oracle. For
-  // MVP we pass through so the happy path completes; the reconciler
-  // and a follow-up issue will wire the price-impact guard properly.
+  const { data: row, error: rowErr } = await supabaseAdmin
+    .from("trade_executions")
+    .select(
+      "status, failure_reason, tx_hash, quantity, notional_usdc, trade_intents!inner(action)",
+    )
+    .eq("id", params.tradeExecutionId)
+    .single();
+
+  if (rowErr || !row) {
+    throw new Error(`score_time_enforcement: load failed: ${rowErr?.message}`);
+  }
+
+  if (row.status === "failed" && row.failure_reason === "price_impact") {
+    return { ok: false, reason: "price_impact" };
+  }
+
+  const intent = row.trade_intents as { action: string };
+
+  if (
+    row.quantity == null ||
+    row.notional_usdc == null ||
+    !row.tx_hash ||
+    (intent.action !== "buy" && intent.action !== "sell")
+  ) {
+    return { ok: true };
+  }
+
+  const receipt = await basePublicClient.getTransactionReceipt({
+    hash: row.tx_hash as Hex,
+  });
+
+  let ref: AllowanceHolderQuote;
+  try {
+    ref = await fetchReferenceZeroxQuoteForImpactCheck({
+      intentAction: intent.action,
+      assetAddress: params.assetAddress,
+      assetDecimals: params.assetDecimals,
+      quantity: row.quantity,
+      notionalUsdc: row.notional_usdc,
+      taker: params.taker,
+      slippageBps: params.maxSlippageBps,
+      blockNumber: receipt.blockNumber,
+    });
+  } catch (err) {
+    rethrowZeroxNotConfiguredAsFatal(err);
+  }
+
+  if (!ref.liquidityAvailable) {
+    return { ok: true };
+  }
+
+  const refOutWei = BigInt(ref.buyAmount);
+  if (refOutWei === BigInt(0)) {
+    return { ok: true };
+  }
+
+  let actualOutWei: bigint;
+  if (intent.action === "buy") {
+    const qtyStr = quantityFieldToParseString(
+      row.quantity,
+      params.assetDecimals,
+    );
+    actualOutWei = parseUnits(qtyStr, params.assetDecimals);
+  } else {
+    const usdcHuman = Number(row.notional_usdc);
+    actualOutWei = parseUnits(usdcHuman.toFixed(USDC_DECIMALS), USDC_DECIMALS);
+  }
+
+  const diff =
+    actualOutWei > refOutWei
+      ? actualOutWei - refOutWei
+      : refOutWei - actualOutWei;
+  const impactBps = Number((diff * BigInt(10_000)) / refOutWei);
+
+  if (impactBps > params.maxPriceImpactBps) {
+    return { ok: false, reason: "price_impact" };
+  }
+
   return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
 // Step: update_lots_and_positions
 //
-// Placeholder: real FIFO bookkeeping is a follow-up. We record a single
-// `positions` row upsert so the Arena page has something to render.
+// FIFO lot / position persistence via `applyLotsAndPositionsForExecution`.
 // ---------------------------------------------------------------------------
 
 async function updateLotsAndPositions(params: {
@@ -1174,9 +1356,6 @@ function parseRejectionFor(reason: string): {
       errorReason: "non_whitelisted_token",
       reply: REJECTION_REPLIES.non_whitelisted_token,
     };
-  }
-  if (reason === "oversize_error") {
-    return { errorReason: "oversize", reply: REJECTION_REPLIES.oversize };
   }
   // Defensive: unknown reasons fall through to the generic outcome copy
   // so a future parser shape doesn't silently drop the reply.

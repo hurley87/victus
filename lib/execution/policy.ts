@@ -1,9 +1,11 @@
 import "server-only";
 
-import { parseUnits, type Address, getAddress } from "viem";
+import { formatUnits, type Address, getAddress } from "viem";
 
-import { readUsdcBalance } from "@/lib/chain/erc20";
+import { readErc20Balance, readUsdcBalance } from "@/lib/chain/erc20";
+import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { getAllowanceHolderQuote } from "@/lib/zerox/quote";
 
 import type { TradeIntent } from "./intents";
 
@@ -14,20 +16,18 @@ import type { TradeIntent } from "./intents";
  * the rejection reason on `cast_commands.error_reason` and publishes
  * the matching outcome-reply template.
  *
- * Order (PRD § Execution Rules, issue #8):
- *   1. gladiator_alive      — requires an `alive` gladiator
+ * Order (PRD § Execution Rules, issue #8 / #12):
+ *   1. gladiator_alive       — requires an `alive` gladiator
  *   2. asset_not_whitelisted — symbol must be active + tradable + not blocklisted
- *   3. max_trades_per_day   — slot count for the UTC day
- *   4. max_trade_usdc       — size cap (buys only)
- *   5. wallet_cap_usdc      — live arena-wallet USDC via viem (buys only)
- *   6. insufficient_position — sells: DB position missing, zero-size, or
- *                              computed sell amount rounds to zero on-chain
+ *   3. max_trades_per_day    — completed swaps since 00:00 UTC
+ *   4. max_trade_usdc        — size cap (buys only)
+ *   5. wallet_cap_usdc       — live USDC + mark-to-0x of on-chain holdings (buys only)
+ *   6. insufficient_balance  — sells: live ERC-20 balance × percent rounds to zero
  *
- * Per-intent-type rules apply only where stated: sell intents skip
- * size and wallet-cap checks (sells pay out USDC; they don't consume it).
+ * Sell sizing uses **on-chain** balances (viem), never cached `positions`.
  *
- * The validator is side-effect-free aside from the live chain read —
- * callers update `cast_commands.status` based on the returned result.
+ * The validator may call 0x for valuation — same availability as the
+ * quote step (requires `ZEROX_API_KEY`).
  */
 
 export type PolicyRejectionReason =
@@ -36,7 +36,7 @@ export type PolicyRejectionReason =
   | "max_trades_per_day"
   | "max_trade_usdc"
   | "wallet_cap_usdc"
-  | "insufficient_position";
+  | "insufficient_balance";
 
 export type PolicyResult =
   | { ok: true; context: PolicyContext }
@@ -54,7 +54,7 @@ export type PolicyContext = {
   assetAddress: Address;
   assetDecimals: number;
   /**
-   * Sells only — exact asset base units computed from `positions.quantity`
+   * Sells only — exact asset base units computed from **on-chain** balance
    * × percent (integer 1–100), floored, used as the 0x `sellAmount`.
    */
   sellAssetBaseUnits?: string;
@@ -77,6 +77,12 @@ export type PolicyValidateParams = {
   intent: TradeIntent;
 };
 
+/** True when `symbol` is active, tradable, and not blocklisted in `asset_whitelist`. */
+export async function isTradableCommandSymbol(symbol: string): Promise<boolean> {
+  const row = await loadWhitelistedAsset(symbol);
+  return row != null;
+}
+
 export async function validatePolicy(
   params: PolicyValidateParams,
 ): Promise<PolicyResult> {
@@ -88,7 +94,7 @@ export async function validatePolicy(
 
   const policy = await loadPolicy(params.walletId);
 
-  const tradesToday = await countTradesToday(params.walletId);
+  const tradesToday = await countCompletedSwapsTodayUtc(params.walletId);
   if (tradesToday >= policy.maxTradesPerDay) {
     return { ok: false, reason: "max_trades_per_day" };
   }
@@ -101,43 +107,37 @@ export async function validatePolicy(
   }
 
   if (isBuy) {
-    const live = await readUsdcBalance(getAddress(params.walletAddress));
-    // Cap is a ceiling on arena USDC — a buy that would leave the
-    // wallet over-capped is rejected *before* the trade, so deposits
-    // can't be pre-staged to cheat the cap.
-    if (live > policy.walletCapUsdc) {
+    const wallet = getAddress(params.walletAddress);
+    const live = await readUsdcBalance(wallet);
+    const heldUsdc = await sumOnChainHoldingsUsdcViaZerox({
+      walletAddress: wallet,
+      slippageBps: policy.maxSlippageBps,
+    });
+    const exposure = live + heldUsdc;
+    if (exposure > policy.walletCapUsdc) {
       return { ok: false, reason: "wallet_cap_usdc" };
     }
   }
 
   let sellAssetBaseUnits: string | undefined;
   if (!isBuy) {
-    const position = await loadPositionQuantity(
-      params.walletId,
-      params.intent.symbol,
-    );
-    if (!position) {
-      return { ok: false, reason: "insufficient_position" };
-    }
-
+    const wallet = getAddress(params.walletAddress);
+    const token = getAddress(asset.address);
     let positionWei: bigint;
     try {
-      positionWei = parseUnits(
-        String(position.quantity).trim(),
-        asset.decimals,
-      );
+      positionWei = await readErc20Balance(token, wallet);
     } catch {
-      return { ok: false, reason: "insufficient_position" };
+      return { ok: false, reason: "insufficient_balance" };
     }
 
     if (positionWei <= BigInt(0)) {
-      return { ok: false, reason: "insufficient_position" };
+      return { ok: false, reason: "insufficient_balance" };
     }
 
     const sellWei =
       (positionWei * BigInt(params.intent.amount_value)) / BigInt(100);
     if (sellWei <= BigInt(0)) {
-      return { ok: false, reason: "insufficient_position" };
+      return { ok: false, reason: "insufficient_balance" };
     }
 
     sellAssetBaseUnits = sellWei.toString();
@@ -201,22 +201,28 @@ async function loadWhitelistedAsset(
   };
 }
 
-async function countTradesToday(walletId: string): Promise<number> {
+/**
+ * Count trades whose `cast_commands` row reached `executed` today (UTC),
+ * joined from `trade_intents`. Parse/policy rejections never get that far;
+ * score-time failures leave the cast in `failed`, so they do not consume
+ * the daily quota.
+ */
+async function countCompletedSwapsTodayUtc(walletId: string): Promise<number> {
   const startOfDayUtc = new Date();
   startOfDayUtc.setUTCHours(0, 0, 0, 0);
 
   const { count, error } = await supabaseAdmin
     .from("trade_intents")
-    .select("id", { head: true, count: "exact" })
+    .select("id, cast_commands!inner(status, updated_at)", {
+      head: true,
+      count: "exact",
+    })
     .eq("wallet_id", walletId)
-    .neq("status", "rejected")
-    .gte("created_at", startOfDayUtc.toISOString());
+    .eq("cast_commands.status", "executed")
+    .gte("cast_commands.updated_at", startOfDayUtc.toISOString());
 
   if (error) {
-    // Fail open on a read error — loudly logged so it shows up in
-    // telemetry. Failing closed would let an ops blip silently refuse
-    // every trade.
-    console.error("policy.countTradesToday failed", error);
+    console.error("policy.countCompletedSwapsTodayUtc", error);
     return 0;
   }
 
@@ -224,28 +230,6 @@ async function countTradesToday(walletId: string): Promise<number> {
 }
 
 type PolicyRow = PolicyContext["policy"];
-
-async function loadPositionQuantity(
-  walletId: string,
-  assetSymbol: string,
-): Promise<{ quantity: string } | null> {
-  const { data, error } = await supabaseAdmin
-    .from("positions")
-    .select("quantity")
-    .eq("wallet_id", walletId)
-    .eq("asset_symbol", assetSymbol)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(`positions lookup failed: ${error.message}`);
-  }
-  if (!data) return null;
-
-  const qty = String(data.quantity).trim();
-  if (!qty || Number(qty) <= 0) return null;
-
-  return { quantity: qty };
-}
 
 async function loadPolicy(walletId: string): Promise<PolicyRow> {
   const { data, error } = await supabaseAdmin
@@ -268,4 +252,55 @@ async function loadPolicy(walletId: string): Promise<PolicyRow> {
     swapFeeBps: data.swap_fee_bps,
     swapFeeMinUsdc: Number(data.swap_fee_min_usdc),
   };
+}
+
+async function loadTradableAssetRows(): Promise<
+  { address: string; decimals: number }[]
+> {
+  const { data, error } = await supabaseAdmin
+    .from("asset_whitelist")
+    .select("address, decimals")
+    .eq("is_tradable", true)
+    .eq("active", true)
+    .eq("is_blocklisted", false);
+
+  if (error) {
+    throw new Error(`asset_whitelist tradable load failed: ${error.message}`);
+  }
+
+  return data ?? [];
+}
+
+/**
+ * Marks each non-USDC tradable token holding to USDC via a fresh 0x quote
+ * (same semantics as a spot valuation at policy time).
+ */
+async function sumOnChainHoldingsUsdcViaZerox(params: {
+  walletAddress: Address;
+  slippageBps: number;
+}): Promise<number> {
+  const rows = await loadTradableAssetRows();
+  let sum = 0;
+
+  for (const row of rows) {
+    const token = getAddress(row.address);
+    if (token === USDC_BASE_ADDRESS) continue;
+
+    const bal = await readErc20Balance(token, params.walletAddress);
+    if (bal <= BigInt(0)) continue;
+
+    const quote = await getAllowanceHolderQuote({
+      sellToken: token,
+      buyToken: USDC_BASE_ADDRESS,
+      sellAmount: bal.toString(),
+      taker: params.walletAddress,
+      slippageBps: params.slippageBps,
+    });
+
+    if (!quote.liquidityAvailable) continue;
+
+    sum += Number(formatUnits(BigInt(quote.buyAmount), USDC_DECIMALS));
+  }
+
+  return sum;
 }

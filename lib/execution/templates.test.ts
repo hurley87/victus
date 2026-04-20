@@ -48,10 +48,10 @@ describe("buildOutcomeReply", () => {
     expect(text).toContain("0x01234567");
   });
 
-  it("renders the failure reason for a failed trade", () => {
-    const text = buildOutcomeReply({ kind: "failure", reason: "reverted" });
+  it("renders templated voice for a failed trade", () => {
+    const text = buildOutcomeReply({ kind: "failure", reason: "revert" });
     expect(text).toContain("failed");
-    expect(text).toContain("reverted");
+    expect(text).toContain("chain");
   });
 });
 
@@ -64,7 +64,7 @@ describe("POLICY_REJECTION_COPY", () => {
     expect(POLICY_REJECTION_COPY.max_trades_per_day).toBeTruthy();
     expect(POLICY_REJECTION_COPY.max_trade_usdc).toBeTruthy();
     expect(POLICY_REJECTION_COPY.wallet_cap_usdc).toBeTruthy();
-    expect(POLICY_REJECTION_COPY.insufficient_position).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.insufficient_balance).toBeTruthy();
   });
 
   it("includes realized PnL on sell success outcomes", () => {

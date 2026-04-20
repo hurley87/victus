@@ -15,6 +15,7 @@ import { USDC_BASE_ADDRESS } from "@/lib/chain/addresses";
 import {
   SwapLogMissingError,
   decodeSwapReceipt,
+  findDisallowedWalletTokens,
   type SwapReceiptLike,
 } from "./swap-logs";
 
@@ -314,5 +315,59 @@ describe("decodeSwapReceipt — sell (asset_to_usdc)", () => {
     expect(decoded.assetBaseUnits).toBe(aeroSold);
     expect(decoded.quantity).toBe("0.8214");
     expect(decoded.usdcHumanNumber).toBeCloseTo(1, 6);
+  });
+});
+
+describe("findDisallowedWalletTokens", () => {
+  it("returns empty when only USDC and the intent asset touch the wallet", () => {
+    const receipt = makeReceipt([
+      makeTransferLog({
+        token: USDC_BASE_ADDRESS,
+        from: ARENA_WALLET,
+        to: POOL_ONE,
+        value: BigInt(1_000_000),
+        logIndex: 0,
+      }),
+      makeTransferLog({
+        token: AERO_ADDRESS,
+        from: POOL_ONE,
+        to: ARENA_WALLET,
+        value: BigInt("821400000000000000"),
+        logIndex: 1,
+      }),
+    ]);
+
+    expect(
+      findDisallowedWalletTokens(receipt, ARENA_WALLET, AERO_ADDRESS),
+    ).toEqual([]);
+  });
+
+  it("flags a third ERC-20 with non-zero net flow to the wallet", () => {
+    const receipt = makeReceipt([
+      makeTransferLog({
+        token: DEGEN_ADDRESS,
+        from: POOL_TWO,
+        to: ARENA_WALLET,
+        value: BigInt(1000),
+        logIndex: 0,
+      }),
+      makeTransferLog({
+        token: USDC_BASE_ADDRESS,
+        from: ARENA_WALLET,
+        to: POOL_ONE,
+        value: BigInt(1_000_000),
+        logIndex: 1,
+      }),
+      makeTransferLog({
+        token: AERO_ADDRESS,
+        from: POOL_ONE,
+        to: ARENA_WALLET,
+        value: BigInt("821400000000000000"),
+        logIndex: 2,
+      }),
+    ]);
+
+    const bad = findDisallowedWalletTokens(receipt, ARENA_WALLET, AERO_ADDRESS);
+    expect(bad).toEqual([DEGEN_ADDRESS]);
   });
 });

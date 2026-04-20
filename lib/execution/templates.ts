@@ -1,3 +1,5 @@
+import { voiceForExecutionFailure } from "@/lib/commodus-voice";
+
 import type { PolicyRejectionReason } from "./policy";
 import type { TradeIntent } from "./intents";
 
@@ -64,7 +66,7 @@ export function buildOutcomeReply(outcome: Outcome): string {
 
     return `Victory. ${qty} ${outcome.symbol} secured for ${notional} USDC. Tx ${outcome.txHash.slice(0, 10)}…`;
   }
-  return `Order failed in the arena. Reason: ${outcome.reason}.`;
+  return voiceForExecutionFailure(outcome.reason);
 }
 
 export const POLICY_REJECTION_COPY: Record<PolicyRejectionReason, string> = {
@@ -78,6 +80,6 @@ export const POLICY_REJECTION_COPY: Record<PolicyRejectionReason, string> = {
     "Order denied. The decree exceeds thy allotted size for a single trade.",
   wallet_cap_usdc:
     "Order denied. Thy arena coffers have reached their cap. Withdraw before deploying more.",
-  insufficient_position:
+  insufficient_balance:
     "Order denied. Thy position in that asset is too small for this decree.",
 };

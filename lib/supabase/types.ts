@@ -545,6 +545,7 @@ export type Database = {
           created_at: string
           execution_id: string
           execution_price_usdc: number | null
+          failure_reason: string | null
           fee_tx_hash: string | null
           id: string
           notional_usdc: number | null
@@ -564,6 +565,7 @@ export type Database = {
           created_at?: string
           execution_id: string
           execution_price_usdc?: number | null
+          failure_reason?: string | null
           fee_tx_hash?: string | null
           id?: string
           notional_usdc?: number | null
@@ -583,6 +585,7 @@ export type Database = {
           created_at?: string
           execution_id?: string
           execution_price_usdc?: number | null
+          failure_reason?: string | null
           fee_tx_hash?: string | null
           id?: string
           notional_usdc?: number | null

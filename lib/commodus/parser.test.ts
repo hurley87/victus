@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  ALLOWED_SYMBOL,
-  MAX_USDC_AMOUNT,
-  normalizeCommandText,
-  parseCommand,
-} from "./parser";
+import { MAX_USDC_AMOUNT, normalizeCommandText, parseCommand } from "./parser";
 
 describe("normalizeCommandText", () => {
   it("lowercases, strips @handle, collapses whitespace", () => {
@@ -15,8 +10,6 @@ describe("normalizeCommandText", () => {
   });
 
   it("is handle-agnostic (works with @commo, @commodus, or future handles)", () => {
-    // Neynar's subscription filter routes the cast to us, so the handle
-    // token can be anything; we strip it uniformly.
     expect(normalizeCommandText("@commo buy 5 usdc of aero")).toBe(
       "buy 5 usdc of aero",
     );
@@ -42,7 +35,16 @@ describe("parseCommand — happy path", () => {
     expect(parseCommand("@commo buy 5 usdc of aero")).toEqual({
       kind: "ok",
       action: "buy",
-      symbol: ALLOWED_SYMBOL,
+      symbol: "AERO",
+      amount: 5,
+    });
+  });
+
+  it("accepts any conventional ticker symbol (whitelist is async)", () => {
+    expect(parseCommand("@commo buy 5 usdc of degen")).toEqual({
+      kind: "ok",
+      action: "buy",
+      symbol: "DEGEN",
       amount: 5,
     });
   });
@@ -51,19 +53,17 @@ describe("parseCommand — happy path", () => {
     expect(parseCommand("@commo buy 2.5 usdc of aero")).toEqual({
       kind: "ok",
       action: "buy",
-      symbol: ALLOWED_SYMBOL,
+      symbol: "AERO",
       amount: 2.5,
     });
   });
 
-  it("accepts the exact cap (boundary = MAX_USDC_AMOUNT)", () => {
-    expect(parseCommand(`@commo buy ${MAX_USDC_AMOUNT} usdc of aero`)).toMatchObject({
+  it("accepts amounts above the default policy cap (policy enforces later)", () => {
+    expect(parseCommand(`@commo buy ${MAX_USDC_AMOUNT + 1} usdc of aero`)).toEqual({
       kind: "ok",
-      amount: MAX_USDC_AMOUNT,
-    });
-    expect(parseCommand(`@commo buy ${MAX_USDC_AMOUNT}.0 usdc of aero`)).toMatchObject({
-      kind: "ok",
-      amount: MAX_USDC_AMOUNT,
+      action: "buy",
+      symbol: "AERO",
+      amount: MAX_USDC_AMOUNT + 1,
     });
   });
 
@@ -71,6 +71,7 @@ describe("parseCommand — happy path", () => {
     expect(parseCommand("@Commo BUY 5 USDC OF AERO")).toMatchObject({
       kind: "ok",
       amount: 5,
+      symbol: "AERO",
     });
   });
 
@@ -139,10 +140,7 @@ describe("parseCommand — grammar rejections", () => {
     });
   });
 
-  it("rejects sell and status verbs at the regex layer (handled by the LLM fallback in #9)", () => {
-    // Stage 1 is a strict AERO-buy regex; sell and status verbs miss
-    // the pattern here and are routed to `parseCommandIntent`'s LLM
-    // fallback. See `lib/execution/parse.ts` + `llm-parse.ts`.
+  it("rejects sell and status verbs at the regex layer (handled by the LLM fallback)", () => {
     expect(parseCommand("@commo sell 100% of aero")).toEqual({
       kind: "grammar_error",
     });
@@ -153,40 +151,5 @@ describe("parseCommand — grammar rejections", () => {
     expect(
       parseCommand("@commo buy 5 usdc of aero; buy 3 usdc of aero"),
     ).toEqual({ kind: "grammar_error" });
-  });
-});
-
-describe("parseCommand — asset rejections", () => {
-  it("rejects a structurally-valid command with a non-AERO symbol", () => {
-    expect(parseCommand("@commo buy 5 usdc of weth")).toEqual({
-      kind: "asset_error",
-      action: "buy",
-      attemptedSymbol: "WETH",
-      amount: 5,
-    });
-  });
-
-  it("prefers asset rejection over oversize when both apply", () => {
-    // We rank structural/whitelist failures above policy failures so users
-    // aren't told "too big" about an asset we wouldn't honor at any size.
-    expect(parseCommand("@commo buy 100 usdc of weth")).toMatchObject({
-      kind: "asset_error",
-      attemptedSymbol: "WETH",
-    });
-  });
-});
-
-describe("parseCommand — oversize rejections", () => {
-  it("rejects amounts just over the cap", () => {
-    expect(parseCommand("@commo buy 11 usdc of aero")).toEqual({
-      kind: "oversize_error",
-      action: "buy",
-      symbol: ALLOWED_SYMBOL,
-      amount: 11,
-    });
-    expect(parseCommand("@commo buy 10.01 usdc of aero")).toMatchObject({
-      kind: "oversize_error",
-      amount: 10.01,
-    });
   });
 });

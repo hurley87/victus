@@ -85,6 +85,62 @@ export class SwapLogMissingError extends Error {
   }
 }
 
+/**
+ * Every ERC-20 for which the arena wallet has a non-zero net transfer
+ * delta must be USDC or the intent asset; any other token implies an
+ * unexpected leg (score-time `non_whitelisted_token`).
+ */
+export function findDisallowedWalletTokens(
+  receipt: SwapReceiptLike,
+  walletAddress: string,
+  allowedAsset: Address,
+): Address[] {
+  const wallet = getAddress(walletAddress);
+  const usdc = USDC_BASE_ADDRESS;
+  const asset = getAddress(allowedAsset);
+
+  const transfers = parseEventLogs({
+    abi: erc20Abi,
+    eventName: "Transfer",
+    logs: [...receipt.logs],
+    strict: false,
+  });
+
+  const netByToken = new Map<string, bigint>();
+  const bump = (token: Address, delta: bigint) => {
+    const key = token;
+    netByToken.set(key, (netByToken.get(key) ?? BigInt(0)) + delta);
+  };
+
+  for (const log of transfers) {
+    const token = safeGetAddress(log.address);
+    if (!token) continue;
+
+    const args = log.args as {
+      from?: Address;
+      to?: Address;
+      value?: bigint;
+    };
+    const from = args.from ? safeGetAddress(args.from) : null;
+    const to = args.to ? safeGetAddress(args.to) : null;
+    const value = args.value;
+    if (value === undefined || from === null || to === null) continue;
+
+    if (from === wallet) bump(token, -value);
+    if (to === wallet) bump(token, value);
+  }
+
+  const disallowed: Address[] = [];
+  for (const [token, net] of netByToken) {
+    if (net === BigInt(0)) continue;
+    const addr = token as Address;
+    if (addr === usdc || addr === asset) continue;
+    disallowed.push(addr);
+  }
+
+  return disallowed;
+}
+
 /** Price-precision floor for the `numeric(38, 18)` column. */
 const PRICE_FRACTION_DIGITS = 18;
 

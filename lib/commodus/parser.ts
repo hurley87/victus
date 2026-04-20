@@ -1,49 +1,30 @@
 /**
  * Pure, unit-testable parser for `@commodus` trade commands.
  *
- * Scope (issue #6, "tracer" slice):
- *  - One action: `buy`
- *  - One asset: AERO (hardcoded; full whitelist lookup arrives in #9/#12)
- *  - One amount type: USDC-in
- *  - One size cap: ≤ 10 USDC (hardcoded; per-wallet policy arrives in #12)
- *
- * Anything outside those constraints resolves to a discriminated rejection
- * so the workflow can branch on a single switch. The DB-backed arena-wallet
- * check is intentionally not performed here — it needs a round-trip and
- * must stay out of the pure parser so it remains trivially testable.
+ * Stage-1 regex matches canonical `buy AMOUNT usdc of SYMBOL` commands.
+ * Symbol whitelist and `max_trade_usdc` enforcement run in async
+ * `parseCommandIntent` / `policy_validate` (#12) so policy DB values are
+ * the single source of truth for caps.
  */
 
-/** Hardcoded for this slice. Full whitelist lookup lands in #9/#12. */
-export const ALLOWED_SYMBOL = "AERO" as const;
-
-/** Hardcoded for this slice. Per-wallet `wallet_policies` lookup lands in #12. */
+/** Default `max_trade_usdc` (policy is authoritative); kept for tests. */
 export const MAX_USDC_AMOUNT = 10;
 
 export type ParseResult =
   | {
       kind: "ok";
       action: "buy";
-      symbol: typeof ALLOWED_SYMBOL;
+      symbol: string;
       amount: number;
     }
-  | { kind: "grammar_error" }
-  | { kind: "asset_error"; action: "buy"; attemptedSymbol: string; amount: number }
-  | {
-      kind: "oversize_error";
-      action: "buy";
-      symbol: typeof ALLOWED_SYMBOL;
-      amount: number;
-    };
+  | { kind: "grammar_error" };
 
 /**
  * Matches a normalized command of the form `buy AMOUNT usdc of SYMBOL`.
  *
- * AMOUNT is a positive decimal with at least one integer digit (leading
- * `.` like `.5` is rejected as grammar — forces users to write `0.5`, which
- * then also fails the positive-decimal check). SYMBOL is any token matching
- * the conventional ticker shape; asset-whitelist filtering happens after
- * the regex matches so we can distinguish "you typed gibberish" from "you
- * typed a symbol we don't trade yet".
+ * SYMBOL is any conventional ticker; whitelist filtering is async in
+ * `parseCommandIntent` so users get `asset_error` with templated copy
+ * rather than a grammar miss.
  */
 const COMMAND_REGEX =
   /^buy\s+([0-9]+(?:\.[0-9]+)?)\s+usdc\s+of\s+([a-z][a-z0-9]*)\s*$/u;
@@ -65,10 +46,10 @@ const MENTION_REGEX = /@[a-z0-9_-]+/giu;
  * Normalize a raw cast text into a canonical command string.
  *
  * Steps, in order:
- *  1. Lowercase (grammar is case-insensitive per AC).
- *  2. Strip any `@handle` mention token so the regex can anchor on `buy`.
- *  3. Collapse Unicode whitespace (tabs, NBSP, doubled spaces, newlines).
- *  4. Trim.
+ *   1. Lowercase (grammar is case-insensitive per AC).
+ *   2. Strip any `@handle` mention token so the regex can anchor on `buy`.
+ *   3. Collapse Unicode whitespace (tabs, NBSP, doubled spaces, newlines).
+ *   4. Trim.
  *
  * Done as a separate export so tests can exercise the normalization step
  * directly without going through the discriminated-union result shape.
@@ -84,17 +65,9 @@ export function normalizeCommandText(text: string): string {
 /**
  * Parse a raw `@commodus` cast text into a {@link ParseResult}.
  *
- * Rejection priority is structural → asset → size:
- *  1. Unmatched grammar → `grammar_error`.
- *  2. Matched grammar with non-AERO symbol → `asset_error` (we know what
- *     the user wanted; it's just not tradable in this arena yet).
- *  3. Matched grammar with AERO but amount > cap → `oversize_error`.
- *
- * A matched-but-zero-or-negative amount is impossible given the regex
- * (`-` is not allowed, and `0` with no decimal is technically a match of
- * `0`) — so we still guard explicitly by requiring amount > 0 after
- * numeric parsing. That turns `buy 0 usdc of aero` and `buy 0.0 ...` into
- * grammar errors, which is the intended "positive decimal" semantic.
+ * Unmatched grammar → `grammar_error`. Matched buys return `ok` with an
+ * uppercased symbol; oversize and whitelist failures are handled later
+ * in the durable pipeline.
  */
 export function parseCommand(text: string): ParseResult {
   const normalized = normalizeCommandText(text);
@@ -111,28 +84,10 @@ export function parseCommand(text: string): ParseResult {
 
   const symbol = match[2].toUpperCase();
 
-  if (symbol !== ALLOWED_SYMBOL) {
-    return {
-      kind: "asset_error",
-      action: "buy",
-      attemptedSymbol: symbol,
-      amount,
-    };
-  }
-
-  if (amount > MAX_USDC_AMOUNT) {
-    return {
-      kind: "oversize_error",
-      action: "buy",
-      symbol: ALLOWED_SYMBOL,
-      amount,
-    };
-  }
-
   return {
     kind: "ok",
     action: "buy",
-    symbol: ALLOWED_SYMBOL,
+    symbol,
     amount,
   };
 }
