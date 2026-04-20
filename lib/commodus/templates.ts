@@ -34,8 +34,8 @@ export const REJECTION_REPLIES: Record<RejectionReason, string> = {
  * `2.5 → "2.5"`), so we intentionally avoid locale-aware formatting to
  * keep the output stable across runtimes.
  */
-export function buildAcceptedReply(amount: number): string {
-  return `Order accepted. ${amount.toString()} USDC deployed into AERO.`;
+export function buildAcceptedReply(amount: number, symbol: string): string {
+  return `Order accepted. ${amount.toString()} USDC deployed into ${symbol}.`;
 }
 
 /**
@@ -48,9 +48,5 @@ export function rejectionReasonForParse(
   switch (result.kind) {
     case "grammar_error":
       return "grammar";
-    case "asset_error":
-      return "non_whitelisted_token";
-    case "oversize_error":
-      return "oversize";
   }
 }

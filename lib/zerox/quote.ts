@@ -129,6 +129,11 @@ export type GetAllowanceHolderQuoteParams = {
    * default `max_slippage_bps`.
    */
   slippageBps?: number;
+  /**
+   * Optional execution block hint for reference quotes (price-impact).
+   * Passed through to 0x when supported by the API.
+   */
+  blockNumber?: bigint | number | string;
 };
 
 /**
@@ -151,6 +156,10 @@ export async function getAllowanceHolderQuote(
     taker: params.taker,
     slippageBps: String(params.slippageBps ?? 100),
   });
+
+  if (params.blockNumber !== undefined) {
+    qs.set("blockNumber", String(params.blockNumber));
+  }
 
   const response = await fetch(
     `${ZEROX_API_BASE}/swap/allowance-holder/quote?${qs.toString()}`,

@@ -7,6 +7,7 @@ import {
 } from "@/lib/commodus/parser";
 
 import type { CommandIntent } from "./intents";
+import { isTradableCommandSymbol } from "./policy";
 import {
   parseCommandIntentWithLlm,
   type ParseWithLlmOptions,
@@ -16,14 +17,10 @@ import {
  * Two-stage parser for the `parse_command` workflow step.
  *
  * Stage 1 — regex pre-filter (`lib/commodus/parser.ts`).
- *   The canonical AERO buy path (`buy N usdc of aero`) is matched
- *   without any LLM call and returns a buy `CommandIntent` directly.
- *   Grammar mismatches fall through to Stage 2. Structurally-valid
- *   buys that fail the hardcoded whitelist / size heuristics
- *   (`asset_error`, `oversize_error`) short-circuit here — the
- *   parser is the right layer to surface "you typed a real command
- *   but it's not tradable", and `policy_validate` will redundantly
- *   reject the same cases for LLM-parsed variants.
+ *   Canonical buys (`buy N usdc of symbol`) match without an LLM call.
+ *   Whitelist validation for the extracted symbol is async against
+ *   `asset_whitelist` (#12) so GLORY / unknown tickers get templated
+ *   `asset_error` without publishing an intent reply.
  *
  * Stage 2 — Vercel AI SDK fallback (`llm-parse.ts`).
  *   Handles casual phrasings for buy/sell/status that the regex
@@ -36,10 +33,7 @@ import {
  * outcome replies.
  */
 
-export type ParseReason =
-  | "grammar_error"
-  | "asset_error"
-  | "oversize_error";
+export type ParseReason = "grammar_error" | "asset_error";
 
 export type ParseCommandOutcome =
   | { ok: true; intent: CommandIntent }
@@ -57,6 +51,9 @@ export async function parseCommandIntent(
   const regex = parseCommand(text);
 
   if (regex.kind === "ok") {
+    if (!(await isTradableCommandSymbol(regex.symbol))) {
+      return { ok: false, reason: "asset_error", raw: regex };
+    }
     return {
       ok: true,
       intent: {
@@ -68,13 +65,16 @@ export async function parseCommandIntent(
     };
   }
 
-  if (regex.kind === "asset_error" || regex.kind === "oversize_error") {
-    return { ok: false, reason: regex.kind, raw: regex };
-  }
-
   const normalized = normalizeCommandText(text);
   const llm = await parseCommandIntentWithLlm(normalized, opts.llm);
-  if (llm.ok) return { ok: true, intent: llm.intent };
+  if (llm.ok) {
+    if (llm.intent.action === "buy" || llm.intent.action === "sell") {
+      if (!(await isTradableCommandSymbol(llm.intent.symbol))) {
+        return { ok: false, reason: "asset_error", raw: regex };
+      }
+    }
+    return { ok: true, intent: llm.intent };
+  }
 
   return { ok: false, reason: "grammar_error", raw: regex };
 }
