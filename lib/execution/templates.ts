@@ -13,6 +13,7 @@ export type {
 export {
   buildIntentReply,
   buildOutcomeReply,
+  buildStatusReplyText,
   POLICY_REJECTION_COPY,
   policyRejectionMessage,
   voiceForExecutionFailure,

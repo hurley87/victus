@@ -66,6 +66,7 @@ export async function publishReplyCast(
   parentCastHash: string,
   text: string,
   idemKey: string,
+  embeds?: { url: string }[],
 ): Promise<PublishedCast> {
   if (!env.NEYNAR_SIGNER_UUID) {
     throw new MissingSignerError();
@@ -83,6 +84,7 @@ export async function publishReplyCast(
       text,
       parent: parentCastHash,
       idem: idemKey,
+      ...(embeds && embeds.length > 0 ? { embeds } : {}),
     }),
   });
 

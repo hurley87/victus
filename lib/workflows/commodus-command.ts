@@ -9,6 +9,7 @@ import {
 
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { basePublicClient } from "@/lib/chain/client";
+import { statusSnapUrlForFid } from "@/lib/commodus/deep-links";
 import { REJECTION_REPLIES } from "@/lib/commodus/templates";
 import { env } from "@/lib/env";
 import { MissingSignerError } from "@/lib/neynar";
@@ -38,6 +39,7 @@ import {
   type PolicyContext,
 } from "@/lib/execution/policy";
 import { publishReplyOnce } from "@/lib/execution/reply-guard";
+import { loadStatusViewContext } from "@/lib/status/load-context";
 import {
   reserveOrLoadExecution,
   type ReservedExecution,
@@ -53,6 +55,7 @@ import {
 import {
   buildIntentReply,
   buildOutcomeReply,
+  buildStatusReplyText,
   policyRejectionMessage,
   type CommodusVoiceContext,
 } from "@/lib/execution/templates";
@@ -107,10 +110,9 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   const commandIntent = parseOutcome.intent;
   await markStatus(ctx.castHash, "parsed");
 
-  // Status branch — short-circuit before the entire trade pipeline.
-  // Portfolio + rank reply is issue #13; this step only marks the cast terminal.
+  // Status branch — short-circuit before the entire trade pipeline (templated reply + Snap embed, #20).
   if (commandIntent.action === "status") {
-    await handleStatusNoop({ castHash: ctx.castHash });
+    await executeStatusBranch(ctx);
     return { status: "status_ack" as const };
   }
 
@@ -514,25 +516,52 @@ async function parseStep(
 }
 
 // ---------------------------------------------------------------------------
-// Step: handle_status_noop
+// Step: execute_status_branch
 //
-// Placeholder for the status command. Marks the cast terminal so
-// replays don't re-enter the workflow. The portfolio + rank reply
-// lives in issue #13.
-//
-// TODO(#13): replace this with a real status reply step that builds
-//            the portfolio summary + rank and publishes an outcome
-//            cast. The terminal status marker here becomes the
-//            `status_ack` -> `executed` transition at that point.
+// Templated text + Snap embed URL; read-only (no scoring / no slot use).
 // ---------------------------------------------------------------------------
 
-async function handleStatusNoop(params: { castHash: string }): Promise<void> {
+async function executeStatusBranch(ctx: CommandContext): Promise<void> {
   "use step";
+
+  const view = await loadStatusViewContext(ctx.authorFid);
+
+  if (!view) {
+    try {
+      await publishReplyOnce({
+        castHash: ctx.castHash,
+        kind: "outcome",
+        text: REJECTION_REPLIES.no_arena_wallet,
+      });
+    } catch (err) {
+      if (err instanceof MissingSignerError) throw new FatalError(err.message);
+      throw err;
+    }
+  } else {
+    const text = buildStatusReplyText({
+      displayHandle: view.displayHandle,
+      rank: view.rank,
+      points: view.points,
+      portfolioUsdc: view.portfolioUsdc,
+      dailySlotsRemaining: view.dailySlotsRemaining,
+    });
+    try {
+      await publishReplyOnce({
+        castHash: ctx.castHash,
+        kind: "outcome",
+        text,
+        embeds: [{ url: statusSnapUrlForFid(ctx.authorFid) }],
+      });
+    } catch (err) {
+      if (err instanceof MissingSignerError) throw new FatalError(err.message);
+      throw err;
+    }
+  }
 
   await supabaseAdmin
     .from("cast_commands")
     .update({ status: "executed" })
-    .eq("cast_hash", params.castHash)
+    .eq("cast_hash", ctx.castHash)
     .not("status", "in", "(executed,failed,rejected)");
 }
 
@@ -1333,11 +1362,15 @@ async function scoreTradeStep(params: {
 // Step: publish_outcome_reply_cast
 // ---------------------------------------------------------------------------
 
-async function publishOutcomeReply(castHash: string, text: string): Promise<void> {
+async function publishOutcomeReply(
+  castHash: string,
+  text: string,
+  embeds?: { url: string }[],
+): Promise<void> {
   "use step";
 
   try {
-    await publishReplyOnce({ castHash, kind: "outcome", text });
+    await publishReplyOnce({ castHash, kind: "outcome", text, embeds });
   } catch (err) {
     if (err instanceof MissingSignerError) throw new FatalError(err.message);
     throw err;

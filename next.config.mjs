@@ -18,9 +18,15 @@ const nextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  // Dev-only: Snap emulator / Farcaster clients fetch snaps from a tunnel URL with
+  // Origin: https://farcaster.xyz — Next blocks unknown dev origins unless listed.
   allowedDevOrigins: [
     "http://localhost:3000",
     new URL(process.env.NEXT_PUBLIC_URL).hostname,
+    "farcaster.xyz",
+    "*.farcaster.xyz",
+    "warpcast.com",
+    "*.warpcast.com",
   ],
   images: {
     remotePatterns: [

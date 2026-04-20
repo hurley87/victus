@@ -31,6 +31,7 @@ export type PublishReplyOnceParams = {
   castHash: string;
   kind: ReplyKind;
   text: string;
+  embeds?: { url: string }[];
 };
 
 export type PublishReplyOnceResult = {
@@ -52,6 +53,7 @@ export async function publishReplyOnce(
       params.castHash,
       params.text,
       replyIdempotencyKey(params.castHash, params.kind),
+      params.embeds,
     );
     replyCastHash = published.hash;
   } catch (err) {

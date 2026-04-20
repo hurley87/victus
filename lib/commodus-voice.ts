@@ -227,3 +227,27 @@ export const REJECTION_REPLIES: Record<ParserRejectionReason, string> = {
 export function buildAcceptedReply(amount: number, symbol: string): string {
   return `Hark — accepted. ${amount.toString()} USDC shall march into ${symbol}.`;
 }
+
+/** Templated (non-LLM) copy for `@commodus status` public replies — issue #13 / #20. */
+export function buildStatusReplyText(params: {
+  displayHandle: string;
+  rank: number | null;
+  points: number;
+  portfolioUsdc: number;
+  dailySlotsRemaining: number;
+}): string {
+  const rankPart =
+    params.rank != null ? `rank ${params.rank}` : "no rank yet on the monthly board";
+  const pts = params.points.toLocaleString("en-US");
+  const usd = params.portfolioUsdc.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+  const slots = params.dailySlotsRemaining.toLocaleString("en-US");
+  const name = params.displayHandle.trim();
+  const opener = name.length > 0 ? `${name} — ` : "";
+  return (
+    `${opener}Commodus reads ${rankPart}, ${pts} monthly points, ${usd} USDC in the arena vault, ` +
+    `${slots} trade${params.dailySlotsRemaining === 1 ? "" : "s"} left this day. Tap the card for thy ledger.`
+  );
+}

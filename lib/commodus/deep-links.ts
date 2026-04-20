@@ -12,3 +12,14 @@ export function portfolioDeepLinkForFid(fid: number): string {
   const base = env.NEXT_PUBLIC_URL.replace(/\/$/, "");
   return `${base}/portfolio?fid=${fid}`;
 }
+
+/**
+ * Public HTTPS URL for the `@commodus status` Snap JSON (embed on the reply cast).
+ */
+export function statusSnapUrlForFid(fid: number): string {
+  if (!Number.isFinite(fid) || fid <= 0 || !Number.isInteger(fid)) {
+    throw new Error("statusSnapUrlForFid: fid must be a positive integer");
+  }
+  const base = env.NEXT_PUBLIC_URL.replace(/\/$/, "");
+  return `${base}/api/snaps/status/${fid}`;
+}

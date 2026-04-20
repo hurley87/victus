@@ -10,7 +10,37 @@ export const config = {
 // instead of per-request to avoid an allocation on every authed API hit.
 const JWT_SECRET_BYTES = new TextEncoder().encode(env.JWT_SECRET);
 
+/** Cross-origin Snap fetches (e.g. emulator at farcaster.xyz) require these on every response. */
+function applySnapApiCors(request: NextRequest, response: NextResponse): NextResponse {
+  const origin = request.headers.get("origin");
+  if (origin) {
+    response.headers.set("Access-Control-Allow-Origin", origin);
+  } else {
+    response.headers.set("Access-Control-Allow-Origin", "*");
+  }
+  response.headers.set(
+    "Access-Control-Allow-Methods",
+    "GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE",
+  );
+  response.headers.set(
+    "Access-Control-Allow-Headers",
+    "Accept, Content-Type, Authorization, X-Requested-With",
+  );
+  response.headers.set("Access-Control-Max-Age", "86400");
+  return response;
+}
+
 export default async function proxy(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // Public Snap HTTP — no session; Farcaster clients GET without our auth cookie (#20).
+  if (pathname.startsWith("/api/snaps/")) {
+    if (req.method === "OPTIONS") {
+      return applySnapApiCors(req, new NextResponse(null, { status: 204 }));
+    }
+    return applySnapApiCors(req, NextResponse.next());
+  }
+
   // Skip the session-cookie check for endpoints that authenticate
   // themselves. Each one has its own credential path so we do not
   // want the Farcaster session cookie layered on top:
@@ -19,7 +49,6 @@ export default async function proxy(req: NextRequest) {
   //   - webhooks → HMAC signature in the request body (e.g. Neynar)
   //   - cron     → Authorization: Bearer ${CRON_SECRET} from Vercel Cron
   //   - admin    → Authorization: Bearer ${ADMIN_API_TOKEN} from operators
-  const { pathname } = req.nextUrl;
   if (
     pathname === "/api/auth/sign-in" ||
     pathname.startsWith("/api/og/") ||

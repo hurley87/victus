@@ -33,6 +33,8 @@ export type PortfolioResult = {
   username: string | null;
   display_name: string | null;
   gladiator_name: string | null;
+  /** Arena USDC cash plus at-cost position notionals (same basis as the holdings table). */
+  total_portfolio_value_usdc: number;
   holdings: PortfolioHolding[];
   realized_pnl_month_usdc: number;
   realized_pnl_all_time_usdc: number;
@@ -106,6 +108,7 @@ export async function getPortfolioByFid(fid: number): Promise<PortfolioResult | 
       username: account.username,
       display_name: account.display_name,
       gladiator_name: gladiator?.name ?? null,
+      total_portfolio_value_usdc: 0,
       holdings: [],
       realized_pnl_month_usdc: 0,
       realized_pnl_all_time_usdc: 0,
@@ -227,11 +230,15 @@ export async function getPortfolioByFid(fid: number): Promise<PortfolioResult | 
     };
   });
 
+  const holdingsValueSum = holdings.reduce((s, h) => s + h.value_usdc, 0);
+  const total_portfolio_value_usdc = liveBalance.usdc + holdingsValueSum;
+
   return {
     fid,
     username: account.username,
     display_name: account.display_name,
     gladiator_name: gladiator?.name ?? null,
+    total_portfolio_value_usdc,
     holdings,
     realized_pnl_month_usdc: realizedMonth,
     realized_pnl_all_time_usdc: realizedAll,
