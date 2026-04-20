@@ -53,7 +53,8 @@ import {
 import {
   buildIntentReply,
   buildOutcomeReply,
-  POLICY_REJECTION_COPY,
+  policyRejectionMessage,
+  type CommodusVoiceContext,
 } from "@/lib/execution/templates";
 import type { CommandIntent, SellIntent, TradeIntent } from "@/lib/execution/intents";
 
@@ -107,8 +108,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   await markStatus(ctx.castHash, "parsed");
 
   // Status branch — short-circuit before the entire trade pipeline.
-  // Real reply behavior (Snap card + rank) is issue #13; this issue
-  // only wires the no-op handoff point.
+  // Portfolio + rank reply is issue #13; this step only marks the cast terminal.
   if (commandIntent.action === "status") {
     await handleStatusNoop({ castHash: ctx.castHash });
     return { status: "status_ack" as const };
@@ -121,32 +121,41 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     await markRejected(ctx.castHash, "needs_gladiator_mint");
     await publishOutcomeReply(
       ctx.castHash,
-      POLICY_REJECTION_COPY.needs_gladiator_mint,
+      policyRejectionMessage("needs_gladiator_mint"),
     );
     return { status: "rejected" as const, reason: "needs_gladiator_mint" };
   }
 
-  const policy = await policyValidate({
+  const voiceCtx: CommodusVoiceContext = {
+    gladiatorName: walletLookup.gladiatorName,
+  };
+
+  const policyOutcome = await policyValidate({
     userId: walletLookup.userId,
     walletId: walletLookup.walletId,
     walletAddress: walletLookup.walletAddress,
     privyWalletId: walletLookup.privyWalletId,
     intent,
   });
-  if (!policy.ok) {
-    await markRejected(ctx.castHash, policy.reason);
+  if (!policyOutcome.ok) {
+    await markRejected(ctx.castHash, policyOutcome.reason);
     await publishOutcomeReply(
       ctx.castHash,
-      POLICY_REJECTION_COPY[policy.reason],
+      policyRejectionMessage(policyOutcome.reason, {
+        maxTradeUsdc: policyOutcome.policy?.maxTradeUsdc,
+        walletCapUsdc: policyOutcome.policy?.walletCapUsdc,
+      }),
     );
-    return { status: "rejected" as const, reason: policy.reason };
+    return { status: "rejected" as const, reason: policyOutcome.reason };
   }
+
+  const policyCtx = policyOutcome.context;
 
   await markStatus(ctx.castHash, "validated");
 
   if (intent.action === "sell") {
     const sellIntent = intent;
-    const sellAssetBaseUnits = policy.context.sellAssetBaseUnits;
+    const sellAssetBaseUnits = policyCtx.sellAssetBaseUnits;
     if (!sellAssetBaseUnits) {
       throw new Error("sell pipeline: sellAssetBaseUnits missing from policy context");
     }
@@ -154,7 +163,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     const sellReservation = await quoteAndReserveSell({
       castHash: ctx.castHash,
       castCommandId: loaded.id,
-      ctx: policy.context,
+      ctx: policyCtx,
       intent: sellIntent,
       sellAssetBaseUnits,
     });
@@ -164,17 +173,19 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       await markRejected(ctx.castHash, "max_trade_usdc");
       await publishOutcomeReply(
         ctx.castHash,
-        POLICY_REJECTION_COPY.max_trade_usdc,
+        policyRejectionMessage("max_trade_usdc", {
+          maxTradeUsdc: policyCtx.policy.maxTradeUsdc,
+        }),
       );
       return { status: "rejected" as const, reason: "fee_exceeds_notional" };
     }
 
     await markStatus(ctx.castHash, "quoted");
 
-    await publishIntentReply(ctx.castHash, buildIntentReply(sellIntent));
+    await publishIntentReply(ctx.castHash, buildIntentReply(sellIntent, voiceCtx));
 
     await ensureSellAssetAllowance({
-      ctx: policy.context,
+      ctx: policyCtx,
       spender: sellReservation.txTo,
       sellAssetBaseUnits,
       executionId: sellExecutionId,
@@ -189,7 +200,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
         : await submitSwap({
             executionId: sellExecutionId,
             tradeExecutionId: sellReservation.tradeExecutionId,
-            ctx: policy.context,
+            ctx: policyCtx,
             quoteTxTo: sellReservation.txTo,
             quoteTxData: sellReservation.txData,
             quoteTxValue: sellReservation.txValue,
@@ -207,9 +218,9 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     const sellDecoded = await decodeSwapLog({
       tradeExecutionId: sellReservation.tradeExecutionId,
       txHash: sellConfirmed.txHash,
-      walletAddress: policy.context.walletAddress,
-      assetAddress: policy.context.assetAddress,
-      assetDecimals: policy.context.assetDecimals,
+      walletAddress: policyCtx.walletAddress,
+      assetAddress: policyCtx.assetAddress,
+      assetDecimals: policyCtx.assetDecimals,
       reservedFillUsdc: sellReservation.reservedFillUsdc,
       direction: "asset_to_usdc",
     });
@@ -222,25 +233,25 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       await markRejected(ctx.castHash, sellDecoded.reason, "failed");
       await publishOutcomeReply(
         ctx.castHash,
-        buildOutcomeReply({ kind: "failure", reason: sellDecoded.reason }),
+        buildOutcomeReply({ kind: "failure", reason: sellDecoded.reason }, voiceCtx),
       );
       return { status: "failed" as const, reason: sellDecoded.reason };
     }
 
     await transferFeeLeg({
       tradeExecutionId: sellReservation.tradeExecutionId,
-      walletId: policy.context.privyWalletId,
+      walletId: policyCtx.privyWalletId,
       feeUsdc: sellReservation.feeUsdc,
       executionId: sellExecutionId,
     });
 
     const sellEnforcement = await scoreTimeEnforcement({
       tradeExecutionId: sellReservation.tradeExecutionId,
-      maxPriceImpactBps: policy.context.policy.maxPriceImpactBps,
-      maxSlippageBps: policy.context.policy.maxSlippageBps,
-      taker: policy.context.walletAddress,
-      assetAddress: policy.context.assetAddress,
-      assetDecimals: policy.context.assetDecimals,
+      maxPriceImpactBps: policyCtx.policy.maxPriceImpactBps,
+      maxSlippageBps: policyCtx.policy.maxSlippageBps,
+      taker: policyCtx.walletAddress,
+      assetAddress: policyCtx.assetAddress,
+      assetDecimals: policyCtx.assetDecimals,
     });
 
     if (!sellEnforcement.ok) {
@@ -251,7 +262,13 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       await markRejected(ctx.castHash, sellEnforcement.reason, "failed");
       await publishOutcomeReply(
         ctx.castHash,
-        buildOutcomeReply({ kind: "failure", reason: sellEnforcement.reason }),
+        buildOutcomeReply(
+          { kind: "failure", reason: sellEnforcement.reason },
+          voiceCtx,
+          sellEnforcement.reason === "oversize"
+            ? { maxTradeUsdc: policyCtx.policy.maxTradeUsdc }
+            : undefined,
+        ),
       );
       return { status: "failed" as const, reason: sellEnforcement.reason };
     }
@@ -271,15 +288,18 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     await markStatus(ctx.castHash, "executed");
     await publishOutcomeReply(
       ctx.castHash,
-      buildOutcomeReply({
-        kind: "success",
-        action: "sell",
-        symbol: sellIntent.symbol,
-        quantity: sellDecoded.quantity,
-        notionalUsdc: sellDecoded.fillUsdcHuman,
-        txHash: sellConfirmed.txHash,
-        realizedPnlUsdc: sellPnl.realizedPnlUsdc ?? undefined,
-      }),
+      buildOutcomeReply(
+        {
+          kind: "success",
+          action: "sell",
+          symbol: sellIntent.symbol,
+          quantity: sellDecoded.quantity,
+          notionalUsdc: sellDecoded.fillUsdcHuman,
+          txHash: sellConfirmed.txHash,
+          realizedPnlUsdc: sellPnl.realizedPnlUsdc ?? undefined,
+        },
+        voiceCtx,
+      ),
     );
 
     return {
@@ -291,8 +311,8 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
   const feeUsdc = await computeFee({
     notionalUsdc: intent.amount_value,
-    swapFeeBps: policy.context.policy.swapFeeBps,
-    swapFeeMinUsdc: policy.context.policy.swapFeeMinUsdc,
+    swapFeeBps: policyCtx.policy.swapFeeBps,
+    swapFeeMinUsdc: policyCtx.policy.swapFeeMinUsdc,
   });
 
   const netNotional = Math.max(intent.amount_value - feeUsdc, 0);
@@ -301,7 +321,9 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     await markRejected(ctx.castHash, "max_trade_usdc");
     await publishOutcomeReply(
       ctx.castHash,
-      POLICY_REJECTION_COPY.max_trade_usdc,
+      policyRejectionMessage("max_trade_usdc", {
+        maxTradeUsdc: policyCtx.policy.maxTradeUsdc,
+      }),
     );
     return { status: "rejected" as const, reason: "fee_exceeds_notional" };
   }
@@ -309,7 +331,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   const reservation = await quoteAndReserve({
     castHash: ctx.castHash,
     castCommandId: loaded.id,
-    ctx: policy.context,
+    ctx: policyCtx,
     intent,
     feeUsdc,
     netNotional,
@@ -318,12 +340,12 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
   await markStatus(ctx.castHash, "quoted");
 
-  await publishIntentReply(ctx.castHash, buildIntentReply(intent));
+  await publishIntentReply(ctx.castHash, buildIntentReply(intent, voiceCtx));
 
   // Guarantees `USDC.allowance(arenaWallet, AllowanceHolder) >= sellAmount`.
   // A no-op read for wallets that already MAX-approved on a prior swap.
   await ensureAllowanceStep({
-    ctx: policy.context,
+    ctx: policyCtx,
     spender: reservation.txTo,
     sellAmountBaseUnits: reservation.sellAmountBaseUnits,
     executionId,
@@ -338,7 +360,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       : await submitSwap({
           executionId,
           tradeExecutionId: reservation.tradeExecutionId,
-          ctx: policy.context,
+          ctx: policyCtx,
           quoteTxTo: reservation.txTo,
           quoteTxData: reservation.txData,
           quoteTxValue: reservation.txValue,
@@ -356,9 +378,9 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   const decoded = await decodeSwapLog({
     tradeExecutionId: reservation.tradeExecutionId,
     txHash: confirmed.txHash,
-    walletAddress: policy.context.walletAddress,
-    assetAddress: policy.context.assetAddress,
-    assetDecimals: policy.context.assetDecimals,
+    walletAddress: policyCtx.walletAddress,
+    assetAddress: policyCtx.assetAddress,
+    assetDecimals: policyCtx.assetDecimals,
     reservedFillUsdc: reservation.reservedFillUsdc,
     direction: "usdc_to_asset",
   });
@@ -368,25 +390,25 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     await markRejected(ctx.castHash, decoded.reason, "failed");
     await publishOutcomeReply(
       ctx.castHash,
-      buildOutcomeReply({ kind: "failure", reason: decoded.reason }),
+      buildOutcomeReply({ kind: "failure", reason: decoded.reason }, voiceCtx),
     );
     return { status: "failed" as const, reason: decoded.reason };
   }
 
   await transferFeeLeg({
     tradeExecutionId: reservation.tradeExecutionId,
-    walletId: policy.context.privyWalletId,
+    walletId: policyCtx.privyWalletId,
     feeUsdc: reservation.feeUsdc,
     executionId,
   });
 
   const enforcement = await scoreTimeEnforcement({
     tradeExecutionId: reservation.tradeExecutionId,
-    maxPriceImpactBps: policy.context.policy.maxPriceImpactBps,
-    maxSlippageBps: policy.context.policy.maxSlippageBps,
-    taker: policy.context.walletAddress,
-    assetAddress: policy.context.assetAddress,
-    assetDecimals: policy.context.assetDecimals,
+    maxPriceImpactBps: policyCtx.policy.maxPriceImpactBps,
+    maxSlippageBps: policyCtx.policy.maxSlippageBps,
+    taker: policyCtx.walletAddress,
+    assetAddress: policyCtx.assetAddress,
+    assetDecimals: policyCtx.assetDecimals,
   });
 
   if (!enforcement.ok) {
@@ -397,7 +419,13 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     await markRejected(ctx.castHash, enforcement.reason, "failed");
     await publishOutcomeReply(
       ctx.castHash,
-      buildOutcomeReply({ kind: "failure", reason: enforcement.reason }),
+      buildOutcomeReply(
+        { kind: "failure", reason: enforcement.reason },
+        voiceCtx,
+        enforcement.reason === "oversize"
+          ? { maxTradeUsdc: policyCtx.policy.maxTradeUsdc }
+          : undefined,
+      ),
     );
     return { status: "failed" as const, reason: enforcement.reason };
   }
@@ -416,14 +444,17 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   await markStatus(ctx.castHash, "executed");
   await publishOutcomeReply(
     ctx.castHash,
-    buildOutcomeReply({
-      kind: "success",
-      action: "buy",
-      symbol: intent.symbol,
-      quantity: decoded.quantity,
-      notionalUsdc: decoded.fillUsdcHuman,
-      txHash: confirmed.txHash,
-    }),
+    buildOutcomeReply(
+      {
+        kind: "success",
+        action: "buy",
+        symbol: intent.symbol,
+        quantity: decoded.quantity,
+        notionalUsdc: decoded.fillUsdcHuman,
+        txHash: confirmed.txHash,
+      },
+      voiceCtx,
+    ),
   );
 
   return {
@@ -486,8 +517,8 @@ async function parseStep(
 // Step: handle_status_noop
 //
 // Placeholder for the status command. Marks the cast terminal so
-// replays don't re-enter the workflow; the real Snap-card reply lives
-// in issue #13.
+// replays don't re-enter the workflow. The portfolio + rank reply
+// lives in issue #13.
 //
 // TODO(#13): replace this with a real status reply step that builds
 //            the portfolio summary + rank and publishes an outcome
@@ -514,6 +545,7 @@ type WalletLookup = {
   walletId: string;
   walletAddress: string;
   privyWalletId: string;
+  gladiatorName: string;
 };
 
 async function resolveArenaWallet(
@@ -539,11 +571,18 @@ async function resolveArenaWallet(
   if (wErr) throw new Error(`arena_wallets lookup failed: ${wErr.message}`);
   if (!wallet) return null;
 
+  const { data: glad } = await supabaseAdmin
+    .from("gladiators")
+    .select("name")
+    .eq("user_id", account.user_id)
+    .maybeSingle();
+
   return {
     userId: account.user_id,
     walletId: wallet.id,
     walletAddress: wallet.wallet_address,
     privyWalletId: wallet.privy_wallet_id,
+    gladiatorName: typeof glad?.name === "string" ? glad.name.trim() : "",
   };
 }
 
@@ -1361,6 +1400,6 @@ function parseRejectionFor(reason: string): {
   // so a future parser shape doesn't silently drop the reply.
   return {
     errorReason: reason,
-    reply: buildOutcomeReply({ kind: "failure", reason }),
+    reply: buildOutcomeReply({ kind: "failure", reason }, { gladiatorName: "" }),
   };
 }

@@ -112,8 +112,9 @@ function ArenaContent() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Arena</h1>
           <p className="text-sm text-muted-foreground">
-            Mint your gladiator. Fund the arena wallet. Trade by casting at
-            <span className="font-mono"> @commodus</span>.
+            Mint your gladiator, fund the arena wallet once, and cast decrees at
+            <span className="font-mono"> @commodus</span>. Commodus trades on thy
+            behalf from thy arena wallet — no per-trade wallet signature.
           </p>
         </header>
 
@@ -130,6 +131,7 @@ function renderState(profile: ArenaProfile, onChange: () => void) {
     return (
       <PreMintCard
         suggestedName={profile.suggested_name ?? "gladiator"}
+        minMintDepositUsdc={profile.rules.min_mint_deposit_usdc}
         onMinted={onChange}
       />
     );
@@ -154,6 +156,7 @@ function renderState(profile: ArenaProfile, onChange: () => void) {
         dailySlotsRemaining={profile.daily_slots_remaining}
         maxTradesPerDay={profile.rules.max_trades_per_day}
         maxTradeUsdc={profile.rules.max_trade_usdc}
+        rules={profile.rules}
         onWithdrawn={onChange}
       />
     );
@@ -163,9 +166,11 @@ function renderState(profile: ArenaProfile, onChange: () => void) {
 
 function PreMintCard({
   suggestedName,
+  minMintDepositUsdc,
   onMinted,
 }: {
   suggestedName: string;
+  minMintDepositUsdc: number;
   onMinted: () => void;
 }) {
   const [formError, setFormError] = useState<string | null>(null);
@@ -194,8 +199,9 @@ function PreMintCard({
       <h2 className="text-sm font-semibold">Enter the Arena</h2>
       <p className="text-xs text-muted-foreground">
         Commodus will mint a gladiator under your Farcaster handle and
-        provision a custodial arena wallet on Base. Fund it with $5 USDC
-        to start trading by casting at <span className="font-mono">@commodus</span>.
+        provision a custodial arena wallet on Base. Fund it with at least $
+        {minMintDepositUsdc.toFixed(2)} USDC to unlock trading by casting at{" "}
+        <span className="font-mono">@commodus</span>.
       </p>
 
       <div className="rounded-md border border-black/10 bg-black/[0.02] p-2">
@@ -298,6 +304,7 @@ function AliveCard({
   dailySlotsRemaining,
   maxTradesPerDay,
   maxTradeUsdc,
+  rules,
   onWithdrawn,
 }: {
   gladiator: GladiatorSummary;
@@ -306,6 +313,7 @@ function AliveCard({
   dailySlotsRemaining: number;
   maxTradesPerDay: number;
   maxTradeUsdc: number;
+  rules: ArenaRules;
   onWithdrawn: () => void;
 }) {
   const [isCopied, setIsCopied] = useState(false);
@@ -313,6 +321,25 @@ function AliveCard({
     () => formatWalletAddress(arenaAddress),
     [arenaAddress],
   );
+
+  const sampleHint = useMemo(() => {
+    const tradable = rules.whitelist
+      .filter((w) => w.is_tradable)
+      .map((w) => w.symbol.toLowerCase());
+    const uniq = [...new Set(tradable)];
+    const cap = Math.min(maxTradeUsdc, 10);
+    const a = uniq[0] ?? "symbol";
+    const b = uniq[1] ?? a;
+    const c = uniq[2] ?? a;
+    return [
+      `@commodus buy ${Math.min(5, cap)} usdc of ${a}`,
+      `@commodus sell 50% of ${b}`,
+      `@commodus status`,
+      ...(c !== a
+        ? [`@commodus buy ${Math.min(2, cap)} usdc of ${c}`]
+        : []),
+    ];
+  }, [rules.whitelist, maxTradeUsdc]);
 
   return (
     <section className="rounded-xl border border-green-900/10 bg-green-50 p-4 space-y-3">
@@ -346,9 +373,9 @@ function AliveCard({
           Decree a trade
         </p>
         <ul className="space-y-0.5 text-xs font-mono text-black/80">
-          <li>@commodus buy {Math.min(10, maxTradeUsdc)} usdc of aero</li>
-          <li>@commodus sell 50% of aero</li>
-          <li>@commodus status</li>
+          {sampleHint.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
         </ul>
       </div>
 
@@ -364,6 +391,9 @@ function AliveCard({
           className="text-purple-700 font-medium hover:underline"
         >
           Portfolio
+        </Link>
+        <Link href="/rules" className="text-purple-700 font-medium hover:underline">
+          Rules
         </Link>
       </div>
     </section>
@@ -409,6 +439,9 @@ function PositionRow({ position }: { position: PositionBalance }) {
 }
 
 function RulesCard({ rules }: { rules: ArenaRules }) {
+  const tradable = rules.whitelist.filter((a) => a.is_tradable);
+  const quoteOnly = rules.whitelist.filter((a) => !a.is_tradable);
+
   return (
     <SectionCard>
       <h2 className="text-sm font-semibold">Arena rules</h2>
@@ -418,20 +451,21 @@ function RulesCard({ rules }: { rules: ArenaRules }) {
           trades/day · ${rules.wallet_cap_usdc} wallet cap
         </li>
         <li>
-          {(rules.swap_fee_bps / 100).toFixed(1)}% swap fee
-          {" "}(min ${rules.swap_fee_min_usdc.toFixed(2)}) · gas sponsored
+          {(rules.swap_fee_bps / 100).toFixed(1)}% swap fee (min $
+          {rules.swap_fee_min_usdc.toFixed(2)}) · gas sponsored by Commodus
         </li>
         <li>
-          Commodus custodies the arena wallet via Privy (TEE-backed).
-          Withdrawals are operator-mediated in MVP.
+          Commodus operates the arena wallet via Privy; keys are not exposed as a
+          seed phrase. Withdraw is out of scope for MVP — contact the operator if
+          you need your balance back.
         </li>
       </ul>
       <div>
         <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
-          Tradable
+          Tradable vs USDC
         </p>
         <div className="flex flex-wrap gap-1.5">
-          {rules.whitelist.map((a) => (
+          {tradable.map((a) => (
             <span
               key={a.symbol}
               className="inline-flex items-center rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-mono"
@@ -442,6 +476,29 @@ function RulesCard({ rules }: { rules: ArenaRules }) {
           ))}
         </div>
       </div>
+      {quoteOnly.length > 0 && (
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
+            Quote / routing only
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {quoteOnly.map((a) => (
+              <span
+                key={a.symbol}
+                className="inline-flex items-center rounded-full bg-black/[0.03] px-2 py-0.5 text-[11px] font-mono text-black/60"
+                title={a.name}
+              >
+                {a.symbol}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="text-xs">
+        <Link href="/rules" className="text-purple-700 font-medium hover:underline">
+          Full rules →
+        </Link>
+      </p>
     </SectionCard>
   );
 }

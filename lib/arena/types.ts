@@ -11,6 +11,8 @@ export type { ArenaBalance, PositionBalance };
 export type WhitelistEntry = {
   symbol: string;
   name: string;
+  /** When false, the asset may still appear for routing / display but is not tradable against USDC (`is_tradable` in `asset_whitelist`). */
+  is_tradable: boolean;
 };
 
 export type GladiatorStatus = "pending_funding" | "alive";

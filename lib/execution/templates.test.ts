@@ -4,28 +4,38 @@ import {
   buildIntentReply,
   buildOutcomeReply,
   POLICY_REJECTION_COPY,
+  policyRejectionMessage,
 } from "./templates";
+
+const voice = { gladiatorName: "Maximus" };
 
 describe("buildIntentReply", () => {
   it("renders a buy decree with the notional and symbol", () => {
-    const text = buildIntentReply({
-      action: "buy",
-      symbol: "AERO",
-      amount_type: "usdc_in",
-      amount_value: 5,
-    });
+    const text = buildIntentReply(
+      {
+        action: "buy",
+        symbol: "AERO",
+        amount_type: "usdc_in",
+        amount_value: 5,
+      },
+      voice,
+    );
     expect(text).toContain("5");
     expect(text).toContain("AERO");
-    expect(text).toContain("deploy");
+    expect(text).toContain("Maximus");
+    expect(text.toLowerCase()).toMatch(/march|deploy|usdc/);
   });
 
   it("switches verb on sell intents", () => {
-    const text = buildIntentReply({
-      action: "sell",
-      symbol: "AERO",
-      amount_type: "percent_out",
-      amount_value: 50,
-    });
+    const text = buildIntentReply(
+      {
+        action: "sell",
+        symbol: "AERO",
+        amount_type: "percent_out",
+        amount_value: 50,
+      },
+      voice,
+    );
     expect(text).toContain("retire");
     expect(text).toContain("50%");
     expect(text).toContain("AERO");
@@ -34,31 +44,35 @@ describe("buildIntentReply", () => {
 
 describe("buildOutcomeReply", () => {
   it("includes quantity + notional + short tx hash on success", () => {
-    const text = buildOutcomeReply({
-      kind: "success",
-      action: "buy",
-      symbol: "AERO",
-      quantity: 12.34567,
-      notionalUsdc: 4.95,
-      txHash: "0x0123456789abcdef0123456789abcdef",
-    });
+    const text = buildOutcomeReply(
+      {
+        kind: "success",
+        action: "buy",
+        symbol: "AERO",
+        quantity: 12.34567,
+        notionalUsdc: 4.95,
+        txHash: "0x0123456789abcdef0123456789abcdef",
+      },
+      voice,
+    );
     expect(text).toContain("AERO");
     expect(text).toContain("12.34567");
     expect(text).toContain("4.95");
     expect(text).toContain("0x01234567");
+    expect(text).toContain("Maximus");
   });
 
   it("renders templated voice for a failed trade", () => {
-    const text = buildOutcomeReply({ kind: "failure", reason: "revert" });
-    expect(text).toContain("failed");
-    expect(text).toContain("chain");
+    const text = buildOutcomeReply(
+      { kind: "failure", reason: "revert" },
+      { gladiatorName: "" },
+    );
+    expect(text.toLowerCase()).toMatch(/sand|chain|revert/);
   });
 });
 
 describe("POLICY_REJECTION_COPY", () => {
   it("covers every rejection reason in the policy union", () => {
-    // Keep this list in sync with `PolicyRejectionReason`. A mismatch is
-    // a compile error because the record type pins the keys.
     expect(POLICY_REJECTION_COPY.needs_gladiator_mint).toBeTruthy();
     expect(POLICY_REJECTION_COPY.asset_not_whitelisted).toBeTruthy();
     expect(POLICY_REJECTION_COPY.max_trades_per_day).toBeTruthy();
@@ -67,17 +81,25 @@ describe("POLICY_REJECTION_COPY", () => {
     expect(POLICY_REJECTION_COPY.insufficient_balance).toBeTruthy();
   });
 
+  it("interpolates live caps for max_trade_usdc", () => {
+    const text = policyRejectionMessage("max_trade_usdc", { maxTradeUsdc: 25 });
+    expect(text).toContain("25");
+  });
+
   it("includes realized PnL on sell success outcomes", () => {
-    const text = buildOutcomeReply({
-      kind: "success",
-      action: "sell",
-      symbol: "AERO",
-      quantity: 2,
-      notionalUsdc: 10,
-      txHash: "0x0123456789abcdef0123456789abcdef",
-      realizedPnlUsdc: 1.25,
-    });
-    expect(text).toContain("Retired");
+    const text = buildOutcomeReply(
+      {
+        kind: "success",
+        action: "sell",
+        symbol: "AERO",
+        quantity: 2,
+        notionalUsdc: 10,
+        txHash: "0x0123456789abcdef0123456789abcdef",
+        realizedPnlUsdc: 1.25,
+      },
+      voice,
+    );
+    expect(text).toContain("Victory");
     expect(text).toContain("Realized PnL");
     expect(text).toContain("1.25");
     expect(text).toContain("USDC");

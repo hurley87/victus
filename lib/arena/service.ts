@@ -36,7 +36,11 @@ async function loadWhitelist(): Promise<{
 
   const rows = data ?? [];
   return {
-    cards: rows.map(({ symbol, name }) => ({ symbol, name })),
+    cards: rows.map(({ symbol, name, is_tradable }) => ({
+      symbol,
+      name,
+      is_tradable,
+    })),
     tradable: rows
       .filter((r) => r.is_tradable)
       .map((r) => ({
@@ -273,4 +277,14 @@ async function loadRules(
     swap_fee_bps: data.swap_fee_bps,
     swap_fee_min_usdc: Number(data.swap_fee_min_usdc),
   };
+}
+
+/**
+ * Canonical rules + whitelist for display surfaces that do not have an
+ * arena wallet yet (`wallet_policies` defaults) — same `loadRules` path as
+ * pre-mint `GET /api/arena/me`.
+ */
+export async function getPublicArenaRules(): Promise<ArenaRules> {
+  const { cards } = await loadWhitelist();
+  return loadRules(null, cards);
 }

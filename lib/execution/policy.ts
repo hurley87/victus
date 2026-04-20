@@ -40,7 +40,12 @@ export type PolicyRejectionReason =
 
 export type PolicyResult =
   | { ok: true; context: PolicyContext }
-  | { ok: false; reason: PolicyRejectionReason };
+  | {
+      ok: false;
+      reason: PolicyRejectionReason;
+      /** Present when `loadPolicy` ran — used for Roman policy-rejection copy with live caps. */
+      policy?: PolicyContext["policy"];
+    };
 
 /**
  * Context collected during validation and reused downstream by the
@@ -96,14 +101,14 @@ export async function validatePolicy(
 
   const tradesToday = await countCompletedSwapsTodayUtc(params.walletId);
   if (tradesToday >= policy.maxTradesPerDay) {
-    return { ok: false, reason: "max_trades_per_day" };
+    return { ok: false, reason: "max_trades_per_day", policy };
   }
 
   const isBuy = params.intent.action === "buy";
   const notional = params.intent.amount_value;
 
   if (isBuy && notional > policy.maxTradeUsdc) {
-    return { ok: false, reason: "max_trade_usdc" };
+    return { ok: false, reason: "max_trade_usdc", policy };
   }
 
   if (isBuy) {
@@ -115,7 +120,7 @@ export async function validatePolicy(
     });
     const exposure = live + heldUsdc;
     if (exposure > policy.walletCapUsdc) {
-      return { ok: false, reason: "wallet_cap_usdc" };
+      return { ok: false, reason: "wallet_cap_usdc", policy };
     }
   }
 
@@ -127,17 +132,17 @@ export async function validatePolicy(
     try {
       positionWei = await readErc20Balance(token, wallet);
     } catch {
-      return { ok: false, reason: "insufficient_balance" };
+      return { ok: false, reason: "insufficient_balance", policy };
     }
 
     if (positionWei <= BigInt(0)) {
-      return { ok: false, reason: "insufficient_balance" };
+      return { ok: false, reason: "insufficient_balance", policy };
     }
 
     const sellWei =
       (positionWei * BigInt(params.intent.amount_value)) / BigInt(100);
     if (sellWei <= BigInt(0)) {
-      return { ok: false, reason: "insufficient_balance" };
+      return { ok: false, reason: "insufficient_balance", policy };
     }
 
     sellAssetBaseUnits = sellWei.toString();
