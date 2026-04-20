@@ -4,6 +4,7 @@ import { start } from "workflow/api";
 import { env } from "@/lib/env";
 import { ratelimit, wasProcessed } from "@/lib/redis";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { log } from "@/lib/logger";
 import {
   type CommandContext,
   handleCommodusCommand,
@@ -70,15 +71,18 @@ export async function POST(request: Request) {
   // Guard: our own replies (Neynar re-broadcasts casts we publish). Drop
   // before we spend Redis/DB budget on them.
   if (env.COMMODUS_FID && author.fid === env.COMMODUS_FID) {
+    log.info("skip:self-reply", { castHash: hash, fid: author.fid });
     return NextResponse.json({ self: true });
   }
 
   const { success } = await ratelimit.webhook.limit(`fid:${author.fid}`);
   if (!success) {
+    log.warn("rate-limited", { castHash: hash, fid: author.fid });
     return new NextResponse("Rate limited", { status: 429 });
   }
 
   if (await wasProcessed(`cast:${hash}`, CAST_DEDUPE_TTL_SECONDS)) {
+    log.info("skip:duplicate", { castHash: hash, fid: author.fid });
     return NextResponse.json({ duplicate: true });
   }
 
@@ -99,7 +103,12 @@ export async function POST(request: Request) {
   if (error) {
     // Don't leak webhook state to Neynar — return 500 so they retry, but log
     // loudly. Redis dedupe key will expire in 60s, so retry can proceed.
-    console.error("cast_commands upsert failed", { hash, error });
+    log.error("cast_commands_upsert_failed", {
+      castHash: hash,
+      fid: author.fid,
+      err: error.message,
+      code: error.code,
+    });
     return new NextResponse("Database error", { status: 500 });
   }
 
@@ -114,6 +123,7 @@ export async function POST(request: Request) {
   // NOT await any downstream work inside the webhook — 200 ASAP.
   await start(handleCommodusCommand, [ctx]);
 
+  log.info("accepted", { castHash: hash, fid: author.fid });
   return NextResponse.json({ accepted: true });
 }
 

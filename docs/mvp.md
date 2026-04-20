@@ -997,6 +997,36 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 
 ---
 
+## Operations — logs (Axiom)
+
+Production and preview function logs are drained to **Axiom** via the Vercel Marketplace integration. The app emits **one JSON object per line** on stdout (and `level: error` on stderr) from `lib/logger.ts`, with fields such as `level`, `ts`, `msg`, `castHash`, `fid`, and `step` (workflow steps also include `duration_ms` on `step_end`).
+
+Example **APL** queries (adjust dataset / field names to match your Axiom dataset schema; Vercel may wrap lines in a container field):
+
+```apl
+// All log lines for one cast
+['vercel'] | where castHash == "0x…"
+
+// Errors only
+['vercel'] | where level == "error"
+
+// Webhook outcomes in the last 24h
+['vercel'] | where msg == "accepted" or msg == "rate-limited" | where _time > ago(24h)
+
+// Workflow step latency (successful steps only; failures emit msg == "step_failed")
+['vercel'] | where msg == "step_end" | summarize avg(duration_ms) by step
+
+// Thrown / failed workflow steps
+['vercel'] | where msg == "step_failed"
+
+// Failed Neynar publish attempts (HTTP status is a separate field)
+['vercel'] | where msg == "neynar_cast_publish_failed"
+```
+
+Confirm field paths in the Axiom UI after the first deploy; if logs arrive as escaped JSON strings, parse with `extend parsed = parse_json(message)` (or the integration’s documented field) and query `parsed.castHash` instead.
+
+---
+
 ## Success Metrics
 
 ### MVP success metrics

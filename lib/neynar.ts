@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { log } from "@/lib/logger";
 
 const NEYNAR_API_BASE = "https://api.neynar.com/v2/farcaster";
 
@@ -21,10 +22,8 @@ export const fetchUser = async (fid: string): Promise<NeynarUser> => {
     }
   );
   if (!response.ok) {
-    console.error(
-      "Failed to fetch Farcaster user on Neynar",
-      await response.json()
-    );
+    const httpStatus = response.status;
+    log.error("neynar_user_fetch_failed", { fid, httpStatus });
     throw new Error("Failed to fetch Farcaster user on Neynar");
   }
   const data = await response.json();
@@ -89,9 +88,15 @@ export async function publishReplyCast(
   });
 
   if (!response.ok) {
+    const httpStatus = response.status;
     const body = await response.text().catch(() => "");
+    log.error("neynar_cast_publish_failed", {
+      httpStatus,
+      parentCastHash,
+      idemKey,
+    });
     throw new Error(
-      `Neynar cast publish failed (${response.status}): ${body.slice(0, 300)}`,
+      `Neynar cast publish failed (${httpStatus}): ${body.slice(0, 300)}`,
     );
   }
 
