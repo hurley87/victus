@@ -19,7 +19,7 @@ import {
  * Stage 1 — regex pre-filter (`lib/commodus/parser.ts`).
  *   Canonical buys (`buy N usdc of symbol`) match without an LLM call.
  *   Whitelist validation for the extracted symbol is async against
- *   `asset_whitelist` (#12) so GLORY / unknown tickers get templated
+ *   `asset_whitelist` (#12) so unknown tickers get templated rejections
  *   `asset_error` without publishing an intent reply.
  *
  * Stage 2 — Vercel AI SDK fallback (`llm-parse.ts`).

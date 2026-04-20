@@ -10,7 +10,7 @@ Commodus parses the command, validates it against the user's policy and the game
 
 Execution is **custodial**. Commodus holds the private key for each user's arena wallet via Privy's server-wallet API (TEE-executed inside an AWS Nitro Enclave — keys are reassembled only in memory for a single signing call and never persist outside the enclave). The application server has authorization to sign but not to export. Gas is sponsored by Privy, funded by a 0.5% fee-on-swap charged at execution time.
 
-At the end of each month, the top 10 players receive an airdrop of **$GLORY**, a Farcaster-native ERC-20 token.
+At the end of each month, the top 10 players are recognized on a frozen leaderboard; **monthly prizes are optional and operator-led** (off-app distribution, no in-product token narrative in MVP).
 
 ---
 
@@ -30,7 +30,7 @@ The core loop is simple:
 2. Cast decrees in public; Commodus trades on your behalf
 3. Earn points
 4. Climb the leaderboard
-5. Win GLORY
+5. Top the monthly leaderboard
 
 ---
 
@@ -68,7 +68,7 @@ The MVP will **not** include:
 - LLM-generated reply copy (templates only in MVP)
 - user-configurable policy limits
 - NFT reward badges
-- onchain GLORY distribution contracts
+- onchain reward-token distribution contracts
 
 These are captured in `docs/future.md`.
 
@@ -84,7 +84,7 @@ The user signs in with Farcaster (Quick Auth) and reads a simple explanation of 
 - trade in public
 - only approved assets
 - leaderboard is based on points
-- top 10 earn GLORY monthly
+- top 10 are highlighted monthly (prizes at operator discretion)
 
 ### 3. Mint Your Gladiator
 The user chooses a gladiator name (free text, validated), which triggers the mint ritual:
@@ -96,7 +96,7 @@ The gladiator is soft-minted (a DB record, not an on-chain NFT) for MVP. No gas,
 
 ### 4. Review Arena Rules
 The user reads what Commodus can and cannot do, including:
-- only 4 whitelisted tradable assets (plus USDC as quote)
+- only approved tradable assets (plus USDC as quote; live list from `asset_whitelist`)
 - max trades per day
 - max size per trade (`max_trade_usdc`)
 - wallet cap (`wallet_cap_usdc`) beyond which new buys are rejected
@@ -127,8 +127,8 @@ The user opens the Mini App to see:
 - recent trades
 - monthly standings
 
-### 8. Monthly Reward
-At the end of each UTC month, the top 10 players receive a proportional airdrop of **$GLORY**, distributed manually by the operator based on a frozen leaderboard snapshot.
+### 8. Monthly recognition
+At the end of each UTC month, the leaderboard for that UTC month is frozen and the top 10 are named. **MVP does not promise a specific token or onchain reward** — any monthly prize is operator-defined and fulfilled outside the app (see § Monthly rewards).
 
 ---
 
@@ -175,7 +175,7 @@ Users who may not be active traders but like:
 - users trade via public Farcaster casts at `@commodus`
 - Commodus replies publicly with templated copy
 - `buy`, `sell`, and `status` commands only
-- fixed whitelist of 4 tradable assets + USDC
+- fixed whitelist of tradable assets + USDC (see § Asset Rules; current MVP targets **three** Base tokens plus USDC as quote)
 - deterministic regex grammar with LLM fallback via Vercel AI SDK `generateObject` + Zod `TradeIntentSchema`
 - validation, quoting, and policy checks before execution; execution runs server-side without user interaction
 
@@ -188,8 +188,8 @@ Users who may not be active traders but like:
 
 ### Rewards
 - monthly leaderboard snapshot
-- top 10 users receive GLORY
-- distribution is fully manual (admin CSV export + airdrop outside the app)
+- top 10 users are surfaced for operator follow-up
+- any payout is fully manual (admin CSV export + fulfillment outside the app)
 
 ---
 
@@ -208,7 +208,7 @@ Users who may not be active traders but like:
 - LLM-generated reply copy
 - onchain reward contracts
 - NFT badges
-- GLORY utility (voting, tournament entry, etc.)
+- reward-token utility (voting, tournament entry, etc.)
 
 ---
 
@@ -224,7 +224,7 @@ Users who may not be active traders but like:
 - the arena wallet is a **Privy server wallet** on Base; `arena_wallets.privy_wallet_id` is the canonical Privy identifier and `arena_wallets.wallet_address` is its Base EOA
 - private key material is TEE-custodied by Privy (AWS Nitro Enclave); the application server has authorization to sign but cannot export the key
 - **gas is sponsored by Privy** on every swap (`sponsor: true`). The operator tops up a Privy sponsorship balance; that balance is refilled by the 0.5% fee-on-swap charged at execution. The arena wallet never needs an ETH balance.
-- USDC is the only asset the user deposits; traded assets (WETH, AERO, DEGEN, VIRTUAL) live on the arena wallet post-buy and are sold back to USDC on sell commands
+- USDC is the only asset the user deposits; traded assets (e.g. AERO, DEGEN, VIRTUAL — **live list from `asset_whitelist`**) live on the arena wallet post-buy and are sold back to USDC on sell commands
 - withdraw functionality is **out of scope for MVP** (see Known MVP Compromises); a user who wants their balance back contacts the operator
 - only swaps signed from the arena wallet count toward scoring; by construction, all swaps originate from there
 - the arena wallet cannot be changed once provisioned (one per user in MVP)
@@ -290,7 +290,7 @@ SYMBOL     := member of asset_whitelist (case-insensitive)
 
 ### Examples
 - `@commodus buy 25 usdc of aero`
-- `@commodus buy 10 usdc of eth`
+- `@commodus buy 10 usdc of virtual`
 - `@commodus sell 50% of aero`
 - `@commodus status`
 
@@ -299,17 +299,16 @@ SYMBOL     := member of asset_whitelist (case-insensitive)
 MVP supports:
 - **Base mainnet only**
 - **spot trading only**
-- **fixed whitelist of 5 symbols** (4 tradable + 1 quote):
+- **whitelist driven by `asset_whitelist`** (USDC as quote + **three** tradable Base tokens in the current seed; **WETH is retired** — not offered for new trades)
 
 | Symbol | Role | Notes |
 |---|---|---|
 | USDC | Quote | Required; all PnL denominated in USDC |
-| WETH | Tradable | Blue-chip anchor, deep 0x routing |
 | AERO | Tradable | Base-native volatility |
 | DEGEN | Tradable | Farcaster-culture token |
 | VIRTUAL | Tradable | Agent/AI theme alignment |
 
-- `$GLORY` is **explicitly excluded** from the tradable whitelist and is rejected at parse time with a templated Commodus line
+- Symbols outside the active whitelist are rejected with a templated Commodus line
 - USDC is the sole quote asset — no symbol-to-symbol pairs
 - no leverage, no perps, no bridging
 - whitelist entries live in the `asset_whitelist` table and are editable via DB (no redeploy)
@@ -409,41 +408,28 @@ Discourages:
 
 ---
 
-## Rewards & GLORY
+## Monthly rewards (MVP)
 
-**$GLORY** is an ERC-20 token on Base, launched via **Clanker** (a Farcaster-native token launcher). The token is deployed outside the codebase; the app references its address via env var `GLORY_TOKEN_ADDRESS`.
+MVP optimizes for **leaderboard clarity and a clean custodial trading loop**, not for a named reward token. Month-end handling:
 
-### What GLORY is in MVP
-- earned only by placing on the monthly top 10 leaderboard
-- airdropped manually by the operator, offchain from the app's perspective
-- **not** tradable inside the arena (explicitly blocklisted from commands even though it's on Uniswap)
+### What “rewards” mean in MVP
+- Top 10 finishers are **frozen in `leaderboard_snapshots`** and surfaced in `/admin/rewards/:epoch`.
+- Any prize (USDC, merch, shout-outs, etc.) is **operator-defined** and **fulfilled off-app**. The product copy and Rules page **do not** promise a specific token.
 
-### Monthly distribution (top 10, fixed split)
-Let `P = MONTHLY_GLORY_POOL` (constant, set at token launch).
-
-| Rank | Share of Pool |
-|---|---|
-| 1 | 30% |
-| 2 | 20% |
-| 3 | 15% |
-| 4 | 10% |
-| 5 | 10% |
-| 6–10 | 3% each (15% total) |
-
-### Distribution flow
+### Operator workflow (suggested)
 1. **00:00 UTC, day 1 of each month** — a Vercel cron job:
    - inserts a `reward_epochs` row with `status='snapshot_ready'`
    - freezes `leaderboard_snapshots` for the closed month (top 10 locked)
 2. Operator opens `/admin/rewards/:epoch`:
-   - table of top 10 with FID, username, rank, points, realized PnL, resolved recipient address, pool share
-   - **"Download CSV"** button — exports `address, glory_amount` per winner
-3. Operator performs the airdrop out-of-band using Clanker's built-in distro, Disperse, or a direct wallet
-4. Operator pastes airdrop tx hash(es) into the admin UI → `reward_epochs.status='distributed'`
-5. Commodus publishes a monthly recap cast naming the top 10
+   - table of top 10 with FID, username, rank, points, realized PnL, resolved recipient address
+   - **"Download CSV"** — exports payout rows (e.g. `address, reward_amount`) as the operator configures
+3. Operator fulfills prizes out-of-band (bank transfer, USDC send, manual process — **not specified in MVP**)
+4. Operator records proof in admin UI if desired → `reward_epochs.status='distributed'` + optional tx hash metadata
+5. Commodus may publish a monthly recap cast naming the top 10
 
-### Recipient address resolution
+### Recipient address resolution (if sending onchain value)
 
-GLORY is a user-owned reward and must NOT be sent to the custodial arena wallet (that would leave Commodus holding the user's GLORY). Resolved in this order of preference against the user's Farcaster account at snapshot time:
+Rewards must **not** default to the custodial arena wallet. Resolve in this order against the user's Farcaster account at snapshot time:
 
 1. First entry in the user's Farcaster `verifications[]`
 2. Any other entry in `verifications[]`
@@ -488,9 +474,6 @@ Commodus should feel imperial and theatrical, but never unclear.
 - "Commodus refuses. This trade violates the laws of the arena."
 - "No gladiator bears thy name. Mint one in the arena before thou dost decree."
 
-**GLORY purchase attempt**
-- "GLORY is earned in the arena, not purchased in the market. Order denied."
-
 **Market-condition rejection**
 - "The arena does not deal in such violent movements. Order denied."
 
@@ -511,7 +494,6 @@ Commodus should feel imperial and theatrical, but never unclear.
 - **`@farcaster/miniapp-sdk`** — retained **only** for sign-in (Quick Auth) and Mini App context (safe-area insets, `isInMiniApp`, capabilities). Not on the trade-execution path.
 - **0x Swap API** — used at execution time (quote + `transaction` calldata that Privy submits) and at score time (reference quote for price-impact sanity check).
 - **Vercel AI SDK** (`ai`, `@ai-sdk/workflow`) — `generateObject` for MVP command parsing; graduates to `WorkflowAgent` post-MVP when Commodus gains autonomous tools. Models routed via **Vercel AI Gateway**.
-- **Clanker** — external, used to launch `$GLORY` as an ERC-20 on Base
 - **viem / wagmi** — chain interaction (already in deps)
 
 ### Alternatives considered
@@ -716,7 +698,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - address (Base)
 - decimals
 - is_tradable (boolean; USDC is false)
-- is_blocklisted (boolean; GLORY is true)
+- is_blocklisted (boolean; e.g. reserved or retired symbols kept out of the arena surface)
 - active
 
 ### `cast_commands`
@@ -819,7 +801,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - id
 - month (unique)
 - status ('pending_snapshot' | 'snapshot_ready' | 'distributed' | 'partial')
-- pool_glory_amount
+- pool_glory_amount *(historic column name; stores operator-facing reward pool metadata for the epoch)*
 - snapshot_at
 - distributed_at
 - airdrop_tx_hashes (jsonb array)
@@ -897,8 +879,8 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 ### Rewards
 - system determines monthly winners automatically at month rollover
 - system exposes CSV export of winners
-- operator performs airdrop out-of-band
-- operator marks epoch distributed with tx hashes
+- operator fulfills any prize out-of-band (not prescribed in MVP)
+- operator marks epoch distributed; may attach optional tx hashes for audit
 
 ---
 
@@ -943,7 +925,7 @@ Must show:
 - full whitelist
 - scoring formula + daily cap + monthly reset
 - $0.25 profitable-close floor explanation
-- how monthly GLORY airdrop works
+- how month-end leaderboard freeze and operator rewards work (no named token)
 - daily trade cap (`max_trades_per_day`), per-trade cap (`max_trade_usdc`), wallet cap (`wallet_cap_usdc`)
 - **fee-on-swap**: 0.5% of each trade's USDC leg (minimum $0.05) credited to the operator treasury and used to fund gas sponsorship
 - **gas posture**: sponsored by Privy — the user never needs ETH in the arena wallet
@@ -985,7 +967,7 @@ Operating Commodus as a custodial trading service exposes it to money-transmitte
 2. **No fiat on/off-ramp.** Deposits are USDC-in / USDC-stays; Commodus never touches fiat. This removes the most aggressive MTL triggers.
 3. **No custody of third-party users' keys.** Private keys are custodied by Privy; Commodus is arguably a user of Privy's custody service rather than a custodian itself. This is a legal-argument posture, not a factual firewall.
 4. **Withdraw deferred.** MVP does not implement user-initiated withdraw (see Known MVP Compromises). Withdraw-on-request is operator-mediated; this narrows the custody surface but also narrows how long the posture is defensible before legal review is non-optional.
-5. **Pending legal review.** The operator commits to legal review before any of: (a) aggregate custodied balance exceeding $10k, (b) introduction of fiat rails, (c) public marketing beyond the Farcaster / crypto-native audience, (d) any token-launch activity beyond `$GLORY` (already covered by Clanker's separate posture).
+5. **Pending legal review.** The operator commits to legal review before any of: (a) aggregate custodied balance exceeding $10k, (b) introduction of fiat rails, (c) public marketing beyond the Farcaster / crypto-native audience, (d) any public token launch or tradable reward asset tied to the product.
 
 This is documented here because the compliance surface is the single biggest post-MVP risk that the architecture doesn't mitigate directly; future maintainers should see the accepted risk explicitly rather than infer it from the absence of discussion.
 
@@ -1007,7 +989,7 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 | **Single Privy server-wallet per user (no multi-sig, no recovery)** | Simplest possible custody topology; Privy's TEE execution (AWS Nitro Enclaves) is the only failure mitigation | If a Privy outage or key-loss becomes a real risk, move to dual-custody or a self-hosted signer + HSM. |
 | **Vercel Queues / Workflow** both in public beta | New primitives, best-fit DX | If unreliable, fall back to Upstash QStash + Supabase state machine; no code redesign needed. |
 | **Templated reply copy only** (no LLM replies) | Deterministic voice, safer for money-moving flows | Agent grows a `publish_cast` tool post-MVP; voice is then LLM-curated with guardrails. |
-| **Manual offchain GLORY airdrops** | No contract, zero smart-contract risk for MVP | Optionally automate via a `Distributor` contract + merkle airdrops post-MVP. |
+| **Manual offchain rewards** | No reward contract in MVP; operator fulfills prizes manually | Optionally automate via a distributor contract + merkle claims post-MVP. |
 | **Single-region Supabase, no DR** | Not a hackathon concern | Supabase multi-region/read replicas when traffic warrants. |
 | **Admin UI gated by single allowlisted FID** | Simple auth for one operator | Role-based access when team grows. |
 | **No rate limiting beyond policy caps** | Policy caps are sufficient at hackathon scale | Add IP/FID rate limits before public launch. |
@@ -1031,7 +1013,7 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 - weekly active traders
 - number of users who trade more than once
 - leaderboard page views
-- month-1 airdrop recipients (target: 10 eligible winners)
+- month-1 top-10 snapshot completed (10 named finishers)
 
 ### Demo success
 A successful demo should show, in order:
@@ -1055,10 +1037,9 @@ Order of operations for going live:
 1. **Infrastructure ready** — Supabase schema applied (including the non-custodial pivot and the `restore_custodial_execution` migration on top), Vercel deployment live, Neynar webhook pointed at prod URL, 0x API key in place, Privy server-wallet API key provisioned, **Privy gas-sponsorship balance funded** (seed with ~$500 to cover launch-week traffic before fee-on-swap revenue recycles), operator USDC treasury wallet configured (receives fee-on-swap transfers).
 2. **`@commodus` FID profile polished** — bio, pfp, pinned cast explaining the game.
 3. **First `reward_epoch` row created** for the launch month.
-4. **Commodus casts the `$GLORY` launch** via Clanker: *"Rome proclaims its coin. @clanker launch GLORY — supply N, ticker $GLORY."*
-5. **Commodus casts the arena opening:** *"The arena opens. Mint thy gladiator with 5 USDC. Speak thy decrees: `@commodus buy N usdc of SYMBOL`. Commodus trades on thy behalf. Glory awaits."*
-6. **Public trading begins.**
-7. **End of month:** leaderboard freezes automatically; operator exports CSV; airdrop completed; recap cast published.
+4. **Commodus casts the arena opening:** *"The arena opens. Mint thy gladiator with 5 USDC. Speak thy decrees: `@commodus buy N usdc of SYMBOL`. Commodus trades on thy behalf."*
+5. **Public trading begins.**
+6. **End of month:** leaderboard freezes automatically; operator exports CSV; fulfills any prizes off-app; recap cast published if desired.
 
 ---
 
@@ -1066,7 +1047,6 @@ Order of operations for going live:
 
 Most prior open questions resolved during grilling. Remaining:
 
-- **Exact `MONTHLY_GLORY_POOL` value** — set at `$GLORY` Clanker launch.
 - **Whether to backfill pre-launch testing data** before first real month, or start fresh. Low-stakes; operator preference.
 - **Whether to manually bless the first few users** (seed some traders before public launch) vs. open immediately. Marketing decision.
 
@@ -1078,7 +1058,7 @@ Most prior open questions resolved during grilling. Remaining:
 - apply Supabase schema + RLS policies
 - wire `supabase-js` client into the existing starter
 - confirm Farcaster Quick Auth sign-in flow works end-to-end
-- add `asset_whitelist` seed data (USDC, WETH, AERO, DEGEN, VIRTUAL; GLORY blocklisted)
+- add `asset_whitelist` seed data (USDC quote + AERO, DEGEN, VIRTUAL tradable; **WETH retired** via follow-on migration in this repo)
 - add admin-FID allowlist env var
 
 ### Phase 2 — Gladiator mint + arena wallet provisioning
@@ -1118,10 +1098,9 @@ Most prior open questions resolved during grilling. Remaining:
 - `/admin/rewards/:epoch` UI with CSV export + mark-distributed
 - copy pass on all Commodus replies
 - demo script dry run
-- `$GLORY` launched via Clanker the day before public opening
 
 ---
 
 ## One-Line Product Definition
 
-**Commodus is a Farcaster trading game where users mint a gladiator (one-time $5 USDC deposit into a custodial arena wallet), issue public trade decrees by casting at `@commodus`, watch Commodus execute on their behalf with sponsored gas, climb the leaderboard, and earn GLORY.**
+**Commodus is a Farcaster trading game where users mint a gladiator (one-time $5 USDC deposit into a custodial arena wallet), issue public trade decrees by casting at `@commodus`, watch Commodus execute on their behalf with sponsored gas, and climb the monthly leaderboard.**
