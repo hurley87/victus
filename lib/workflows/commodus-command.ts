@@ -544,13 +544,13 @@ async function executeStatusBranch(ctx: CommandContext): Promise<void> {
       points: view.points,
       portfolioUsdc: view.portfolioUsdc,
       dailySlotsRemaining: view.dailySlotsRemaining,
-      snapUrl: statusSnapUrlForFid(ctx.authorFid),
     });
     try {
       await publishReplyOnce({
         castHash: ctx.castHash,
         kind: "outcome",
         text,
+        embeds: [{ url: statusSnapUrlForFid(ctx.authorFid) }],
       });
     } catch (err) {
       if (err instanceof MissingSignerError) throw new FatalError(err.message);
