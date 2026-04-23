@@ -62,8 +62,8 @@ export function ImperialShell({ initialTab = "wallet" }: ImperialShellProps) {
   const bottomInset = safeAreaInsets?.bottom ?? 0;
   // Top bar: safe area + padding (8) + content (32) + padding (8) = safe area + 48
   const topPadding = topInset + 48;
-  // Bottom tab bar: content (~52) + safe area
-  const bottomPadding = bottomInset + 56;
+  // Bottom tab bar: taller icon stack + safe area
+  const bottomPadding = bottomInset + 76;
 
   return (
     <div className="min-h-screen bg-imperial-bg">

@@ -33,10 +33,10 @@ export function TabBar({ activeTab, onTabChange }: TabBarProps) {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-40 bg-imperial-surface border-t border-gold/20"
+      className="fixed bottom-0 left-0 right-0 z-40 border-t border-gold/20 bg-imperial-surface/95 shadow-[0_-12px_32px_rgba(0,0,0,0.35)] backdrop-blur-sm"
       style={{ paddingBottom: bottomInset }}
     >
-      <div className="flex">
+      <div className="mx-auto flex max-w-md">
         {TABS.map(({ id, label, Icon }) => {
           const isActive = activeTab === id;
           return (
@@ -45,11 +45,11 @@ export function TabBar({ activeTab, onTabChange }: TabBarProps) {
               type="button"
               onClick={() => onTabChange(id)}
               className={cn(
-                "flex-1 flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition-colors",
+                "flex flex-1 flex-col items-center gap-1.5 py-3.5 text-xs font-medium transition-all",
                 isActive ? "text-gold" : "text-zinc-500"
               )}
             >
-              <Icon className="size-5" />
+              <Icon className={cn("size-6 shrink-0", isActive && "scale-105")} />
               <span>{label}</span>
             </button>
           );
