@@ -1,8 +1,6 @@
-import { BaseIcon } from "@/components/shared/icons/base-icon";
 import { FarcasterIcon } from "@/components/shared/icons/farcaster-icon";
 import { Button } from "@/components/shared/ui/button";
 import { env } from "@/lib/env";
-import { cn } from "@/lib/utils";
 import Image from "next/image";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
@@ -12,105 +10,44 @@ export const Website = ({ page }: { page?: string }) => {
     env.NEXT_PUBLIC_URL
   )}${page ? `/${encodeURIComponent(page)}` : ""}`;
 
-  const baseUrl = `cbwallet://miniapp?url=${encodeURIComponent(
-    env.NEXT_PUBLIC_URL
-  )}${page ? `/${encodeURIComponent(page)}` : ""}`;
-
   return (
-    <main className="h-screen w-full overflow-y-auto bg-[#FCF5EC] p-4 text-black sm:p-0">
-      <div className="mx-auto mb-32 flex min-h-full w-full max-w-7xl flex-col items-center justify-center gap-4 py-4 sm:flex-row sm:gap-24 sm:py-12">
-        {/* Content Section */}
-        <div className="flex flex-col gap-4 sm:gap-12">
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-row items-center gap-6">
-              <Image
-                alt={`App Logo`}
-                className="h-16 w-16 object-contain sm:h-20 sm:w-20"
-                height={96}
-                src="/images/splash.png"
-                width={96}
-              />
-              <div className="flex flex-col">
-                <h1 className="font-normal text-lg sm:text-2xl">
-                  Mini-app Starter
-                </h1>
-              </div>
-            </div>
-            <p className="text-black/80 text-xs sm:text-lg">
-              A starter for Farcaster Mini-apps
-            </p>
-          </div>
-
-          <div
-            className={cn(
-              "relative w-full rounded-xl p-5",
-              "bg-linear-to-br from-black/5 to-transparent dark:from-white/8 dark:to-transparent",
-              "backdrop-blur-md backdrop-saturate-150",
-              "border border-black/5 dark:border-white/8",
-              "text-black/90 dark:text-white",
-              "shadow-xs",
-              "translate-z-0 will-change-transform",
-              "before:pointer-events-none before:absolute before:inset-0 before:bg-linear-to-br before:from-black/2 before:to-black/1 before:opacity-0 before:transition-opacity dark:before:from-white/3 dark:before:to-white/1",
-              "hover:before:opacity-100"
-            )}
-          >
-            <h1 className="font-semibold text-lg sm:text-2xl">How to use</h1>
-            <ul className="list-inside text-black/80 text-xs sm:text-lg">
-              <li>1. Open the app on Farcaster or Base</li>
-              <li>2. Enjoy :)</li>
-            </ul>
-          </div>
-
-          <div className="flex flex-row gap-0 sm:gap-4">
-            <div className="flex flex-col gap-0 sm:gap-4">
-              <div className="hidden w-fit rounded-xl border-2 border-black/20 bg-white p-2 backdrop-blur-sm sm:block">
-                <QRCodeSVG className="w-fit rounded-sm" value={farcasterUrl} />
-              </div>
-            </div>
-
-            <div className="flex w-full flex-col gap-4 sm:w-fit">
-              {/* Open on Farcaster */}
-              <Button
-                asChild
-                className="bg-[#8A63D2] hover:bg-[#8A63D2]/80"
-                variant="default"
-              >
-                <Link href={new URL(farcasterUrl)} target="_blank">
-                  <FarcasterIcon className="size-6" />
-                  <span className="font-medium text-xl">Farcaster</span>
-                </Link>
-              </Button>
-
-              {/* Open on Base */}
-              <Button
-                asChild
-                className="w-full bg-[#00F] hover:bg-[#00F]/80"
-                variant="default"
-              >
-                <Link
-                  className="w-full"
-                  href={new URL(baseUrl)}
-                  target="_blank"
-                >
-                  <BaseIcon className="h-16 w-16 fill-white" />
-                  <span className="font-medium text-xl">Base</span>
-                </Link>
-              </Button>
-            </div>
-          </div>
-          <div className="flex w-full items-center justify-center">
-            <p className="text-black text-xs sm:text-base">
-              Built with ❤️ by{" "}
-              <Link
-                className="font-bold text-black"
-                href={new URL("https://builders.garden")}
-                target="_blank"
-              >
-                Builders Garden
-              </Link>
+    <main className="min-h-screen w-full bg-imperial-bg text-zinc-200">
+      <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col items-center justify-center gap-10 px-6 py-12">
+        <div className="flex flex-col items-center gap-5 text-center">
+          <Image
+            alt="Victus Imperium"
+            className="size-20 rounded-xl border border-gold/20 object-contain"
+            height={96}
+            src="/images/icon.png"
+            width={96}
+            priority
+          />
+          <div className="flex flex-col gap-2">
+            <h1 className="font-serif text-3xl uppercase tracking-[0.2em] text-gold">
+              Victus Imperium
+            </h1>
+            <p className="text-sm text-zinc-400">
+              A public trading game on Farcaster
             </p>
           </div>
         </div>
+
+        <div className="hidden rounded-xl border border-imperial-border bg-imperial-surface p-3 sm:block">
+          <QRCodeSVG
+            value={farcasterUrl}
+            size={192}
+            bgColor="#141414"
+            fgColor="#C8A84E"
+            level="M"
+          />
+        </div>
+
+        <Button asChild variant="imperial" size="lg" className="w-full max-w-xs">
+          <Link href={farcasterUrl} target="_blank" rel="noreferrer">
+            <FarcasterIcon className="size-5" />
+            <span>Open on Farcaster</span>
+          </Link>
+        </Button>
       </div>
     </main>
   );
