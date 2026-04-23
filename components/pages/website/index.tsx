@@ -11,8 +11,8 @@ export const Website = ({ page }: { page?: string }) => {
   )}${page ? `/${encodeURIComponent(page)}` : ""}`;
 
   return (
-    <main className="min-h-screen w-full bg-imperial-bg text-zinc-200">
-      <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col items-center justify-center gap-10 px-6 py-12">
+    <main className="flex min-h-screen items-center justify-center bg-imperial-bg px-6 py-12">
+      <div className="flex w-full max-w-lg flex-col items-center gap-10">
         <div className="flex flex-col items-center gap-5 text-center">
           <Image
             alt="Victus Imperium"
@@ -43,7 +43,7 @@ export const Website = ({ page }: { page?: string }) => {
         </div>
 
         <Button asChild variant="imperial" size="lg" className="w-full max-w-xs">
-          <Link href={farcasterUrl} target="_blank" rel="noreferrer">
+          <Link href={new URL(farcasterUrl)} target="_blank" rel="noreferrer">
             <FarcasterIcon className="size-5" />
             <span>Open on Farcaster</span>
           </Link>
