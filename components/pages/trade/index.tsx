@@ -1,10 +1,20 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { sdk } from "@farcaster/miniapp-sdk";
+import { Send } from "lucide-react";
 import { ScoringTable } from "@/components/shared/ui/scoring-table";
 import { Button } from "@/components/shared/ui/button";
+import { useFarcaster } from "@/contexts/farcaster-context";
 import { useApiQuery } from "@/hooks/use-api-query";
-import type { ArenaRules } from "@/lib/arena/types";
+import type { ArenaRules, WhitelistEntry } from "@/lib/arena/types";
+
+const COMMAND_BOT_HANDLE = "@commo";
+const COMMAND_BOT_FID = 3318962;
+const DEFAULT_BUY_PRESETS = [1, 3, 5, 10];
+const SELL_PRESETS = [25, 50, 100];
+
+type TradeMode = "buy" | "sell";
 
 function tradableSymbolsLower(rules: ArenaRules): string[] {
   const lower = rules.whitelist
@@ -20,9 +30,9 @@ function exampleBuyCommands(rules: ArenaRules): string[] {
   const b = uniq[1] ?? a;
   const c = uniq[2] ?? a;
   return [
-    `commodus buy ${Math.min(3, cap)} usdc of ${a}`,
-    `commodus buy ${Math.min(5, cap)} usdc of ${b}`,
-    `commodus buy ${Math.min(10, cap)} usdc of ${c}`,
+    `buy ${Math.min(3, cap)} usdc of ${a}`,
+    `buy ${Math.min(5, cap)} usdc of ${b}`,
+    `buy ${Math.min(10, cap)} usdc of ${c}`,
   ];
 }
 
@@ -31,9 +41,20 @@ function exampleSellCommands(rules: ArenaRules): string[] {
   const a = uniq[0] ?? "symbol";
   const b = uniq[1] ?? a;
   return [
-    `commodus sell 25% of ${a}`,
-    `commodus sell 50% of ${b}`,
+    `sell 25% of ${a}`,
+    `sell 50% of ${b}`,
   ];
+}
+
+function buyPresets(maxTradeUsdc: number): number[] {
+  const bounded = DEFAULT_BUY_PRESETS.map((amount) =>
+    Math.min(amount, maxTradeUsdc),
+  );
+  return [...new Set(bounded)].filter((amount) => amount > 0);
+}
+
+function formatNumberInput(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 export default function TradePage() {
@@ -70,48 +91,117 @@ export default function TradePage() {
 function TradeContent({ rules }: { rules: ArenaRules }) {
   const buys = useMemo(() => exampleBuyCommands(rules), [rules]);
   const sells = useMemo(() => exampleSellCommands(rules), [rules]);
+  const tradableTokens = useMemo(
+    () => rules.whitelist.filter((w) => w.is_tradable),
+    [rules.whitelist],
+  );
+  const buyAmountPresets = useMemo(
+    () => buyPresets(rules.max_trade_usdc),
+    [rules.max_trade_usdc],
+  );
+  const initialBuyAmount = formatNumberInput(
+    buyAmountPresets[buyAmountPresets.length - 1] ?? rules.max_trade_usdc,
+  );
+  const initialToken = tradableTokens[0]?.symbol.toLowerCase() ?? "symbol";
+  const { capabilities } = useFarcaster();
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [composeError, setComposeError] = useState<string | null>(null);
+  const [mode, setMode] = useState<TradeMode>("buy");
+  const [selectedSymbol, setSelectedSymbol] = useState(initialToken);
+  const [buyAmount, setBuyAmount] = useState(initialBuyAmount);
+  const [sellPercent, setSellPercent] = useState("50");
 
   const feePct = (rules.swap_fee_bps / 100).toFixed(2);
-  const tradableTokens = rules.whitelist.filter((w) => w.is_tradable);
+  const canComposeCast = capabilities?.includes("actions.composeCast") ?? true;
+  const parsedBuyAmount = Number(buyAmount);
+  const parsedSellPercent = Number(sellPercent);
+  const buyAmountError =
+    !Number.isFinite(parsedBuyAmount) || parsedBuyAmount <= 0
+      ? "Enter a buy amount above 0 USDC."
+      : parsedBuyAmount > rules.max_trade_usdc
+        ? `Max buy is ${rules.max_trade_usdc} USDC.`
+        : null;
+  const sellPercentError =
+    !Number.isFinite(parsedSellPercent) ||
+    parsedSellPercent <= 0 ||
+    parsedSellPercent > 100
+      ? "Sell percent must be between 1 and 100."
+      : null;
+  const command =
+    mode === "buy"
+      ? `buy ${buyAmount || "0"} usdc of ${selectedSymbol}`
+      : `sell ${sellPercent || "0"}% of ${selectedSymbol}`;
+  const commandError = mode === "buy" ? buyAmountError : sellPercentError;
+  const isComposeDisabled =
+    !canComposeCast || pendingCommand !== null || commandError !== null;
+  const isAnyComposeDisabled = !canComposeCast || pendingCommand !== null;
+
+  async function composeCommand(command: string) {
+    const text = `${COMMAND_BOT_HANDLE} ${command}`;
+
+    setPendingCommand(command);
+    setComposeError(null);
+
+    try {
+      await sdk.actions.composeCast({ text });
+    } catch (err) {
+      console.error("Failed to open Farcaster cast composer", err);
+      setComposeError("Could not open the Farcaster cast composer.");
+    } finally {
+      setPendingCommand(null);
+    }
+  }
 
   return (
     <div className="text-white space-y-6 pt-4">
-        {/* Header */}
         <header className="space-y-1">
           <h1 className="font-serif text-2xl uppercase tracking-wider text-gold">
             Trade with Commodus
           </h1>
           <p className="text-xs text-zinc-400">
-            Cast a command at @commodus and Commodus executes valid trades
-            publicly.
+            Cast a command at {COMMAND_BOT_HANDLE} and Commodus executes valid
+            trades publicly.
           </p>
         </header>
 
-        {/* Tradable tokens */}
-        <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
-            Tradable Tokens
-          </h2>
-          <p className="text-xs text-zinc-400">
-            All trades are made with USDC
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {tradableTokens.map((token) => (
-              <span
-                key={token.symbol}
-                className="rounded-full border border-gold/40 px-3 py-1 text-xs font-semibold text-gold"
-                title={token.name}
-              >
-                {token.symbol}
-              </span>
-            ))}
-          </div>
-        </section>
+        <StatusCommandCard
+          disabled={isAnyComposeDisabled}
+          isPending={pendingCommand === "status"}
+          onCompose={composeCommand}
+        />
 
-        {/* Example commands */}
+        <CommandComposer
+          mode={mode}
+          setMode={setMode}
+          tokens={tradableTokens}
+          selectedSymbol={selectedSymbol}
+          setSelectedSymbol={setSelectedSymbol}
+          buyAmount={buyAmount}
+          setBuyAmount={setBuyAmount}
+          buyAmountPresets={buyAmountPresets}
+          sellPercent={sellPercent}
+          setSellPercent={setSellPercent}
+          command={command}
+          commandError={commandError}
+          disabled={isComposeDisabled}
+          isPending={pendingCommand === command}
+          onCompose={composeCommand}
+          maxTradeUsdc={rules.max_trade_usdc}
+        />
+
+        {!canComposeCast ? (
+          <p className="text-xs text-pnl-negative">
+            This Farcaster client cannot open the cast composer.
+          </p>
+        ) : null}
+
+        {composeError ? (
+          <p className="text-xs text-pnl-negative">{composeError}</p>
+        ) : null}
+
         <section className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
-            Commands
+            Quick Casts
           </h2>
 
           <div className="space-y-2">
@@ -120,7 +210,13 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
             </p>
             <div className="space-y-1.5">
               {buys.map((cmd) => (
-                <CommandPill key={cmd} command={cmd} />
+                <CommandButton
+                  key={cmd}
+                  command={cmd}
+                  disabled={isAnyComposeDisabled}
+                  isPending={pendingCommand === cmd}
+                  onCompose={composeCommand}
+                />
               ))}
             </div>
           </div>
@@ -131,23 +227,21 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
             </p>
             <div className="space-y-1.5">
               {sells.map((cmd) => (
-                <CommandPill key={cmd} command={cmd} />
+                <CommandButton
+                  key={cmd}
+                  command={cmd}
+                  disabled={isAnyComposeDisabled}
+                  isPending={pendingCommand === cmd}
+                  onCompose={composeCommand}
+                />
               ))}
             </div>
           </div>
 
-          <div className="space-y-2">
-            <p className="text-[11px] uppercase tracking-wider text-zinc-500">
-              Status
-            </p>
-            <CommandPill command="commodus status" />
-          </div>
         </section>
 
-        {/* Scoring */}
         <ScoringTable />
 
-        {/* Economics and Custody */}
         <section className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
             Economics and Custody
@@ -187,7 +281,6 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
           </div>
         </section>
 
-        {/* Trade limits grid */}
         <section className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
             Trade Restrictions
@@ -215,11 +308,339 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
   );
 }
 
-function CommandPill({ command }: { command: string }) {
+function StatusCommandCard({
+  disabled,
+  isPending,
+  onCompose,
+}: {
+  disabled: boolean;
+  isPending: boolean;
+  onCompose: (command: string) => Promise<void>;
+}) {
+  const command = "status";
+  const castText = `${COMMAND_BOT_HANDLE} ${command}`;
+
   return (
-    <div className="rounded-lg border border-gold/30 bg-imperial-surface px-3 py-2 text-sm font-mono text-zinc-200">
-      @{command}
-    </div>
+    <section className="rounded-xl border border-gold/40 bg-gold/10 p-3 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
+            Arena Status
+          </h2>
+          <p className="break-words font-mono text-base font-semibold text-white">
+            {castText}
+          </p>
+        </div>
+        <span className="rounded-full border border-gold/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gold">
+          First
+        </span>
+      </div>
+      <Button
+        type="button"
+        variant="imperial"
+        size="lg"
+        className="min-h-14 w-full rounded-lg text-base"
+        disabled={disabled || isPending}
+        aria-label={`Compose cast to ${COMMAND_BOT_HANDLE} FID ${COMMAND_BOT_FID}: ${castText}`}
+        onClick={() => void onCompose(command)}
+      >
+        {isPending ? (
+          <span className="size-5 animate-spin rounded-full border-2 border-imperial-bg border-t-transparent" />
+        ) : (
+          <Send className="size-5" aria-hidden="true" />
+        )}
+        Cast Status
+      </Button>
+    </section>
+  );
+}
+
+function CommandComposer({
+  mode,
+  setMode,
+  tokens,
+  selectedSymbol,
+  setSelectedSymbol,
+  buyAmount,
+  setBuyAmount,
+  buyAmountPresets,
+  sellPercent,
+  setSellPercent,
+  command,
+  commandError,
+  disabled,
+  isPending,
+  onCompose,
+  maxTradeUsdc,
+}: {
+  mode: TradeMode;
+  setMode: (mode: TradeMode) => void;
+  tokens: WhitelistEntry[];
+  selectedSymbol: string;
+  setSelectedSymbol: (symbol: string) => void;
+  buyAmount: string;
+  setBuyAmount: (amount: string) => void;
+  buyAmountPresets: number[];
+  sellPercent: string;
+  setSellPercent: (percent: string) => void;
+  command: string;
+  commandError: string | null;
+  disabled: boolean;
+  isPending: boolean;
+  onCompose: (command: string) => Promise<void>;
+  maxTradeUsdc: number;
+}) {
+  const castText = `${COMMAND_BOT_HANDLE} ${command}`;
+
+  return (
+    <section className="rounded-xl border border-gold/30 bg-imperial-surface p-3 shadow-[0_18px_40px_rgba(0,0,0,0.28)] space-y-4">
+      <div className="grid grid-cols-2 gap-2 rounded-lg border border-imperial-border bg-black/25 p-1">
+        <ModeButton
+          label="Buy"
+          sublabel="USDC in"
+          isActive={mode === "buy"}
+          onClick={() => setMode("buy")}
+        />
+        <ModeButton
+          label="Sell"
+          sublabel="Position out"
+          isActive={mode === "sell"}
+          onClick={() => setMode("sell")}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+          Token
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {tokens.map((token) => {
+            const symbol = token.symbol.toLowerCase();
+            const isActive = selectedSymbol === symbol;
+
+            return (
+              <button
+                type="button"
+                key={token.symbol}
+                onClick={() => setSelectedSymbol(symbol)}
+                className={[
+                  "min-h-14 rounded-lg border px-3 py-2 text-left transition",
+                  isActive
+                    ? "border-gold bg-gold text-imperial-bg shadow-[0_0_22px_rgba(216,184,106,0.22)]"
+                    : "border-imperial-border bg-black/20 text-zinc-200 hover:border-gold/60",
+                ].join(" ")}
+              >
+                <span className="block font-mono text-base font-semibold uppercase">
+                  {token.symbol}
+                </span>
+                <span className="block truncate text-[11px] opacity-75">
+                  {token.name}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {mode === "buy" ? (
+        <div className="space-y-3">
+          <div className="flex items-end justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                Buy Amount
+              </p>
+              <p className="text-xs text-zinc-500">Max {maxTradeUsdc} USDC</p>
+            </div>
+            <label className="flex min-w-0 flex-1 items-center justify-end gap-2">
+              <input
+                type="number"
+                min="0"
+                max={maxTradeUsdc}
+                step="0.01"
+                inputMode="decimal"
+                value={buyAmount}
+                onChange={(event) => setBuyAmount(event.target.value)}
+                className="h-12 w-full max-w-[150px] rounded-lg border border-gold/40 bg-black/30 px-3 text-right font-mono text-lg font-semibold text-white outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/30"
+                aria-label="Buy amount in USDC"
+              />
+              <span className="font-mono text-sm text-zinc-400">USDC</span>
+            </label>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {buyAmountPresets.map((amount) => (
+              <PresetButton
+                key={amount}
+                label={`$${formatNumberInput(amount)}`}
+                isActive={buyAmount === formatNumberInput(amount)}
+                onClick={() => setBuyAmount(formatNumberInput(amount))}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-end justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                Sell Amount
+              </p>
+              <p className="text-xs text-zinc-500">Percent of position</p>
+            </div>
+            <label className="flex min-w-0 flex-1 items-center justify-end gap-2">
+              <input
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                inputMode="numeric"
+                value={sellPercent}
+                onChange={(event) => setSellPercent(event.target.value)}
+                className="h-12 w-full max-w-[120px] rounded-lg border border-gold/40 bg-black/30 px-3 text-right font-mono text-lg font-semibold text-white outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/30"
+                aria-label="Sell percent"
+              />
+              <span className="font-mono text-sm text-zinc-400">%</span>
+            </label>
+          </div>
+          <input
+            type="range"
+            min="1"
+            max="100"
+            step="1"
+            value={Number(sellPercent) || 1}
+            onChange={(event) => setSellPercent(event.target.value)}
+            className="w-full accent-gold"
+            aria-label="Sell percent slider"
+          />
+          <div className="grid grid-cols-3 gap-2">
+            {SELL_PRESETS.map((percent) => (
+              <PresetButton
+                key={percent}
+                label={`${percent}%`}
+                isActive={sellPercent === String(percent)}
+                onClick={() => setSellPercent(String(percent))}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-lg border border-gold/30 bg-black/25 p-3">
+        <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+          Cast Preview
+        </p>
+        <p className="break-words font-mono text-sm text-zinc-100">
+          {castText}
+        </p>
+      </div>
+
+      {commandError ? (
+        <p className="text-xs text-pnl-negative">{commandError}</p>
+      ) : null}
+
+      <Button
+        type="button"
+        variant="imperial"
+        size="lg"
+        className="min-h-14 w-full rounded-lg text-base"
+        disabled={disabled}
+        aria-label={`Compose cast to ${COMMAND_BOT_HANDLE} FID ${COMMAND_BOT_FID}: ${castText}`}
+        onClick={() => void onCompose(command)}
+      >
+        {isPending ? (
+          <span className="size-5 animate-spin rounded-full border-2 border-imperial-bg border-t-transparent" />
+        ) : (
+          <Send className="size-5" aria-hidden="true" />
+        )}
+        Cast Command
+      </Button>
+    </section>
+  );
+}
+
+function ModeButton({
+  label,
+  sublabel,
+  isActive,
+  onClick,
+}: {
+  label: string;
+  sublabel: string;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "min-h-14 rounded-md px-3 py-2 text-left transition",
+        isActive
+          ? "bg-gold text-imperial-bg"
+          : "text-zinc-300 hover:bg-white/5 hover:text-white",
+      ].join(" ")}
+      aria-pressed={isActive}
+    >
+      <span className="block text-sm font-semibold">{label}</span>
+      <span className="block text-[11px] opacity-75">{sublabel}</span>
+    </button>
+  );
+}
+
+function PresetButton({
+  label,
+  isActive,
+  onClick,
+}: {
+  label: string;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "min-h-11 rounded-lg border px-2 font-mono text-sm font-semibold transition",
+        isActive
+          ? "border-gold bg-gold text-imperial-bg"
+          : "border-imperial-border bg-black/20 text-zinc-200 hover:border-gold/60 hover:text-gold",
+      ].join(" ")}
+      aria-pressed={isActive}
+    >
+      {label}
+    </button>
+  );
+}
+
+function CommandButton({
+  command,
+  disabled,
+  isPending,
+  onCompose,
+}: {
+  command: string;
+  disabled: boolean;
+  isPending: boolean;
+  onCompose: (command: string) => Promise<void>;
+}) {
+  const castText = `${COMMAND_BOT_HANDLE} ${command}`;
+
+  return (
+    <Button
+      type="button"
+      variant="imperial-outline"
+      className="min-h-14 w-full justify-between whitespace-normal rounded-lg border-gold/40 bg-imperial-surface px-4 py-3 text-left font-mono text-sm text-zinc-200 hover:bg-gold/10 hover:text-gold"
+      disabled={disabled || isPending}
+      aria-label={`Compose cast to ${COMMAND_BOT_HANDLE} FID ${COMMAND_BOT_FID}: ${castText}`}
+      onClick={() => void onCompose(command)}
+    >
+      <span className="min-w-0 flex-1 break-words">{castText}</span>
+      {isPending ? (
+        <span className="size-4 shrink-0 animate-spin rounded-full border-2 border-gold border-t-transparent" />
+      ) : (
+        <Send className="size-4 shrink-0" aria-hidden="true" />
+      )}
+    </Button>
   );
 }
 
