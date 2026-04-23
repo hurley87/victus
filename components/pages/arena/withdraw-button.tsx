@@ -64,7 +64,7 @@ export function WithdrawButton({ balanceUsdc, onWithdrawn }: WithdrawButtonProps
     <>
       <Button
         type="button"
-        variant="outline"
+        variant="imperial-outline"
         className="w-full"
         onClick={open}
         disabled={balanceUsdc <= 0}
@@ -126,12 +126,12 @@ function WithdrawModal({
         if (e.target === e.currentTarget && !isSubmitting) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-lg space-y-4">
+      <div className="w-full max-w-md rounded-xl bg-imperial-surface border border-imperial-border p-4 shadow-lg space-y-4">
         <header className="space-y-1">
-          <h2 id="withdraw-modal-title" className="text-base font-semibold">
+          <h2 id="withdraw-modal-title" className="text-base font-semibold text-white">
             {isSent ? "Withdraw sent" : "Confirm withdraw"}
           </h2>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-zinc-400">
             {isSent
               ? "Your USDC is on its way. Track it on BaseScan."
               : "This sends your arena balance back to your Farcaster-verified address. Gas is sponsored by Commodus."}
@@ -145,14 +145,14 @@ function WithdrawModal({
         )}
 
         {errorMessage && (
-          <p className="text-xs text-red-600" role="alert">
+          <p className="text-xs text-red-400" role="alert">
             {errorMessage}
           </p>
         )}
 
         <div className={cn("flex gap-2", isSent ? "justify-end" : "justify-between")}>
           {isSent ? (
-            <Button type="button" onClick={onClose} className="w-full">
+            <Button type="button" variant="imperial" onClick={onClose} className="w-full">
               Done
             </Button>
           ) : (
@@ -162,12 +162,13 @@ function WithdrawModal({
                 variant="ghost"
                 onClick={onClose}
                 disabled={isSubmitting}
-                className="flex-1"
+                className="flex-1 text-zinc-400"
               >
                 Cancel
               </Button>
               <Button
                 type="button"
+                variant="imperial"
                 onClick={onConfirm}
                 disabled={isSubmitting}
                 className="flex-1"
@@ -184,18 +185,18 @@ function WithdrawModal({
 
 function PreviewPanel({ balanceUsdc }: { balanceUsdc: number }) {
   return (
-    <div className="rounded-md border border-black/10 bg-black/[0.02] p-3 space-y-2">
+    <div className="rounded-md border border-imperial-border bg-imperial-bg p-3 space-y-2">
       <div className="flex items-baseline justify-between">
-        <span className="text-xs uppercase tracking-wider text-muted-foreground">
+        <span className="text-xs uppercase tracking-wider text-zinc-500">
           Amount
         </span>
-        <span className="font-mono text-sm">${balanceUsdc.toFixed(2)} USDC</span>
+        <span className="font-mono text-sm text-zinc-200">${balanceUsdc.toFixed(2)} USDC</span>
       </div>
       <div className="flex items-baseline justify-between">
-        <span className="text-xs uppercase tracking-wider text-muted-foreground">
+        <span className="text-xs uppercase tracking-wider text-zinc-500">
           Destination
         </span>
-        <span className="text-xs font-mono text-black/80">
+        <span className="text-xs font-mono text-zinc-200">
           Your verified Farcaster address
         </span>
       </div>
@@ -209,24 +210,24 @@ function SentPanel({ result }: { result: WithdrawResponse }) {
       ? "verified Farcaster address"
       : "Farcaster custody address";
   return (
-    <div className="rounded-md border border-green-900/10 bg-green-50 p-3 space-y-2">
+    <div className="rounded-md border border-pnl-positive/20 bg-pnl-positive/5 p-3 space-y-2">
       <div className="flex items-baseline justify-between">
-        <span className="text-xs uppercase tracking-wider text-green-900/70">
+        <span className="text-xs uppercase tracking-wider text-pnl-positive/70">
           Sent
         </span>
-        <span className="font-mono text-sm text-green-900">
+        <span className="font-mono text-sm text-pnl-positive">
           ${result.amount_usdc.toFixed(2)} USDC
         </span>
       </div>
-      <div className="text-xs text-black/70">
+      <div className="text-xs text-zinc-400">
         to <span className="font-mono">{formatWalletAddress(result.to)}</span>{" "}
-        <span className="text-black/50">({sourceLabel})</span>
+        <span className="text-zinc-500">({sourceLabel})</span>
       </div>
       <a
         href={`https://basescan.org/tx/${result.tx_hash}`}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-xs font-mono text-green-900 underline underline-offset-2 break-all"
+        className="text-xs font-mono text-pnl-positive underline underline-offset-2 break-all"
       >
         View on BaseScan ↗
       </a>

@@ -12,6 +12,7 @@ import {
 
 import { Button } from "@/components/shared/ui/button";
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
+import { cn } from "@/lib/utils";
 
 /**
  * In-Mini-App deposit button. Builds a native USDC `transfer` to the
@@ -143,13 +144,13 @@ export function DepositButton({
                 setUiError(null);
               }}
               disabled={phase !== "idle"}
-              className={
-                "rounded-md border px-2 py-1.5 text-xs font-mono transition " +
-                (isActive
-                  ? "border-amber-500 bg-amber-500/10 text-amber-900"
-                  : "border-amber-900/10 bg-white/70 text-black/70 hover:border-amber-500/50") +
-                (phase !== "idle" ? " opacity-60 cursor-not-allowed" : "")
-              }
+              className={cn(
+                "rounded-md border px-2 py-1.5 text-xs font-mono transition",
+                isActive
+                  ? "border-gold bg-gold/10 text-gold"
+                  : "border-imperial-border bg-imperial-surface text-zinc-400 hover:border-gold/50",
+                phase !== "idle" && "opacity-60 cursor-not-allowed",
+              )}
             >
               {formatUsdc(opt)}
             </button>
@@ -159,6 +160,7 @@ export function DepositButton({
 
       <Button
         type="button"
+        variant="imperial"
         className="w-full"
         onClick={handleDeposit}
         disabled={phase !== "idle"}
@@ -167,7 +169,7 @@ export function DepositButton({
       </Button>
 
       {derivedError && (
-        <p className="text-xs text-red-600" role="alert">
+        <p className="text-xs text-red-400" role="alert">
           {derivedError}
         </p>
       )}

@@ -1,5 +1,5 @@
-import LeaderboardPage from "@/components/pages/leaderboard";
+import { redirect } from "next/navigation";
 
-export default function Page() {
-  return <LeaderboardPage />;
+export default function LeaderboardRedirect() {
+  redirect("/?tab=standings");
 }

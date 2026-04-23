@@ -1,5 +1,5 @@
-import RulesPage from "@/components/pages/rules";
+import { redirect } from "next/navigation";
 
-export default function Page() {
-  return <RulesPage />;
+export default function RulesRedirect() {
+  redirect("/?tab=trade");
 }

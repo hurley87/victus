@@ -3,23 +3,24 @@ import { env } from "@/lib/env";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Cinzel, Inter } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
+const cinzel = Cinzel({ subsets: ["latin"], weight: ["700"], variable: "--font-cinzel" });
 
 const appUrl = env.NEXT_PUBLIC_URL;
-const appName = "Mini-app Starter";
-const appDescription = "A starter for Farcaster Mini-apps";
+const appName = "Victus Imperium";
+const appDescription = "A public trading game on Farcaster";
 
 export function generateMetadata(): Metadata {
   return {
-    title: `${appName} by Builders Garden`,
+    title: appName,
     description: appDescription,
     metadataBase: new URL(appUrl),
     openGraph: {
-      title: `${appName} by Builders Garden`,
+      title: appName,
       description: appDescription,
       type: "website",
       images: [
@@ -32,7 +33,7 @@ export function generateMetadata(): Metadata {
     },
     twitter: {
       card: "summary_large_image",
-      title: `${appName} by Builders Garden`,
+      title: appName,
       description: appDescription,
       siteId: "1727435024931094528",
       creator: "@builders_garden",
@@ -50,7 +51,7 @@ export function generateMetadata(): Metadata {
             name: appName,
             url: appUrl,
             splashImageUrl: `${appUrl}/images/splash.png`,
-            splashBackgroundColor: "#ffffff",
+            splashBackgroundColor: "#0D0D0D",
           },
         },
       }),
@@ -66,7 +67,7 @@ export default async function RootLayout({
   const cookie = (await headers()).get("cookie");
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body className={`${inter.className} ${cinzel.variable}`}>
         <Providers cookie={cookie}>{children}</Providers>
         <Analytics />
         <SpeedInsights />

@@ -4,6 +4,7 @@ import {
   type ReactNode,
   useContext,
   useLayoutEffect,
+  useMemo,
   useState,
 } from "react";
 
@@ -53,11 +54,14 @@ export const EnvironmentProvider = ({ children }: EnvironmentProviderProps) => {
     checkEnvironment();
   }, []);
 
-  const value: EnvironmentContextType = {
-    isInFarcasterMiniApp,
-    isLoading,
-    isInBrowser,
-  };
+  const value = useMemo<EnvironmentContextType>(
+    () => ({
+      isInFarcasterMiniApp,
+      isLoading,
+      isInBrowser,
+    }),
+    [isInFarcasterMiniApp, isLoading, isInBrowser],
+  );
 
   return (
     <EnvironmentContext.Provider value={value}>
