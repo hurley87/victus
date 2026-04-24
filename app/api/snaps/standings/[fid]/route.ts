@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { miniAppTabDeepLink } from "@/lib/commodus/deep-links";
-import { buildTradeSnapResponse } from "@/lib/snap/build-trade-snap";
+import { buildStandingsSnapResponse } from "@/lib/snap/build-standings-snap";
 import {
   escapeHtml,
   requestAcceptsSnap,
@@ -9,35 +9,30 @@ import {
   snapVaryHeader,
 } from "@/lib/snap/http";
 import { snapActionLinksForFid } from "@/lib/snap/links";
-import { loadTradeSnapContext } from "@/lib/snap/load-trade-snap-context";
+import { loadStandingsSnapContext } from "@/lib/snap/load-standings-snap-context";
 
 export const dynamic = "force-dynamic";
 
-function snapResourceUrl(
-  request: NextRequest,
-  fid: number,
-  executionId: string,
-): string {
-  return `${request.nextUrl.origin}/api/snaps/trade/${fid}/${encodeURIComponent(executionId)}`;
+function snapResourceUrl(request: NextRequest, fid: number): string {
+  return `${request.nextUrl.origin}/api/snaps/standings/${fid}`;
 }
 
 function htmlFallbackForNonSnapAccept(
   request: NextRequest,
   fid: number,
-  executionId: string,
 ): NextResponse {
-  const selfUrl = snapResourceUrl(request, fid, executionId);
-  const tradeUrl = miniAppTabDeepLink("trade");
+  const selfUrl = snapResourceUrl(request, fid);
+  const standingsUrl = miniAppTabDeepLink("standings");
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Victus trade</title>
+  <title>Victus standings</title>
 </head>
 <body>
-  <p>Victus trade Snap</p>
-  <p><a href="${escapeHtml(tradeUrl)}">Open Mini App</a></p>
+  <p>Victus standings Snap</p>
+  <p><a href="${escapeHtml(standingsUrl)}">Open Mini App</a></p>
 </body>
 </html>`;
 
@@ -54,34 +49,29 @@ function htmlFallbackForNonSnapAccept(
 
 export async function GET(
   request: NextRequest,
-  context: { params: Promise<{ fid: string; executionId: string }> },
+  context: { params: Promise<{ fid: string }> },
 ) {
-  const { fid: fidRaw, executionId: executionIdRaw } = await context.params;
+  const { fid: fidRaw } = await context.params;
   const fid = Number(fidRaw);
-  const executionId = decodeURIComponent(executionIdRaw).trim();
-
   if (!Number.isInteger(fid) || fid <= 0) {
     return NextResponse.json({ error: "Invalid fid" }, { status: 400 });
   }
-  if (!executionId) {
-    return NextResponse.json({ error: "Invalid execution id" }, { status: 400 });
-  }
 
   if (!requestAcceptsSnap(request.headers.get("accept"))) {
-    return htmlFallbackForNonSnapAccept(request, fid, executionId);
+    return htmlFallbackForNonSnapAccept(request, fid);
   }
 
   try {
-    const view = await loadTradeSnapContext(fid, executionId);
+    const view = await loadStandingsSnapContext(fid);
     if (!view) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const snap = buildTradeSnapResponse(
+    const snap = buildStandingsSnapResponse(
       view,
-      snapActionLinksForFid(request.nextUrl.origin, fid, "trade"),
+      snapActionLinksForFid(request.nextUrl.origin, fid, "standings"),
     );
-    const selfSnapUrl = snapResourceUrl(request, fid, executionId);
+    const selfSnapUrl = snapResourceUrl(request, fid);
 
     return NextResponse.json(snap, {
       status: 200,
@@ -93,7 +83,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("snaps/trade GET failed", err);
+    console.error("snaps/standings GET failed", err);
     return NextResponse.json({ error: "Failed to load snap" }, { status: 500 });
   }
 }

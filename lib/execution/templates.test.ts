@@ -45,7 +45,8 @@ describe("buildIntentReply", () => {
 });
 
 describe("buildOutcomeReply", () => {
-  it("includes quantity + notional + short tx hash on success", () => {
+  it("includes quantity + notional + BaseScan transaction URL on success", () => {
+    const txHash = "0x0123456789abcdef0123456789abcdef";
     const text = buildOutcomeReply(
       {
         kind: "success",
@@ -53,14 +54,15 @@ describe("buildOutcomeReply", () => {
         symbol: "AERO",
         quantity: 12.34567,
         notionalUsdc: 4.95,
-        txHash: "0x0123456789abcdef0123456789abcdef",
+        txHash,
       },
       voice,
     );
     expect(text).toContain("AERO");
     expect(text).toContain("12.34567");
     expect(text).toContain("4.95");
-    expect(text).toContain("0x01234567");
+    expect(text).toContain(`https://basescan.org/tx/${txHash}`);
+    expect(text).not.toContain("Proof:");
     expect(text).toContain("Maximus");
   });
 

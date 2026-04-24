@@ -3,14 +3,14 @@ import {
   buildElementMap,
   snapItem,
   snapItemGroup,
-  snapMiniAppActionEntries,
-  snapProgress,
+  snapInlineActionEntries,
+  snapOpenMiniAppEntry,
   snapStack,
   snapText,
+  type SnapActionLinks,
 } from "./response";
 
 import type { StatusViewContext } from "@/lib/status/load-context";
-import type { MiniAppSnapLinks } from "@/lib/commodus/deep-links";
 
 function fmtUsd(n: number): string {
   return n.toLocaleString("en-US", {
@@ -25,43 +25,39 @@ function fmtUsd(n: number): string {
  */
 export function buildStatusSnapResponse(
   ctx: StatusViewContext,
-  links: MiniAppSnapLinks,
+  links: SnapActionLinks,
 ): SnapResponse {
-  const maxProgress = Math.max(ctx.topTenCutoffPoints, ctx.points, 1);
   const rankTitle =
-    ctx.rank != null ? `Rank #${ctx.rank}` : "Rank —";
-  const rankDesc = "Monthly GLORY (points)";
-
-  const progressLabel = `Monthly points vs top-10 cutoff (${ctx.topTenCutoffPoints.toLocaleString("en-US")})`;
+    ctx.rank != null ? `#${ctx.rank}` : "Unranked";
 
   const elements = buildElementMap([
-    snapStack("root", ["hdr", "prog", "stats", "actions"], {
+    snapStack("root", ["hdr", "stats", "actions", "open_app"], {
       gap: "md",
     }),
     snapText("hdr", ctx.displayHandle, { weight: "bold", size: "md" }),
-    snapProgress("prog", ctx.points, maxProgress, progressLabel),
     snapItemGroup(
       "stats",
       ["i_rank", "i_pts", "i_port", "i_slots"],
       { separator: true },
     ),
-    snapItem("i_rank", rankTitle, rankDesc),
+    snapItem("i_rank", rankTitle, "Rank"),
     snapItem(
       "i_pts",
       ctx.points.toLocaleString("en-US"),
-      "Points this month",
+      "Points",
     ),
     snapItem(
       "i_port",
       `${fmtUsd(ctx.portfolioUsdc)} USDC`,
-      "Portfolio (cash + at-cost positions)",
+      "Value",
     ),
     snapItem(
       "i_slots",
       ctx.dailySlotsRemaining.toLocaleString("en-US"),
-      "Arena trades left today",
+      "Trades left today",
     ),
-    ...snapMiniAppActionEntries(links),
+    ...snapInlineActionEntries(links),
+    snapOpenMiniAppEntry(links.miniApp),
   ]);
 
   return {

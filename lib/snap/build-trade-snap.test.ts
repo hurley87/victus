@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { buildTradeSnapResponse, type TradeSnapContext } from "./build-trade-snap";
 
 const links = {
-  wallet: "https://app.example/?tab=wallet",
-  trade: "https://app.example/?tab=trade",
-  standings: "https://app.example/?tab=standings",
+  tradeSnap: "https://app.example/api/snaps/trade-command",
+  standingsSnap: "https://app.example/api/snaps/standings/123",
+  miniApp: "https://app.example/?tab=trade",
 };
 
 const baseCtx: TradeSnapContext = {
@@ -26,31 +26,41 @@ const baseCtx: TradeSnapContext = {
 };
 
 describe("buildTradeSnapResponse", () => {
-  it("renders buy trade details with mini-app actions", () => {
+  it("renders four summary rows with snap nav and mini-app footer", () => {
     const snap = buildTradeSnapResponse(baseCtx, links);
     const { elements } = snap.ui;
 
     expect(snap.version).toBe("2.0");
     expect(elements.root?.type).toBe("stack");
-    expect(elements.root?.children?.length).toBeLessThanOrEqual(6);
+    expect(elements.root?.children?.length).toBeLessThanOrEqual(7);
     expect(Object.keys(elements).length).toBeLessThanOrEqual(64);
-    expect(elements.i_trade?.props?.title).toBe("Bought AERO");
-    expect(elements.i_qty?.props?.title).toBe("6.880661 AERO");
-    expect(elements.i_notional?.props?.title).toBe("2.95 USDC");
-    expect(elements.i_proof?.props?.title).toBe("0x9ea73b49...");
-    expect(elements.i_pnl).toBeUndefined();
-    expect(elements.act_wallet?.on?.press?.params).toEqual({
-      target: links.wallet,
+    expect(elements.stats?.children).toEqual([
+      "i_rank",
+      "i_pts",
+      "i_port",
+      "i_slots",
+    ]);
+    expect(elements.i_rank?.props?.title).toBe("#2");
+    expect(elements.i_pts?.props?.description).toBe("Points");
+    expect(elements.i_port?.props?.description).toBe("Value");
+    expect(elements.i_slots?.props?.description).toBe("Trades left today");
+    expect(elements.i_trade).toBeUndefined();
+    expect(elements.i_proof).toBeUndefined();
+    expect(elements.act_trade?.on?.press).toEqual({
+      action: "open_snap",
+      params: { target: links.tradeSnap },
     });
-    expect(elements.act_trade?.on?.press?.params).toEqual({
-      target: links.trade,
+    expect(elements.act_standings?.on?.press).toEqual({
+      action: "open_snap",
+      params: { target: links.standingsSnap },
     });
-    expect(elements.act_standings?.on?.press?.params).toEqual({
-      target: links.standings,
+    expect(elements.open_app?.on?.press).toEqual({
+      action: "open_mini_app",
+      params: { target: links.miniApp },
     });
   });
 
-  it("renders realized PnL for sell trades", () => {
+  it("uses sell accent for sell trades without adding trade-detail rows", () => {
     const snap = buildTradeSnapResponse(
       {
         ...baseCtx,
@@ -66,10 +76,9 @@ describe("buildTradeSnapResponse", () => {
     );
 
     const { elements } = snap.ui;
-    expect(elements.i_trade?.props?.title).toBe("Sold AERO");
-    expect(elements.i_notional?.props?.description).toBe("USDC received gross");
-    expect(elements.i_pnl?.props?.title).toBe("+1.25 USDC");
-    expect(elements.i_pnl?.props?.description).toBe("Realized PnL");
+    expect(snap.theme?.accent).toBe("green");
+    expect(elements.i_pnl).toBeUndefined();
+    expect(elements.i_proof).toBeUndefined();
   });
 
   it("handles failed or incomplete trade fields without dead-ending actions", () => {
@@ -90,10 +99,8 @@ describe("buildTradeSnapResponse", () => {
 
     const { elements } = snap.ui;
     expect(elements.hdr?.props?.content).toBe("Maximus - failed");
-    expect(elements.i_qty?.props?.title).toBe("n/a AERO");
-    expect(elements.i_notional?.props?.title).toBe("n/a USDC");
-    expect(elements.i_proof?.props?.title).toBe("Proof pending");
-    expect(elements.i_rank?.props?.title).toBe("Rank n/a");
-    expect(elements.act_trade?.on?.press?.action).toBe("open_mini_app");
+    expect(elements.i_rank?.props?.title).toBe("Unranked");
+    expect(elements.act_trade?.on?.press?.action).toBe("open_snap");
+    expect(elements.open_app?.on?.press?.action).toBe("open_mini_app");
   });
 });

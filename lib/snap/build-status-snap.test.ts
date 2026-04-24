@@ -15,13 +15,13 @@ const baseCtx: StatusViewContext = {
 };
 
 const links = {
-  wallet: "https://app.example/?tab=wallet",
-  trade: "https://app.example/?tab=trade",
-  standings: "https://app.example/?tab=standings",
+  tradeSnap: "https://app.example/api/snaps/trade-command",
+  standingsSnap: "https://app.example/api/snaps/standings/123",
+  miniApp: "https://app.example/?tab=wallet",
 };
 
 describe("buildStatusSnapResponse", () => {
-  it("returns Snap 2.0 with status data and three mini-app actions", () => {
+  it("returns Snap 2.0 with four status rows, snap nav, and mini-app footer", () => {
     const snap = buildStatusSnapResponse(baseCtx, links);
     expect(snap.version).toBe("2.0");
     expect(snap.ui.root).toBe("root");
@@ -30,22 +30,26 @@ describe("buildStatusSnapResponse", () => {
     expect(elements.root?.children?.length).toBeLessThanOrEqual(7);
     expect(Object.keys(elements).length).toBeLessThanOrEqual(64);
     expect(elements.actions?.children).toEqual([
-      "act_wallet",
       "act_trade",
       "act_standings",
     ]);
 
-    expect(elements.act_wallet?.on?.press).toEqual({
-      action: "open_mini_app",
-      params: { target: links.wallet },
-    });
+    expect(elements.i_rank?.props?.title).toBe("#2");
+    expect(elements.i_rank?.props?.description).toBe("Rank");
+    expect(elements.i_pts?.props?.description).toBe("Points");
+    expect(elements.i_port?.props?.description).toBe("Value");
+    expect(elements.i_slots?.props?.description).toBe("Trades left today");
     expect(elements.act_trade?.on?.press).toEqual({
-      action: "open_mini_app",
-      params: { target: links.trade },
+      action: "open_snap",
+      params: { target: links.tradeSnap },
     });
     expect(elements.act_standings?.on?.press).toEqual({
+      action: "open_snap",
+      params: { target: links.standingsSnap },
+    });
+    expect(elements.open_app?.on?.press).toEqual({
       action: "open_mini_app",
-      params: { target: links.standings },
+      params: { target: links.miniApp },
     });
   });
 });

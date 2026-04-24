@@ -2,6 +2,7 @@ import type { SnapResponse } from "./types";
 import {
   buildElementMap,
   snapButton,
+  snapOpenMiniAppEntry,
   snapStack,
   snapText,
 } from "./response";
@@ -24,7 +25,7 @@ export function buildOnboardingSnapResponse(params: {
       };
 
   const elements = buildElementMap([
-    snapStack("root", ["title", "body", "challenge", "actions"], {
+    snapStack("root", ["title", "body", "challenge", "actions", "open_app"], {
       gap: "md",
     }),
     snapText("title", title, { weight: "bold", size: "md" }),
@@ -52,6 +53,7 @@ export function buildOnboardingSnapResponse(params: {
       },
       { variant: "secondary" },
     ),
+    snapOpenMiniAppEntry(params.miniAppWalletUrl),
   ]);
 
   return {

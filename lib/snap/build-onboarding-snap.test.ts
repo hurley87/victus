@@ -16,8 +16,8 @@ describe("buildOnboardingSnapResponse", () => {
     const { elements } = snap.ui;
 
     expect(elements.root?.type).toBe("stack");
-    expect(elements.root?.children?.length).toBe(4);
-    expect(Object.keys(elements).length).toBe(7);
+    expect(elements.root?.children?.length).toBe(5);
+    expect(Object.keys(elements).length).toBe(8);
 
     expect(elements.yes?.on?.press?.action).toBe("open_mini_app");
     expect(elements.yes?.on?.press?.params).toEqual({
@@ -27,6 +27,10 @@ describe("buildOnboardingSnapResponse", () => {
     expect(elements.no?.on?.press?.action).toBe("open_snap");
     expect(elements.no?.on?.press?.params).toEqual({
       target: baseParams.tauntUrl,
+    });
+    expect(elements.open_app?.on?.press).toEqual({
+      action: "open_mini_app",
+      params: { target: baseParams.miniAppWalletUrl },
     });
   });
 
@@ -43,6 +47,9 @@ describe("buildOnboardingSnapResponse", () => {
     expect(elements.no?.on?.press?.params).toEqual({
       target: baseParams.tauntUrl,
     });
-    expect(elements.wallet).toBeUndefined();
+    expect(elements.open_app?.on?.press).toEqual({
+      action: "open_mini_app",
+      params: { target: baseParams.miniAppWalletUrl },
+    });
   });
 });

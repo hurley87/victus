@@ -142,14 +142,14 @@ export function buildOutcomeReply(
     const body =
       `Executed. Sold ${qty} ${outcome.symbol} for ${notional} USDC gross.${pnlPart} ` +
       "The scoreboard noticed. " +
-      `Proof: ${outcome.txHash.slice(0, 10)}…`;
+      `https://basescan.org/tx/${outcome.txHash}`;
     return prefixGladiator(ctx.gladiatorName, body);
   }
 
   const body =
     `Executed. Bought ${qty} ${outcome.symbol} for ${notional} USDC. ` +
     "The scoreboard noticed. " +
-    `Proof: ${outcome.txHash.slice(0, 10)}…`;
+    `https://basescan.org/tx/${outcome.txHash}`;
   return prefixGladiator(ctx.gladiatorName, body);
 }
 

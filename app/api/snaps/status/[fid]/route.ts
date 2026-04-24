@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { miniAppSnapLinks } from "@/lib/commodus/deep-links";
+import { miniAppTabDeepLink } from "@/lib/commodus/deep-links";
 import { buildStatusSnapResponse } from "@/lib/snap/build-status-snap";
 import {
   escapeHtml,
@@ -8,6 +8,7 @@ import {
   SNAP_MEDIA,
   snapVaryHeader,
 } from "@/lib/snap/http";
+import { snapActionLinksForFid } from "@/lib/snap/links";
 import { loadStatusViewContext } from "@/lib/status/load-context";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ function htmlFallbackForNonSnapAccept(
   fid: number,
 ): NextResponse {
   const selfUrl = snapResourceUrl(request, fid);
-  const links = miniAppSnapLinks();
+  const walletUrl = miniAppTabDeepLink("wallet");
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -37,9 +38,7 @@ function htmlFallbackForNonSnapAccept(
 </head>
 <body>
   <p>Commodus status Snap</p>
-  <p><a href="${escapeHtml(links.wallet)}">View Wallet</a></p>
-  <p><a href="${escapeHtml(links.trade)}">Trade</a></p>
-  <p><a href="${escapeHtml(links.standings)}">Standings</a></p>
+  <p><a href="${escapeHtml(walletUrl)}">Open Mini App</a></p>
 </body>
 </html>`;
 
@@ -74,7 +73,10 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const snap = buildStatusSnapResponse(view, miniAppSnapLinks());
+    const snap = buildStatusSnapResponse(
+      view,
+      snapActionLinksForFid(request.nextUrl.origin, fid, "wallet"),
+    );
     const selfSnapUrl = snapResourceUrl(request, fid);
 
     return NextResponse.json(snap, {

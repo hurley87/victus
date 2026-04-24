@@ -2,12 +2,6 @@ import { env } from "@/lib/env";
 
 export type MiniAppTab = "wallet" | "trade" | "standings";
 
-export type MiniAppSnapLinks = {
-  wallet: string;
-  trade: string;
-  standings: string;
-};
-
 function appBaseUrl(): string {
   return env.NEXT_PUBLIC_URL.replace(/\/$/, "");
 }
@@ -33,14 +27,6 @@ export function portfolioDeepLinkForFid(fid: number): string {
  */
 export function miniAppTabDeepLink(tab: MiniAppTab): string {
   return `${appBaseUrl()}/?tab=${tab}`;
-}
-
-export function miniAppSnapLinks(): MiniAppSnapLinks {
-  return {
-    wallet: miniAppTabDeepLink("wallet"),
-    trade: miniAppTabDeepLink("trade"),
-    standings: miniAppTabDeepLink("standings"),
-  };
 }
 
 /**
