@@ -1,5 +1,13 @@
 import { env } from "@/lib/env";
 
+export type MiniAppTab = "wallet" | "trade" | "standings";
+
+export type MiniAppSnapLinks = {
+  wallet: string;
+  trade: string;
+  standings: string;
+};
+
 function appBaseUrl(): string {
   return env.NEXT_PUBLIC_URL.replace(/\/$/, "");
 }
@@ -21,10 +29,25 @@ export function portfolioDeepLinkForFid(fid: number): string {
 }
 
 /**
+ * HTTPS URL that opens a specific Mini App tab.
+ */
+export function miniAppTabDeepLink(tab: MiniAppTab): string {
+  return `${appBaseUrl()}/?tab=${tab}`;
+}
+
+export function miniAppSnapLinks(): MiniAppSnapLinks {
+  return {
+    wallet: miniAppTabDeepLink("wallet"),
+    trade: miniAppTabDeepLink("trade"),
+    standings: miniAppTabDeepLink("standings"),
+  };
+}
+
+/**
  * HTTPS URL that opens the Mini App wallet tab for onboarding.
  */
 export function walletDeepLink(): string {
-  return `${appBaseUrl()}/?tab=wallet`;
+  return miniAppTabDeepLink("wallet");
 }
 
 /**
@@ -33,6 +56,21 @@ export function walletDeepLink(): string {
 export function statusSnapUrlForFid(fid: number): string {
   assertValidFid(fid, "statusSnapUrlForFid");
   return `${appBaseUrl()}/api/snaps/status/${fid}`;
+}
+
+/**
+ * Public HTTPS URL for a completed trade Snap JSON.
+ */
+export function tradeSnapUrlForExecution(
+  fid: number,
+  tradeExecutionId: string,
+): string {
+  assertValidFid(fid, "tradeSnapUrlForExecution");
+  const id = tradeExecutionId.trim();
+  if (!id) {
+    throw new Error("tradeSnapUrlForExecution: tradeExecutionId is required");
+  }
+  return `${appBaseUrl()}/api/snaps/trade/${fid}/${encodeURIComponent(id)}`;
 }
 
 /**

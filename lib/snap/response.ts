@@ -122,3 +122,35 @@ export function snapButton(
 export function buildElementMap(entries: [string, SnapElement][]): SnapUiSpec["elements"] {
   return Object.fromEntries(entries);
 }
+
+/** Standard three-button mini-app action row shared by all snap builders. */
+export function snapMiniAppActionEntries(links: {
+  wallet: string;
+  trade: string;
+  standings: string;
+}): [string, SnapElement][] {
+  return [
+    snapStack("actions", ["act_wallet", "act_trade", "act_standings"], {
+      direction: "horizontal",
+      gap: "sm",
+    }),
+    snapButton(
+      "act_wallet",
+      "View Wallet",
+      { action: "open_mini_app", params: { target: links.wallet } },
+      { variant: "primary", icon: "wallet" },
+    ),
+    snapButton(
+      "act_trade",
+      "Trade",
+      { action: "open_mini_app", params: { target: links.trade } },
+      { variant: "secondary", icon: "repeat" },
+    ),
+    snapButton(
+      "act_standings",
+      "Standings",
+      { action: "open_mini_app", params: { target: links.standings } },
+      { variant: "secondary", icon: "bar-chart" },
+    ),
+  ];
+}

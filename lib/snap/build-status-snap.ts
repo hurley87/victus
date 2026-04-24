@@ -1,15 +1,16 @@
 import type { SnapResponse } from "./types";
 import {
   buildElementMap,
-  snapButton,
   snapItem,
   snapItemGroup,
+  snapMiniAppActionEntries,
   snapProgress,
   snapStack,
   snapText,
 } from "./response";
 
 import type { StatusViewContext } from "@/lib/status/load-context";
+import type { MiniAppSnapLinks } from "@/lib/commodus/deep-links";
 
 function fmtUsd(n: number): string {
   return n.toLocaleString("en-US", {
@@ -24,7 +25,7 @@ function fmtUsd(n: number): string {
  */
 export function buildStatusSnapResponse(
   ctx: StatusViewContext,
-  miniAppPortfolioUrl: string,
+  links: MiniAppSnapLinks,
 ): SnapResponse {
   const maxProgress = Math.max(ctx.topTenCutoffPoints, ctx.points, 1);
   const rankTitle =
@@ -34,7 +35,7 @@ export function buildStatusSnapResponse(
   const progressLabel = `Monthly points vs top-10 cutoff (${ctx.topTenCutoffPoints.toLocaleString("en-US")})`;
 
   const elements = buildElementMap([
-    snapStack("root", ["hdr", "prog", "stats", "cta"], {
+    snapStack("root", ["hdr", "prog", "stats", "actions"], {
       gap: "md",
     }),
     snapText("hdr", ctx.displayHandle, { weight: "bold", size: "md" }),
@@ -60,15 +61,7 @@ export function buildStatusSnapResponse(
       ctx.dailySlotsRemaining.toLocaleString("en-US"),
       "Arena trades left today",
     ),
-    snapButton(
-      "cta",
-      "Open portfolio",
-      {
-        action: "open_mini_app",
-        params: { target: miniAppPortfolioUrl },
-      },
-      { variant: "primary", icon: "arrow-right" },
-    ),
+    ...snapMiniAppActionEntries(links),
   ]);
 
   return {

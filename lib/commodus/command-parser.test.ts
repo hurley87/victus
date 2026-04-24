@@ -209,7 +209,7 @@ describe("parseCommandIntent — regex precedence", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
-  it("short-circuits on oversize_error without an LLM call", async () => {
+  it("short-circuits canonical oversized buys without an LLM call", async () => {
     const generate = vi.fn() as unknown as GenerateText;
 
     const outcome = await parseCommandIntent(
@@ -217,7 +217,15 @@ describe("parseCommandIntent — regex precedence", () => {
       { llm: { generate, maxRetries: 1 } },
     );
 
-    expect(outcome).toMatchObject({ ok: false, reason: "oversize_error" });
+    expect(outcome).toMatchObject({
+      ok: true,
+      intent: {
+        action: "buy",
+        symbol: "AERO",
+        amount_type: "usdc_in",
+        amount_value: 100,
+      },
+    });
     expect(generate).not.toHaveBeenCalled();
   });
 });

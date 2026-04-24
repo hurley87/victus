@@ -1,42 +1,41 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { miniAppSnapLinks } from "@/lib/commodus/deep-links";
-import { buildStatusSnapResponse } from "@/lib/snap/build-status-snap";
+import { buildTradeSnapResponse } from "@/lib/snap/build-trade-snap";
 import {
   escapeHtml,
   requestAcceptsSnap,
   SNAP_MEDIA,
   snapVaryHeader,
 } from "@/lib/snap/http";
-import { loadStatusViewContext } from "@/lib/status/load-context";
+import { loadTradeSnapContext } from "@/lib/snap/load-trade-snap-context";
 
 export const dynamic = "force-dynamic";
 
-/** Same origin the client used — important for tunnel / preview URLs. */
-function snapResourceUrl(request: NextRequest, fid: number): string {
-  return `${request.nextUrl.origin}/api/snaps/status/${fid}`;
+function snapResourceUrl(
+  request: NextRequest,
+  fid: number,
+  executionId: string,
+): string {
+  return `${request.nextUrl.origin}/api/snaps/trade/${fid}/${encodeURIComponent(executionId)}`;
 }
 
-/**
- * Plain GET (no Snap Accept) — e.g. Warpcast unfurl, crawlers — must still discover
- * the Snap per https://docs.farcaster.xyz/snap/http-headers (`Link` alternate).
- * A 307 to the Mini App URL makes clients preview the wrong surface; do not redirect.
- */
 function htmlFallbackForNonSnapAccept(
   request: NextRequest,
   fid: number,
+  executionId: string,
 ): NextResponse {
-  const selfUrl = snapResourceUrl(request, fid);
+  const selfUrl = snapResourceUrl(request, fid, executionId);
   const links = miniAppSnapLinks();
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Commodus status</title>
+  <title>Victus trade</title>
 </head>
 <body>
-  <p>Commodus status Snap</p>
+  <p>Victus trade Snap</p>
   <p><a href="${escapeHtml(links.wallet)}">View Wallet</a></p>
   <p><a href="${escapeHtml(links.trade)}">Trade</a></p>
   <p><a href="${escapeHtml(links.standings)}">Standings</a></p>
@@ -56,26 +55,31 @@ function htmlFallbackForNonSnapAccept(
 
 export async function GET(
   request: NextRequest,
-  context: { params: Promise<{ fid: string }> },
+  context: { params: Promise<{ fid: string; executionId: string }> },
 ) {
-  const { fid: fidRaw } = await context.params;
+  const { fid: fidRaw, executionId: executionIdRaw } = await context.params;
   const fid = Number(fidRaw);
-  if (!Number.isFinite(fid) || fid <= 0 || !Number.isInteger(fid)) {
+  const executionId = decodeURIComponent(executionIdRaw).trim();
+
+  if (!Number.isInteger(fid) || fid <= 0) {
     return NextResponse.json({ error: "Invalid fid" }, { status: 400 });
+  }
+  if (!executionId) {
+    return NextResponse.json({ error: "Invalid execution id" }, { status: 400 });
   }
 
   if (!requestAcceptsSnap(request.headers.get("accept"))) {
-    return htmlFallbackForNonSnapAccept(request, fid);
+    return htmlFallbackForNonSnapAccept(request, fid, executionId);
   }
 
   try {
-    const view = await loadStatusViewContext(fid);
+    const view = await loadTradeSnapContext(fid, executionId);
     if (!view) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const snap = buildStatusSnapResponse(view, miniAppSnapLinks());
-    const selfSnapUrl = snapResourceUrl(request, fid);
+    const snap = buildTradeSnapResponse(view, miniAppSnapLinks());
+    const selfSnapUrl = snapResourceUrl(request, fid, executionId);
 
     return NextResponse.json(snap, {
       status: 200,
@@ -87,7 +91,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("snaps/status GET failed", err);
+    console.error("snaps/trade GET failed", err);
     return NextResponse.json({ error: "Failed to load snap" }, { status: 500 });
   }
 }

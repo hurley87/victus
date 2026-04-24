@@ -12,6 +12,7 @@ import { basePublicClient } from "@/lib/chain/client";
 import {
   onboardingSnapUrlForFid,
   statusSnapUrlForFid,
+  tradeSnapUrlForExecution,
 } from "@/lib/commodus/deep-links";
 import { REJECTION_REPLIES } from "@/lib/commodus/templates";
 import { env } from "@/lib/env";
@@ -339,6 +340,14 @@ export async function handleCommodusCommand(ctx: CommandContext) {
         },
         voiceCtx,
       ),
+      [
+        {
+          url: tradeSnapUrlForExecution(
+            ctx.authorFid,
+            sellReservation.tradeExecutionId,
+          ),
+        },
+      ],
     );
 
     return {
@@ -501,6 +510,14 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       },
       voiceCtx,
     ),
+    [
+      {
+        url: tradeSnapUrlForExecution(
+          ctx.authorFid,
+          reservation.tradeExecutionId,
+        ),
+      },
+    ],
   );
 
   return {
