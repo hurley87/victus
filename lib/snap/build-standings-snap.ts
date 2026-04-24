@@ -1,11 +1,11 @@
 import type { SnapResponse } from "./types";
 import {
   buildElementMap,
-  snapInlineActionEntries,
   snapItem,
   snapItemGroup,
   snapOpenMiniAppEntry,
   snapStack,
+  snapStandingsNavEntries,
   snapText,
   type SnapActionLinks,
 } from "./response";
@@ -47,7 +47,7 @@ export function buildStandingsSnapResponse(
     snapStack("root", ["hdr", "standings", "actions", "open_app"], {
       gap: "md",
     }),
-    snapText("hdr", `${ctx.displayHandle} - Standings`, {
+    snapText("hdr", "Standings", {
       weight: "bold",
       size: "md",
     }),
@@ -59,7 +59,7 @@ export function buildStandingsSnapResponse(
         `${entry.points.toLocaleString("en-US")} points`,
       ),
     ),
-    ...snapInlineActionEntries(links),
+    ...snapStandingsNavEntries(links),
     snapOpenMiniAppEntry(links.miniApp),
   ]);
 

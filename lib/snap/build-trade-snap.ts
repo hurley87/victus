@@ -45,15 +45,13 @@ export function buildTradeSnapResponse(
   links: SnapActionLinks,
 ): SnapResponse {
   const { trade } = ctx;
-  const status =
-    trade.status === "confirmed" ? "Victory" : trade.status.replace(/_/g, " ");
   const rankTitle = ctx.rank != null ? `#${ctx.rank}` : "Unranked";
 
   const elements = buildElementMap([
     snapStack("root", ["hdr", "stats", "actions", "open_app"], {
       gap: "md",
     }),
-    snapText("hdr", `${ctx.displayHandle} - ${status}`, {
+    snapText("hdr", "Wallet", {
       weight: "bold",
       size: "md",
     }),

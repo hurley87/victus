@@ -5,6 +5,7 @@ import { buildTradeSnapResponse, type TradeSnapContext } from "./build-trade-sna
 const links = {
   tradeSnap: "https://app.example/api/snaps/trade-command",
   standingsSnap: "https://app.example/api/snaps/standings/123",
+  walletSnap: "https://app.example/api/snaps/status/123",
   miniApp: "https://app.example/?tab=trade",
 };
 
@@ -26,11 +27,12 @@ const baseCtx: TradeSnapContext = {
 };
 
 describe("buildTradeSnapResponse", () => {
-  it("renders four summary rows with snap nav and mini-app footer", () => {
+  it("renders a Wallet-headed summary with four rows, snap nav, and mini-app footer", () => {
     const snap = buildTradeSnapResponse(baseCtx, links);
     const { elements } = snap.ui;
 
     expect(snap.version).toBe("2.0");
+    expect(elements.hdr?.props?.content).toBe("Wallet");
     expect(elements.root?.type).toBe("stack");
     expect(elements.root?.children?.length).toBeLessThanOrEqual(7);
     expect(Object.keys(elements).length).toBeLessThanOrEqual(64);
@@ -98,7 +100,7 @@ describe("buildTradeSnapResponse", () => {
     );
 
     const { elements } = snap.ui;
-    expect(elements.hdr?.props?.content).toBe("Maximus - failed");
+    expect(elements.hdr?.props?.content).toBe("Wallet");
     expect(elements.i_rank?.props?.title).toBe("Unranked");
     expect(elements.act_trade?.on?.press?.action).toBe("open_snap");
     expect(elements.open_app?.on?.press?.action).toBe("open_mini_app");

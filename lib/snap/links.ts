@@ -13,6 +13,15 @@ export function tradeCommandSnapUrl(origin: string, fid: number): string {
   return snapRouteUrl(origin, `/api/snaps/trade-command?fid=${fid}`);
 }
 
+export function standingsSnapUrl(origin: string, fid: number): string {
+  return snapRouteUrl(origin, `/api/snaps/standings/${fid}`);
+}
+
+/** Canonical "Wallet" snap URL — the status snap doubles as the portfolio card. */
+export function walletSnapUrl(origin: string, fid: number): string {
+  return snapRouteUrl(origin, `/api/snaps/status/${fid}`);
+}
+
 export function snapActionLinksForFid(
   origin: string,
   fid: number,
@@ -20,7 +29,8 @@ export function snapActionLinksForFid(
 ): SnapActionLinks {
   return {
     tradeSnap: tradeCommandSnapUrl(origin, fid),
-    standingsSnap: snapRouteUrl(origin, `/api/snaps/standings/${fid}`),
+    standingsSnap: standingsSnapUrl(origin, fid),
+    walletSnap: walletSnapUrl(origin, fid),
     miniApp: miniAppTabDeepLink(miniAppTab),
   };
 }

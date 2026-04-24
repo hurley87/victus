@@ -17,15 +17,17 @@ const baseCtx: StatusViewContext = {
 const links = {
   tradeSnap: "https://app.example/api/snaps/trade-command",
   standingsSnap: "https://app.example/api/snaps/standings/123",
+  walletSnap: "https://app.example/api/snaps/status/123",
   miniApp: "https://app.example/?tab=wallet",
 };
 
 describe("buildStatusSnapResponse", () => {
-  it("returns Snap 2.0 with four status rows, snap nav, and mini-app footer", () => {
+  it("returns Snap 2.0 with a Wallet header, four rows, snap nav, and mini-app footer", () => {
     const snap = buildStatusSnapResponse(baseCtx, links);
     expect(snap.version).toBe("2.0");
     expect(snap.ui.root).toBe("root");
     const { elements } = snap.ui;
+    expect(elements.hdr?.props?.content).toBe("Wallet");
     expect(elements.root?.type).toBe("stack");
     expect(elements.root?.children?.length).toBeLessThanOrEqual(7);
     expect(Object.keys(elements).length).toBeLessThanOrEqual(64);

@@ -34,7 +34,7 @@ export function buildStatusSnapResponse(
     snapStack("root", ["hdr", "stats", "actions", "open_app"], {
       gap: "md",
     }),
-    snapText("hdr", ctx.displayHandle, { weight: "bold", size: "md" }),
+    snapText("hdr", "Wallet", { weight: "bold", size: "md" }),
     snapItemGroup(
       "stats",
       ["i_rank", "i_pts", "i_port", "i_slots"],

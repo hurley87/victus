@@ -169,10 +169,16 @@ export function buildElementMap(entries: [string, SnapElement][]): SnapUiSpec["e
 export type SnapActionLinks = {
   tradeSnap: string;
   standingsSnap: string;
+  /** Wallet/portfolio snap URL (the status snap for the current FID). */
+  walletSnap: string;
   miniApp: string;
 };
 
-/** Inline snap navigation. The mini-app escape hatch is rendered separately as the final root child. */
+/**
+ * Inline snap navigation (Trade + Standings). The mini-app escape hatch is
+ * rendered separately as the final root child. Used on pages that are *not*
+ * the Standings page itself.
+ */
 export function snapInlineActionEntries(links: {
   tradeSnap: string;
   standingsSnap: string;
@@ -193,6 +199,34 @@ export function snapInlineActionEntries(links: {
       "Standings",
       { action: "open_snap", params: { target: links.standingsSnap } },
       { variant: "secondary", icon: "bar-chart" },
+    ),
+  ];
+}
+
+/**
+ * Inline snap navigation for the Standings page — swaps the redundant
+ * Standings button for a Wallet button that opens the portfolio snap.
+ */
+export function snapStandingsNavEntries(links: {
+  tradeSnap: string;
+  walletSnap: string;
+}): [string, SnapElement][] {
+  return [
+    snapStack("actions", ["act_trade", "act_wallet"], {
+      direction: "horizontal",
+      gap: "sm",
+    }),
+    snapButton(
+      "act_trade",
+      "Trade",
+      { action: "open_snap", params: { target: links.tradeSnap } },
+      { variant: "secondary", icon: "repeat" },
+    ),
+    snapButton(
+      "act_wallet",
+      "Wallet",
+      { action: "open_snap", params: { target: links.walletSnap } },
+      { variant: "secondary", icon: "wallet" },
     ),
   ];
 }

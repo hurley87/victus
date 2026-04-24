@@ -1,20 +1,26 @@
 import { COMMAND_BOT_HANDLE } from "@/lib/commodus/bot";
 
-import type { SnapResponse } from "./types";
+import type { SnapElement, SnapResponse } from "./types";
 import {
   buildElementMap,
   snapButton,
-  snapItem,
-  snapItemGroup,
+  snapInput,
   snapOpenMiniAppEntry,
   snapStack,
   snapText,
+  snapToggleGroup,
 } from "./response";
 
+/** Snap `toggle_group` supports 2–6 options; keep the whitelist bounded accordingly. */
+export const TRADE_COMMAND_SYMBOL_LIMIT = 6;
+
 export type TradeCommandSnapContext = {
-  starterCommand: string;
-  buyExample: string;
-  sellExample: string;
+  /** Whitelist symbols in the order they should appear (UPPER or mixed case is fine). */
+  symbols: string[];
+  /** Default selected symbol. Must be a member of `symbols`. */
+  defaultSymbol: string;
+  /** Default amount (also used as placeholder) for the amount input. */
+  amountDefault: string;
 };
 
 export type StandingsPress =
@@ -22,48 +28,73 @@ export type StandingsPress =
   | { action: "open_mini_app"; target: string };
 
 export type TradeCommandSnapLinks = {
+  /** POST target for the "Make Trade" submit button. */
+  composeSubmit: string;
+  /** Always prefers `open_snap`; falls back to `open_mini_app` only if no FID context is available. */
   standings: StandingsPress;
-  walletMiniApp: string;
+  /** Wallet/portfolio snap. Falls back to `open_mini_app` only when FID is missing. */
+  wallet: StandingsPress;
+  /** Mini-app deep link used exclusively by the footer "Open Mini App" button. */
   miniApp: string;
 };
 
 /**
- * Compose-first trade command snap. The primary button fires
- * {@link https://docs.farcaster.xyz/snap/actions#compose_cast compose_cast}
- * directly — no `submit` round-trip and no signed form data, because
- * compose_cast params don't interpolate field values anyway.
+ * Trade composer snap. Users pick buy/sell, a token, and an amount;
+ * the "Make Trade" button submits the form so the server can interpolate
+ * the chosen values into a `compose_cast` follow-up (Snap 2.0 does not
+ * interpolate form values into `compose_cast` params directly).
+ *
+ * @see https://docs.farcaster.xyz/snap/actions#submit
  */
 export function buildTradeCommandSnapResponse(
   ctx: TradeCommandSnapContext,
   links: TradeCommandSnapLinks,
 ): SnapResponse {
+  const symbols = ctx.symbols.slice(0, TRADE_COMMAND_SYMBOL_LIMIT);
+  if (symbols.length < 2) {
+    throw new Error(
+      "buildTradeCommandSnapResponse: at least 2 tradable symbols required for toggle_group",
+    );
+  }
+  const defaultSymbol = symbols.includes(ctx.defaultSymbol)
+    ? ctx.defaultSymbol
+    : symbols[0]!;
+
   const elements = buildElementMap([
     snapStack(
       "root",
-      ["hdr", "body", "examples", "compose", "nav", "open_app"],
+      ["hdr", "body", "action", "symbol", "amount", "compose", "nav", "open_app"],
       { gap: "md" },
     ),
     snapText("hdr", "Trade", { weight: "bold", size: "md" }),
     snapText(
       "body",
-      `Reply to ${COMMAND_BOT_HANDLE} with a trade command. The arena executes, the scoreboard updates.`,
+      `Pick a side, a token, and an amount. We'll draft the cast to ${COMMAND_BOT_HANDLE}.`,
       { size: "sm" },
     ),
-    snapItemGroup("examples", ["ex_buy", "ex_sell"], { separator: true }),
-    snapItem(
-      "ex_buy",
-      `${COMMAND_BOT_HANDLE} ${ctx.buyExample}`,
-      "Example buy",
-    ),
-    snapItem(
-      "ex_sell",
-      `${COMMAND_BOT_HANDLE} ${ctx.sellExample}`,
-      "Example sell",
-    ),
+    snapToggleGroup("action", {
+      name: "action",
+      label: "Side",
+      options: ["Buy", "Sell"],
+      defaultValue: "Buy",
+    }),
+    snapToggleGroup("symbol", {
+      name: "symbol",
+      label: "Token",
+      options: symbols,
+      defaultValue: defaultSymbol,
+    }),
+    snapInput("amount", {
+      name: "amount",
+      type: "number",
+      label: "Amount (USDC to buy, % to sell)",
+      placeholder: ctx.amountDefault,
+      defaultValue: ctx.amountDefault,
+    }),
     snapButton(
       "compose",
-      "Preview Cast",
-      { action: "compose_cast", params: { text: ctx.starterCommand } },
+      "Make Trade",
+      { action: "submit", params: { target: links.composeSubmit } },
       { variant: "primary", icon: "share" },
     ),
     snapStack("nav", ["act_standings", "act_wallet"], {
@@ -82,7 +113,10 @@ export function buildTradeCommandSnapResponse(
     snapButton(
       "act_wallet",
       "Wallet",
-      { action: "open_mini_app", params: { target: links.walletMiniApp } },
+      {
+        action: links.wallet.action,
+        params: { target: links.wallet.target },
+      },
       { variant: "secondary", icon: "wallet" },
     ),
     snapOpenMiniAppEntry(links.miniApp),
@@ -95,5 +129,72 @@ export function buildTradeCommandSnapResponse(
       root: "root",
       elements,
     },
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Confirmation snap (POST response from /api/snaps/trade-command)    */
+/* ------------------------------------------------------------------ */
+
+export type TradeCommandConfirmContext = {
+  /** Fully-composed cast text, e.g. `"@commo buy 5 usdc of aero"`. */
+  castText: string;
+  /** Optional error message displayed in lieu of the confirmation body. */
+  error?: string | null;
+};
+
+export type TradeCommandConfirmLinks = {
+  /** Mini-app deep link used exclusively by the footer "Open Mini App" button. */
+  miniApp: string;
+  /** Snap URL to navigate back to the form (so users can edit). */
+  editSnap: string;
+};
+
+/**
+ * Minimal confirmation snap returned from the POST handler. Presents the
+ * interpolated cast text and a single primary `compose_cast` button, or an
+ * error body with an Edit button back to the form.
+ */
+export function buildTradeCommandConfirmSnapResponse(
+  ctx: TradeCommandConfirmContext,
+  links: TradeCommandConfirmLinks,
+): SnapResponse {
+  const hasError = Boolean(ctx.error);
+
+  const previewAndCompose: [string, SnapElement][] = hasError
+    ? []
+    : [
+        snapText("preview", ctx.castText, { weight: "bold", size: "md" }),
+        snapButton(
+          "compose",
+          "Post Cast",
+          { action: "compose_cast", params: { text: ctx.castText } },
+          { variant: "primary", icon: "share" },
+        ),
+      ];
+
+  const rootChildren = hasError
+    ? ["hdr", "body", "nav", "open_app"]
+    : ["hdr", "body", "preview", "compose", "nav", "open_app"];
+
+  const elements = buildElementMap([
+    snapStack("root", rootChildren, { gap: "md" }),
+    snapText("hdr", "Trade", { weight: "bold", size: "md" }),
+    snapText("body", ctx.error ?? "Ready to cast:", { size: "sm" }),
+    ...previewAndCompose,
+    snapStack("nav", ["act_back"], { direction: "horizontal", gap: "sm" }),
+    snapButton(
+      "act_back",
+      "Edit",
+      { action: "open_snap", params: { target: links.editSnap } },
+      { variant: "secondary", icon: "refresh-cw" },
+    ),
+    snapOpenMiniAppEntry(links.miniApp),
+  ]);
+
+  return {
+    version: "2.0",
+    theme: { accent: hasError ? "red" : "purple" },
+    ui: { root: "root", elements },
   };
 }
