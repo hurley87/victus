@@ -188,6 +188,27 @@ describe("POST /api/snaps/trade-command", () => {
     expect(body.ui.elements.open_app?.on?.press?.action).toBe("open_mini_app");
   });
 
+  it("defaults an untouched form submission to Buy with the visible default token and amount", async () => {
+    const req = snapRequest(
+      "https://example.com/api/snaps/trade-command?fid=123",
+      {
+        method: "POST",
+        body: JSON.stringify({ inputs: {} }),
+      },
+    );
+    const res = await POST(req);
+    const body = (await res.json()) as SnapJsonBody;
+
+    expect(body.ui.elements.body?.props?.content).toBe("Ready to cast:");
+    expect(body.ui.elements.preview?.props?.content).toBe(
+      "@commo buy 5 usdc of aero",
+    );
+    expect(body.ui.elements.compose?.on?.press).toEqual({
+      action: "compose_cast",
+      params: { text: "@commo buy 5 usdc of aero" },
+    });
+  });
+
   it("interpolates a sell percentage command", async () => {
     const req = snapRequest(
       "https://example.com/api/snaps/trade-command?fid=123",

@@ -18,7 +18,10 @@ import {
   snapVaryHeader,
 } from "@/lib/snap/http";
 import { standingsSnapUrl, walletSnapUrl } from "@/lib/snap/links";
-import { interpolateTradeCommand } from "@/lib/snap/trade-command-text";
+import {
+  interpolateTradeCommand,
+  type TradeCommandFormValues,
+} from "@/lib/snap/trade-command-text";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -142,14 +145,30 @@ export async function GET(request: NextRequest) {
   }
 }
 
-type SubmitBody = { inputs?: Record<string, unknown> };
-
-async function parseSubmitBody(request: NextRequest): Promise<SubmitBody> {
+async function parseSubmitInputs(
+  request: NextRequest,
+): Promise<Record<string, unknown>> {
   try {
-    return (await request.json()) as SubmitBody;
+    const body = (await request.json()) as { inputs?: unknown };
+    const inputs = body?.inputs;
+    if (typeof inputs === "object" && inputs !== null && !Array.isArray(inputs)) {
+      return inputs as Record<string, unknown>;
+    }
   } catch {
-    return {};
+    // fall through to empty inputs
   }
+  return {};
+}
+
+function applyTradeFormDefaults(
+  inputs: Record<string, unknown>,
+  ctx: TradeCommandSnapContext,
+): TradeCommandFormValues {
+  return {
+    action: inputs.action ?? "Buy",
+    symbol: inputs.symbol ?? ctx.defaultSymbol,
+    amount: inputs.amount ?? ctx.amountDefault,
+  };
 }
 
 /**
@@ -166,9 +185,9 @@ export async function POST(request: NextRequest) {
     const ctx = loadContext(rules);
     const fid = parseFid(request);
     const selfUrl = snapResourceUrl(request, fid);
-    const body = await parseSubmitBody(request);
+    const inputs = applyTradeFormDefaults(await parseSubmitInputs(request), ctx);
 
-    const result = interpolateTradeCommand(body.inputs ?? {}, {
+    const result = interpolateTradeCommand(inputs, {
       allowedSymbols: ctx.symbols,
       maxBuyUsdc: rules.max_trade_usdc,
     });
