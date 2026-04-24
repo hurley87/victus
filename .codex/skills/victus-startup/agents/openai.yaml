@@ -1,0 +1,4 @@
+interface:
+  display_name: "Victus Startup"
+  short_description: "Start Victus dev tunnel and env URL"
+  default_prompt: "Use $victus-startup to start the Victus dev server, open a Cloudflare tunnel, and update NEXT_PUBLIC_URL."
