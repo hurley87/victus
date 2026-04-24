@@ -107,6 +107,7 @@ export default function WalletPage() {
         gladiator={arena.gladiator}
         arenaAddress={arena.arena_address}
         balance={arena.balance}
+        withdrawDestinationAddress={arena.withdraw_destination?.address ?? null}
         portfolio={portfolio ?? null}
         onWithdrawn={refetchArena}
         onFundingConfirmed={refetchArena}
@@ -272,6 +273,7 @@ function AliveWalletView({
   gladiator: _gladiator,
   arenaAddress,
   balance,
+  withdrawDestinationAddress,
   portfolio,
   onWithdrawn,
   onFundingConfirmed,
@@ -280,6 +282,7 @@ function AliveWalletView({
   gladiator: GladiatorSummary;
   arenaAddress: string;
   balance: ArenaBalance;
+  withdrawDestinationAddress: string | null;
   portfolio: PortfolioResult | null;
   onWithdrawn: () => void;
   onFundingConfirmed: () => void;
@@ -333,7 +336,11 @@ function AliveWalletView({
           >
             Fund Wallet
           </Button>
-          <WithdrawButton balanceUsdc={balance.usdc} onWithdrawn={onWithdrawn} />
+          <WithdrawButton
+            balanceUsdc={balance.usdc}
+            destinationAddress={withdrawDestinationAddress}
+            onWithdrawn={onWithdrawn}
+          />
         </div>
 
         {/* Deposit panel — collapses in when "Fund Wallet" is active */}

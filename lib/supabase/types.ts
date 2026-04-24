@@ -17,6 +17,9 @@ export type Database = {
       arena_wallets: {
         Row: {
           created_at: string
+          funding_wallet_address: string | null
+          funding_wallet_tx_hash: string | null
+          funding_wallet_verified_at: string | null
           id: string
           privy_wallet_id: string
           status: string
@@ -26,6 +29,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          funding_wallet_address?: string | null
+          funding_wallet_tx_hash?: string | null
+          funding_wallet_verified_at?: string | null
           id?: string
           privy_wallet_id: string
           status?: string
@@ -35,6 +41,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          funding_wallet_address?: string | null
+          funding_wallet_tx_hash?: string | null
+          funding_wallet_verified_at?: string | null
           id?: string
           privy_wallet_id?: string
           status?: string

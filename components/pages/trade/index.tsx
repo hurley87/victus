@@ -164,12 +164,6 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
           </p>
         </header>
 
-        <StatusCommandCard
-          disabled={isAnyComposeDisabled}
-          isPending={pendingCommand === "status"}
-          onCompose={composeCommand}
-        />
-
         <CommandComposer
           mode={mode}
           setMode={setMode}
@@ -305,53 +299,6 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
           </div>
         </section>
     </div>
-  );
-}
-
-function StatusCommandCard({
-  disabled,
-  isPending,
-  onCompose,
-}: {
-  disabled: boolean;
-  isPending: boolean;
-  onCompose: (command: string) => Promise<void>;
-}) {
-  const command = "status";
-  const castText = `${COMMAND_BOT_HANDLE} ${command}`;
-
-  return (
-    <section className="rounded-xl border border-gold/40 bg-gold/10 p-3 space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
-            Arena Status
-          </h2>
-          <p className="break-words font-mono text-base font-semibold text-white">
-            {castText}
-          </p>
-        </div>
-        <span className="rounded-full border border-gold/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-gold">
-          First
-        </span>
-      </div>
-      <Button
-        type="button"
-        variant="imperial"
-        size="lg"
-        className="min-h-14 w-full rounded-lg text-base"
-        disabled={disabled || isPending}
-        aria-label={`Compose cast to ${COMMAND_BOT_HANDLE} FID ${COMMAND_BOT_FID}: ${castText}`}
-        onClick={() => void onCompose(command)}
-      >
-        {isPending ? (
-          <span className="size-5 animate-spin rounded-full border-2 border-imperial-bg border-t-transparent" />
-        ) : (
-          <Send className="size-5" aria-hidden="true" />
-        )}
-        Cast Status
-      </Button>
-    </section>
   );
 }
 

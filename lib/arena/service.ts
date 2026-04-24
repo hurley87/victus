@@ -13,6 +13,7 @@ import type {
   GladiatorStatus,
   WhitelistEntry,
 } from "./types";
+import { resolveWithdrawDestination } from "./withdraw-destination";
 
 const EMPTY_BALANCE: ArenaBalance = {
   usdc: 0,
@@ -99,7 +100,7 @@ export async function getArenaProfile(
   const [wallet, gladiator, whitelist] = await Promise.all([
     supabaseAdmin
       .from("arena_wallets")
-      .select("id, wallet_address")
+      .select("id, wallet_address, funding_wallet_address")
       .eq("user_id", userId)
       .maybeSingle(),
     supabaseAdmin
@@ -127,6 +128,7 @@ export async function getArenaProfile(
     return {
       gladiator: null,
       arena_address: null,
+      withdraw_destination: null,
       balance: EMPTY_BALANCE,
       rules,
       needs_funding: false,
@@ -141,7 +143,12 @@ export async function getArenaProfile(
   // While pending_funding the UI only shows the balance progress meter,
   // not the daily-slots chip — skip the Supabase count to drop one
   // round-trip per 5s poll tick.
-  const [balance, intentCount] = await Promise.all([
+  const [account, balance, intentCount] = await Promise.all([
+    supabaseAdmin
+      .from("farcaster_accounts")
+      .select("verifications")
+      .eq("user_id", userId)
+      .maybeSingle(),
     readArenaBalance(wallet.data.wallet_address, whitelist.tradable).catch(
       (err) => {
         console.error("Failed to read arena balance", err);
@@ -150,6 +157,16 @@ export async function getArenaProfile(
     ),
     isPendingFunding ? Promise.resolve(0) : countTodaysIntents(wallet.data.id),
   ]);
+
+  if (account.error) {
+    throw new Error(`Failed to read farcaster_accounts: ${account.error.message}`);
+  }
+
+  const withdrawDestination = resolveWithdrawDestination({
+    fundingWalletAddress: wallet.data.funding_wallet_address,
+    verifications: account.data?.verifications,
+    arenaAddress: wallet.data.wallet_address,
+  });
 
   // Self-heal: if the Arena page is polling a gladiator whose client-side
   // refetch landed before the server's RPC saw the deposit, flip the
@@ -174,6 +191,7 @@ export async function getArenaProfile(
         }
       : null,
     arena_address: wallet.data.wallet_address,
+    withdraw_destination: withdrawDestination,
     balance,
     rules,
     needs_funding: effective.status === "pending_funding",

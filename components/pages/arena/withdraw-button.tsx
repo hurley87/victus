@@ -17,10 +17,15 @@ import { cn, formatWalletAddress } from "@/lib/utils";
 
 type WithdrawButtonProps = {
   balanceUsdc: number;
+  destinationAddress: string | null;
   onWithdrawn: () => void;
 };
 
-export function WithdrawButton({ balanceUsdc, onWithdrawn }: WithdrawButtonProps) {
+export function WithdrawButton({
+  balanceUsdc,
+  destinationAddress,
+  onWithdrawn,
+}: WithdrawButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [result, setResult] = useState<WithdrawResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -76,6 +81,7 @@ export function WithdrawButton({ balanceUsdc, onWithdrawn }: WithdrawButtonProps
       {isOpen && (
         <WithdrawModal
           balanceUsdc={balanceUsdc}
+          destinationAddress={destinationAddress}
           result={result}
           errorMessage={errorMessage}
           isSubmitting={isSubmitting}
@@ -89,6 +95,7 @@ export function WithdrawButton({ balanceUsdc, onWithdrawn }: WithdrawButtonProps
 
 type WithdrawModalProps = {
   balanceUsdc: number;
+  destinationAddress: string | null;
   result: WithdrawResponse | null;
   errorMessage: string | null;
   isSubmitting: boolean;
@@ -98,6 +105,7 @@ type WithdrawModalProps = {
 
 function WithdrawModal({
   balanceUsdc,
+  destinationAddress,
   result,
   errorMessage,
   isSubmitting,
@@ -141,7 +149,10 @@ function WithdrawModal({
         {isSent && result ? (
           <SentPanel result={result} />
         ) : (
-          <PreviewPanel balanceUsdc={balanceUsdc} />
+          <PreviewPanel
+            balanceUsdc={balanceUsdc}
+            destinationAddress={destinationAddress}
+          />
         )}
 
         {errorMessage && (
@@ -183,7 +194,13 @@ function WithdrawModal({
   );
 }
 
-function PreviewPanel({ balanceUsdc }: { balanceUsdc: number }) {
+function PreviewPanel({
+  balanceUsdc,
+  destinationAddress,
+}: {
+  balanceUsdc: number;
+  destinationAddress: string | null;
+}) {
   return (
     <div className="rounded-md border border-imperial-border bg-imperial-bg p-3 space-y-2">
       <div className="flex items-baseline justify-between">
@@ -196,8 +213,13 @@ function PreviewPanel({ balanceUsdc }: { balanceUsdc: number }) {
         <span className="text-xs uppercase tracking-wider text-zinc-500">
           Destination
         </span>
-        <span className="text-xs font-mono text-zinc-200">
-          Your verified Farcaster address
+        <span
+          className={cn(
+            "max-w-[13rem] break-all text-right text-xs font-mono sm:max-w-[16rem]",
+            destinationAddress ? "text-zinc-200" : "text-zinc-500",
+          )}
+        >
+          {destinationAddress ?? "No verified wallet found"}
         </span>
       </div>
     </div>
@@ -205,10 +227,7 @@ function PreviewPanel({ balanceUsdc }: { balanceUsdc: number }) {
 }
 
 function SentPanel({ result }: { result: WithdrawResponse }) {
-  const sourceLabel =
-    result.destination_source === "verification"
-      ? "verified Farcaster address"
-      : "Farcaster custody address";
+  const sourceLabel = destinationSourceLabel(result.destination_source);
   return (
     <div className="rounded-md border border-pnl-positive/20 bg-pnl-positive/5 p-3 space-y-2">
       <div className="flex items-baseline justify-between">
@@ -233,6 +252,17 @@ function SentPanel({ result }: { result: WithdrawResponse }) {
       </a>
     </div>
   );
+}
+
+function destinationSourceLabel(source: WithdrawResponse["destination_source"]): string {
+  switch (source) {
+    case "funding_wallet":
+      return "funding wallet";
+    case "verification":
+      return "verified Farcaster address";
+    case "custody":
+      return "Farcaster custody address";
+  }
 }
 
 function mapWithdrawError(err: Error): string {

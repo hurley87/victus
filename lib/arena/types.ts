@@ -5,6 +5,7 @@
  */
 
 import type { ArenaBalance, PositionBalance } from "@/lib/chain/balances";
+import type { WithdrawDestinationSource } from "./withdraw-destination";
 
 export type { ArenaBalance, PositionBalance };
 
@@ -51,6 +52,10 @@ export type ArenaRules = {
 export type ArenaProfile = {
   gladiator: GladiatorSummary | null;
   arena_address: string | null;
+  withdraw_destination: {
+    address: string;
+    source: WithdrawDestinationSource;
+  } | null;
   balance: ArenaBalance;
   rules: ArenaRules;
   needs_funding: boolean;
@@ -90,5 +95,5 @@ export type WithdrawResponse = {
   tx_hash: string;
   amount_usdc: number;
   to: string;
-  destination_source: "verification" | "custody";
+  destination_source: WithdrawDestinationSource;
 };

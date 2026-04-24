@@ -153,6 +153,7 @@ function renderState(profile: ArenaProfile, onChange: () => void) {
         gladiator={profile.gladiator}
         arenaAddress={profile.arena_address}
         balance={profile.balance}
+        withdrawDestinationAddress={profile.withdraw_destination?.address ?? null}
         dailySlotsRemaining={profile.daily_slots_remaining}
         maxTradesPerDay={profile.rules.max_trades_per_day}
         maxTradeUsdc={profile.rules.max_trade_usdc}
@@ -301,6 +302,7 @@ function AliveCard({
   gladiator,
   arenaAddress,
   balance,
+  withdrawDestinationAddress,
   dailySlotsRemaining,
   maxTradesPerDay,
   maxTradeUsdc,
@@ -310,6 +312,7 @@ function AliveCard({
   gladiator: GladiatorSummary;
   arenaAddress: string;
   balance: ArenaBalance;
+  withdrawDestinationAddress: string | null;
   dailySlotsRemaining: number;
   maxTradesPerDay: number;
   maxTradeUsdc: number;
@@ -366,7 +369,11 @@ function AliveCard({
 
       <BalanceBlock balance={balance} />
 
-      <WithdrawButton balanceUsdc={balance.usdc} onWithdrawn={onWithdrawn} />
+      <WithdrawButton
+        balanceUsdc={balance.usdc}
+        destinationAddress={withdrawDestinationAddress}
+        onWithdrawn={onWithdrawn}
+      />
 
       <div className="rounded-md bg-white/70 border border-green-900/10 p-2">
         <p className="text-[11px] uppercase tracking-wider text-green-900/70 mb-1">

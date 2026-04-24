@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getAddress, isAddress, parseUnits, type Address } from "viem";
+import { getAddress, parseUnits } from "viem";
 
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { readUsdcBalance } from "@/lib/chain/erc20";
@@ -17,6 +17,12 @@ import {
 } from "@/lib/privy/server";
 import { redis } from "@/lib/redis";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import {
+  getFundingWalletDestination,
+  resolveWithdrawDestination,
+  type WithdrawDestination,
+  type WithdrawDestinationSource,
+} from "./withdraw-destination";
 
 /**
  * Arena withdraw service — sweeps (or partial-sweeps) USDC from the
@@ -119,7 +125,7 @@ export type WithdrawResult = {
   tx_hash: string;
   amount_usdc: number;
   to: string;
-  destination_source: "verification" | "custody";
+  destination_source: WithdrawDestinationSource;
 };
 
 export async function withdrawUsdc(params: {
@@ -139,7 +145,7 @@ export async function withdrawUsdc(params: {
   // lookup (destination) with the Base RPC read (balance) to cut one
   // round-trip off the critical path.
   const [destination, liveBalanceUsdc] = await Promise.all([
-    resolveDestination(userId, fid, arena.walletAddress),
+    resolveDestination(userId, fid, arena),
     readUsdcBalance(getAddress(arena.walletAddress)),
   ]);
 
@@ -246,6 +252,7 @@ export async function withdrawUsdc(params: {
 type ArenaState = {
   walletAddress: string;
   privyWalletId: string;
+  fundingWalletAddress: string | null;
 };
 
 function isGasCreditsExhausted(err: PrivyApiError): boolean {
@@ -261,7 +268,7 @@ async function loadArenaState(userId: string): Promise<ArenaState> {
     await Promise.all([
       supabaseAdmin
         .from("arena_wallets")
-        .select("wallet_address, privy_wallet_id")
+        .select("wallet_address, privy_wallet_id, funding_wallet_address")
         .eq("user_id", userId)
         .maybeSingle(),
       supabaseAdmin
@@ -287,20 +294,20 @@ async function loadArenaState(userId: string): Promise<ArenaState> {
   return {
     walletAddress: wallet.wallet_address,
     privyWalletId: wallet.privy_wallet_id,
+    fundingWalletAddress: wallet.funding_wallet_address,
   };
 }
-
-type ResolvedDestination = {
-  address: Address;
-  source: "verification" | "custody";
-};
 
 async function resolveDestination(
   userId: string,
   fid: number,
-  arenaAddress: string,
-): Promise<ResolvedDestination> {
-  const arenaAddressLower = arenaAddress.toLowerCase();
+  arena: ArenaState,
+): Promise<WithdrawDestination> {
+  const fundingDestination = getFundingWalletDestination({
+    fundingWalletAddress: arena.fundingWalletAddress,
+    arenaAddress: arena.walletAddress,
+  });
+  if (fundingDestination) return fundingDestination;
 
   const { data, error } = await supabaseAdmin
     .from("farcaster_accounts")
@@ -314,17 +321,6 @@ async function resolveDestination(
     );
   }
 
-  const verifications = Array.isArray(data?.verifications)
-    ? (data.verifications as unknown[])
-    : [];
-
-  for (const raw of verifications) {
-    if (typeof raw !== "string") continue;
-    if (!isAddress(raw)) continue;
-    if (raw.toLowerCase() === arenaAddressLower) continue;
-    return { address: getAddress(raw), source: "verification" };
-  }
-
   // Fallback: resolve the custody address live via Neynar.
   const neynarUser = await fetchUser(String(fid)).catch((err) => {
     console.error("withdraw.neynar_lookup_failed", {
@@ -335,14 +331,13 @@ async function resolveDestination(
     return null;
   });
 
-  const custody = neynarUser?.custody_address;
-  if (
-    typeof custody === "string" &&
-    isAddress(custody) &&
-    custody.toLowerCase() !== arenaAddressLower
-  ) {
-    return { address: getAddress(custody), source: "custody" };
-  }
+  const destination = resolveWithdrawDestination({
+    fundingWalletAddress: arena.fundingWalletAddress,
+    verifications: data?.verifications,
+    custodyAddress: neynarUser?.custody_address,
+    arenaAddress: arena.walletAddress,
+  });
+  if (destination) return destination;
 
   throw new NoWithdrawDestinationError();
 }
