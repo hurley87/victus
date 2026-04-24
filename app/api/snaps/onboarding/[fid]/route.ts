@@ -57,7 +57,7 @@ export async function GET(
 ) {
   const { fid: fidRaw } = await context.params;
   const fid = Number(fidRaw);
-  if (!Number.isFinite(fid) || fid <= 0 || !Number.isInteger(fid)) {
+  if (!Number.isInteger(fid) || fid <= 0) {
     return NextResponse.json({ error: "Invalid fid" }, { status: 400 });
   }
 

@@ -6,25 +6,25 @@ import {
   snapText,
 } from "./response";
 
-export const ONBOARDING_SALUTE_TEXT = "For those about to die, we salute you!";
-
 export function buildOnboardingSnapResponse(params: {
   taunt: boolean;
   tauntUrl: string;
   miniAppWalletUrl: string;
 }): SnapResponse {
-  const title = params.taunt
-    ? "Still hiding from Commodus?"
-    : "Commodus waits undefeated";
-  const body = params.taunt
-    ? "No? Rome expected louder courage. The arena keeps score, and Commodus grows fat on every challenger who will not enter."
-    : "Victus is the game: mint thy arena wallet, enter the sands, and try to beat Commodus before he buries thy rank.";
-  const challenge = params.taunt
-    ? "Wilt thou keep trembling, or finally answer the games?"
-    : "Art thou ready to fight in the Victus games?";
+  const { title, body, challenge } = params.taunt
+    ? {
+        title: "Still hiding from Commodus?",
+        body: "No? Rome expected louder courage. The arena keeps score, and Commodus grows fat on every challenger who will not enter.",
+        challenge: "Wilt thou keep trembling, or finally answer the games?",
+      }
+    : {
+        title: "Commodus waits undefeated",
+        body: "Victus is the game: mint thy arena wallet, enter the sands, and try to beat Commodus before he buries thy rank.",
+        challenge: "Art thou ready to fight in the Victus games?",
+      };
 
   const elements = buildElementMap([
-    snapStack("root", ["title", "body", "challenge", "actions", "wallet"], {
+    snapStack("root", ["title", "body", "challenge", "actions"], {
       gap: "md",
     }),
     snapText("title", title, { weight: "bold", size: "md" }),
@@ -38,13 +38,10 @@ export function buildOnboardingSnapResponse(params: {
       "yes",
       "I will fight",
       {
-        action: "compose_cast",
-        params: {
-          text: ONBOARDING_SALUTE_TEXT,
-          embeds: [params.miniAppWalletUrl],
-        },
+        action: "open_mini_app",
+        params: { target: params.miniAppWalletUrl },
       },
-      { variant: "primary", icon: "share" },
+      { variant: "primary", icon: "wallet" },
     ),
     snapButton(
       "no",
@@ -54,15 +51,6 @@ export function buildOnboardingSnapResponse(params: {
         params: { target: params.tauntUrl },
       },
       { variant: "secondary" },
-    ),
-    snapButton(
-      "wallet",
-      "Enter Mini App",
-      {
-        action: "open_mini_app",
-        params: { target: params.miniAppWalletUrl },
-      },
-      { variant: "secondary", icon: "wallet" },
     ),
   ]);
 
