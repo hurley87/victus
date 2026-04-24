@@ -9,7 +9,10 @@ import {
 
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { basePublicClient } from "@/lib/chain/client";
-import { statusSnapUrlForFid } from "@/lib/commodus/deep-links";
+import {
+  onboardingSnapUrlForFid,
+  statusSnapUrlForFid,
+} from "@/lib/commodus/deep-links";
 import { REJECTION_REPLIES } from "@/lib/commodus/templates";
 import { env } from "@/lib/env";
 import { MissingSignerError } from "@/lib/neynar";
@@ -147,6 +150,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     await publishOutcomeReply(
       ctx.castHash,
       policyRejectionMessage("needs_gladiator_mint"),
+      [{ url: onboardingSnapUrlForFid(ctx.authorFid) }],
     );
     return { status: "rejected" as const, reason: "needs_gladiator_mint" };
   }
@@ -578,6 +582,7 @@ async function executeStatusBranch(ctx: CommandContext): Promise<void> {
           castHash: ctx.castHash,
           kind: "outcome",
           text: REJECTION_REPLIES.no_arena_wallet,
+          embeds: [{ url: onboardingSnapUrlForFid(ctx.authorFid) }],
         });
       } catch (err) {
         rethrowMissingSignerAsFatal(err);

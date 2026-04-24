@@ -9,6 +9,9 @@ import type { TradeIntent } from "@/lib/execution/intents";
 const CHAIN_REJECTED_SWAP =
   "The sands reject the swap — the chain reverted. Another gambit may fare better.";
 
+export const NO_WALLET_ONBOARDING_REPLY =
+  "Commodus waits undefeated in the Victus arena. Enter the Mini App, mint thy arena wallet, and prove thou canst beat him instead of shouting from the stands.";
+
 export type ExecutionFailureDetails = {
   /** Inscribed when the failure maps to a size cap so the citizen sees the live cap. */
   maxTradeUsdc?: number;
@@ -162,10 +165,7 @@ export function policyRejectionMessage(
 ): string {
   switch (reason) {
     case "needs_gladiator_mint":
-      return (
-        "The lists are barred. Mint thy gladiator and fund the arena wallet in the Mini App, " +
-        "then issue thy decree."
-      );
+      return NO_WALLET_ONBOARDING_REPLY;
     case "asset_not_whitelisted":
       return "That symbol is not matched against our scroll of admitted tokens. Name a listed champion.";
     case "max_trades_per_day":
@@ -218,7 +218,7 @@ export const REJECTION_REPLIES: Record<ParserRejectionReason, string> = {
   grammar:
     "Speak as Rome taught thee. Valid decrees: `buy N usdc of SYMBOL`, `sell N% of SYMBOL`, `status`.",
   no_arena_wallet:
-    "Commodus trades on thy behalf from thy arena wallet. Enter the Mini App and mint thy gladiator first.",
+    NO_WALLET_ONBOARDING_REPLY,
   non_whitelisted_token:
     "That token is not yoked to these games. Name a champion from the live list in the Mini App.",
   oversize: "Thy sum overshoots the proconsul's cap for a single trade. Name a smaller tally.",

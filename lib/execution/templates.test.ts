@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildIntentReply,
+  NO_WALLET_ONBOARDING_REPLY,
   buildOutcomeReply,
   POLICY_REJECTION_COPY,
+  REJECTION_REPLIES,
   policyRejectionMessage,
 } from "./templates";
 
@@ -84,6 +86,16 @@ describe("POLICY_REJECTION_COPY", () => {
   it("interpolates live caps for max_trade_usdc", () => {
     const text = policyRejectionMessage("max_trade_usdc", { maxTradeUsdc: 25 });
     expect(text).toContain("25");
+  });
+
+  it("uses competitive onboarding copy for no-wallet users", () => {
+    expect(policyRejectionMessage("needs_gladiator_mint")).toBe(
+      NO_WALLET_ONBOARDING_REPLY,
+    );
+    expect(REJECTION_REPLIES.no_arena_wallet).toBe(NO_WALLET_ONBOARDING_REPLY);
+    expect(NO_WALLET_ONBOARDING_REPLY).toMatch(/Commodus/i);
+    expect(NO_WALLET_ONBOARDING_REPLY).toMatch(/Mini App/i);
+    expect(NO_WALLET_ONBOARDING_REPLY).toMatch(/beat/i);
   });
 
   it("includes realized PnL on sell success outcomes", () => {
