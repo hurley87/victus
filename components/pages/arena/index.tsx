@@ -112,9 +112,9 @@ function ArenaContent() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Arena</h1>
           <p className="text-sm text-muted-foreground">
-            Mint your gladiator, fund the arena wallet once, and cast decrees at
-            <span className="font-mono"> @commodus</span>. Commodus trades on thy
-            behalf from thy arena wallet — no per-trade wallet signature.
+            Mint your gladiator, fund the arena wallet once, and cast orders at
+            <span className="font-mono"> @commodus</span>. Commodus executes from
+            your arena wallet — no per-trade wallet signature.
           </p>
         </header>
 
@@ -377,7 +377,7 @@ function AliveCard({
 
       <div className="rounded-md bg-white/70 border border-green-900/10 p-2">
         <p className="text-[11px] uppercase tracking-wider text-green-900/70 mb-1">
-          Decree a trade
+          Cast an order
         </p>
         <ul className="space-y-0.5 text-xs font-mono text-black/80">
           {sampleHint.map((line) => (

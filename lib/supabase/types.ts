@@ -177,6 +177,54 @@ export type Database = {
           },
         ]
       }
+      commodus_lore_posts: {
+        Row: {
+          cast_hash: string | null
+          created_at: string
+          day: number
+          error: string | null
+          id: string
+          idempotency_key: string
+          posted_at: string | null
+          scheduled_at: string | null
+          scheduled_for: string | null
+          season: number
+          status: string
+          text: string
+          updated_at: string
+        }
+        Insert: {
+          cast_hash?: string | null
+          created_at?: string
+          day: number
+          error?: string | null
+          id?: string
+          idempotency_key: string
+          posted_at?: string | null
+          scheduled_at?: string | null
+          scheduled_for?: string | null
+          season: number
+          status?: string
+          text: string
+          updated_at?: string
+        }
+        Update: {
+          cast_hash?: string | null
+          created_at?: string
+          day?: number
+          error?: string | null
+          id?: string
+          idempotency_key?: string
+          posted_at?: string | null
+          scheduled_at?: string | null
+          scheduled_for?: string | null
+          season?: number
+          status?: string
+          text?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       farcaster_accounts: {
         Row: {
           created_at: string

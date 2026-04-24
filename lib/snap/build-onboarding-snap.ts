@@ -14,13 +14,13 @@ export function buildOnboardingSnapResponse(params: {
   const { title, body, challenge } = params.taunt
     ? {
         title: "Still hiding from Commodus?",
-        body: "No? Rome expected louder courage. The arena keeps score, and Commodus grows fat on every challenger who will not enter.",
-        challenge: "Wilt thou keep trembling, or finally answer the games?",
+        body: "No? Loud for someone still outside the gates. The arena keeps score, and Commodus keeps receipts.",
+        challenge: "Enter now, or keep pretending the next reset changes you.",
       }
     : {
-        title: "Commodus waits undefeated",
-        body: "Victus is the game: mint thy arena wallet, enter the sands, and try to beat Commodus before he buries thy rank.",
-        challenge: "Art thou ready to fight in the Victus games?",
+        title: "Commodus is still undefeated",
+        body: "Victus is the game: mint your arena wallet, enter the arena, and try to beat Commodus before he turns your rank into background noise.",
+        challenge: "Ready to enter the arena?",
       };
 
   const elements = buildElementMap([

@@ -36,6 +36,13 @@ export interface PublishedCast {
   text: string;
 }
 
+type PublishManagedCastParams = {
+  text: string;
+  idemKey: string;
+  parentCastHash?: string;
+  embeds?: { url: string }[];
+};
+
 /**
  * Error thrown when the Neynar signer is not configured. Callers in a
  * workflow step should wrap this with `FatalError` so retries don't loop.
@@ -67,6 +74,30 @@ export async function publishReplyCast(
   idemKey: string,
   embeds?: { url: string }[],
 ): Promise<PublishedCast> {
+  return await publishManagedCast({
+    text,
+    idemKey,
+    parentCastHash,
+    embeds,
+  });
+}
+
+/**
+ * Publish a top-level cast as Commodus via the Neynar-managed signer.
+ *
+ * This intentionally mirrors {@link publishReplyCast} but omits `parent`.
+ */
+export async function publishCast(
+  text: string,
+  idemKey: string,
+  embeds?: { url: string }[],
+): Promise<PublishedCast> {
+  return await publishManagedCast({ text, idemKey, embeds });
+}
+
+async function publishManagedCast(
+  params: PublishManagedCastParams,
+): Promise<PublishedCast> {
   if (!env.NEYNAR_SIGNER_UUID) {
     throw new MissingSignerError();
   }
@@ -76,14 +107,16 @@ export async function publishReplyCast(
     headers: {
       "x-api-key": env.NEYNAR_API_KEY,
       "content-type": "application/json",
-      "idempotency-key": idemKey,
+      "idempotency-key": params.idemKey,
     },
     body: JSON.stringify({
       signer_uuid: env.NEYNAR_SIGNER_UUID,
-      text,
-      parent: parentCastHash,
-      idem: idemKey,
-      ...(embeds && embeds.length > 0 ? { embeds } : {}),
+      text: params.text,
+      idem: params.idemKey,
+      ...(params.parentCastHash ? { parent: params.parentCastHash } : {}),
+      ...(params.embeds && params.embeds.length > 0
+        ? { embeds: params.embeds }
+        : {}),
     }),
   });
 
@@ -92,8 +125,10 @@ export async function publishReplyCast(
     const body = await response.text().catch(() => "");
     log.error("neynar_cast_publish_failed", {
       httpStatus,
-      parentCastHash,
-      idemKey,
+      idemKey: params.idemKey,
+      ...(params.parentCastHash
+        ? { parentCastHash: params.parentCastHash }
+        : {}),
     });
     throw new Error(
       `Neynar cast publish failed (${httpStatus}): ${body.slice(0, 300)}`,

@@ -12,7 +12,7 @@ import {
 const voice = { gladiatorName: "Maximus" };
 
 describe("buildIntentReply", () => {
-  it("renders a buy decree with the notional and symbol", () => {
+  it("renders a buy order with the notional and symbol", () => {
     const text = buildIntentReply(
       {
         action: "buy",
@@ -25,7 +25,7 @@ describe("buildIntentReply", () => {
     expect(text).toContain("5");
     expect(text).toContain("AERO");
     expect(text).toContain("Maximus");
-    expect(text.toLowerCase()).toMatch(/march|deploy|usdc/);
+    expect(text.toLowerCase()).toMatch(/moving|usdc/);
   });
 
   it("switches verb on sell intents", () => {
@@ -38,7 +38,7 @@ describe("buildIntentReply", () => {
       },
       voice,
     );
-    expect(text).toContain("retire");
+    expect(text).toContain("selling");
     expect(text).toContain("50%");
     expect(text).toContain("AERO");
   });
@@ -69,7 +69,7 @@ describe("buildOutcomeReply", () => {
       { kind: "failure", reason: "revert" },
       { gladiatorName: "" },
     );
-    expect(text.toLowerCase()).toMatch(/sand|chain|revert/);
+    expect(text.toLowerCase()).toMatch(/trade|onchain|failed/);
   });
 });
 
@@ -111,7 +111,7 @@ describe("POLICY_REJECTION_COPY", () => {
       },
       voice,
     );
-    expect(text).toContain("Victory");
+    expect(text).toContain("Executed");
     expect(text).toContain("Realized PnL");
     expect(text).toContain("1.25");
     expect(text).toContain("USDC");

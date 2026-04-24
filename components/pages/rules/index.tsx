@@ -73,7 +73,7 @@ function RulesContent() {
   if (isLoading) {
     return (
       <Centered>
-        <p className="text-sm text-muted-foreground">Loading arena law…</p>
+        <p className="text-sm text-muted-foreground">Loading arena rules…</p>
       </Centered>
     );
   }
@@ -111,8 +111,8 @@ function RulesBody({ rules }: { rules: ArenaRules }) {
           </p>
           <h1 className="text-2xl font-semibold">Arena rules</h1>
           <p className="text-sm text-muted-foreground">
-            Custodial trading on Base. Commodus executes exactly what thou declarest
-            in the cast — no per-trade signature. Cast at{" "}
+            Custodial trading on Base. Commodus executes exactly what you put in
+            the cast — no per-trade signature. Cast at{" "}
             <span className="font-mono">@commodus</span>.
           </p>
         </header>
@@ -120,10 +120,9 @@ function RulesBody({ rules }: { rules: ArenaRules }) {
         <section className="rounded-xl border border-black/10 p-4 space-y-3">
           <h2 className="text-sm font-semibold">Commands</h2>
           <p className="text-xs text-muted-foreground">
-            The text of thy cast is the law: <span className="font-mono">AMOUNT</span> on
+            Your cast is the instruction: <span className="font-mono">AMOUNT</span> on
             a buy and <span className="font-mono">PERCENT</span> on a sell are the
-            authoritative sizes; Commodus fills those amounts in the arena wallet on
-            thy behalf.
+            authoritative sizes. Commodus executes those amounts from the arena wallet.
           </p>
           <div>
             <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
@@ -157,12 +156,12 @@ function RulesBody({ rules }: { rules: ArenaRules }) {
           <h2 className="text-sm font-semibold">Execution</h2>
           <p className="text-xs text-black/80">
             Commodus holds the arena wallet through the configured provider (Privy) and
-            signs swaps server-side. Thou fundest USDC once at gladiator mint; thou dost
-            not approve each trade in a wallet extension.
+            signs swaps server-side. You fund USDC once at gladiator mint; you do not
+            approve each trade in a wallet extension.
           </p>
           <p className="text-xs text-black/80">
             Mint a gladiator with ≥ ${rules.min_mint_deposit_usdc.toFixed(2)} USDC. Trading
-            unlocks when thy gladiator is alive.
+            unlocks when your gladiator is alive.
           </p>
         </section>
 
@@ -241,7 +240,7 @@ function RulesBody({ rules }: { rules: ArenaRules }) {
               <span className="font-mono">swap_fee_min_usdc</span>).
             </li>
             <li>
-              Gas: Commodus sponsors all gas. Thou dost not need ETH in the arena wallet.
+              Gas: Commodus sponsors all gas. You do not need ETH in the arena wallet.
             </li>
             <li>
               Cost basis and realized PnL are computed net of the swap fee and sponsored
@@ -253,11 +252,11 @@ function RulesBody({ rules }: { rules: ArenaRules }) {
         <section className="rounded-xl border border-black/10 p-4 space-y-2">
           <h2 className="text-sm font-semibold">Custody</h2>
           <p className="text-xs text-black/80">
-            Commodus operates the arena wallet on thy behalf via the configured wallet
-            provider. Keys are not exposed as a seed phrase for thee to hold.
+            Commodus operates the arena wallet for you through the configured wallet
+            provider. Keys are not exposed as a seed phrase for you to hold.
           </p>
           <p className="text-xs text-black/80">
-            Withdraw is out of scope for MVP. Contact the operator if thou needest thy
+            Withdraw is out of scope for MVP. Contact the operator if you need your
             balance returned.
           </p>
         </section>
@@ -267,7 +266,7 @@ function RulesBody({ rules }: { rules: ArenaRules }) {
           <p className="text-xs text-muted-foreground">
             Points are for leaderboard rank only. At most{" "}
             {SCORING_CASTS_PER_UTC_DAY} executed casts per UTC day earn scoring
-            weight; the table resteth each calendar month (UTC).
+            weight; the table resets each calendar month (UTC).
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">

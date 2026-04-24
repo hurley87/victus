@@ -1,5 +1,5 @@
 /**
- * Single home for user-facing Commodus copy — Roman arena voice for casts,
+ * Single home for user-facing Commodus copy: modern arena voice for casts,
  * rejections, execution failures, and policy gates (#16).
  */
 
@@ -7,13 +7,13 @@ import type { PolicyRejectionReason } from "@/lib/execution/policy";
 import type { TradeIntent } from "@/lib/execution/intents";
 
 const CHAIN_REJECTED_SWAP =
-  "The sands reject the swap — the chain reverted. Another gambit may fare better.";
+  "The trade failed onchain. Even Rome has bad plumbing. Try again or size it differently.";
 
 export const NO_WALLET_ONBOARDING_REPLY =
-  "Commodus waits undefeated in the Victus arena. Enter the Mini App, mint thy arena wallet, and prove thou canst beat him instead of shouting from the stands.";
+  "Commodus is still undefeated. Enter the Mini App, mint your arena wallet, and prove you can beat him instead of yelling from the cheap seats.";
 
 export type ExecutionFailureDetails = {
-  /** Inscribed when the failure maps to a size cap so the citizen sees the live cap. */
+  /** Included when the failure maps to a size cap so the challenger sees the live cap. */
   maxTradeUsdc?: number;
 };
 
@@ -23,26 +23,26 @@ export type ExecutionFailureDetails = {
  */
 export const EXECUTION_FAILURE_VOICE: Record<string, string> = {
   oversize:
-    "The decree exceeds thy single-trade limit — trim the sum to the arena law allows.",
+    "Size it down. That order is over the single-trade limit.",
   wallet_cap:
-    "Thy arena treasury overflows its cap. No further trades until the ledgers cool.",
+    "Your arena wallet is at the cap. The throne is full; lighten it before you try again.",
   insufficient_balance:
-    "Thy coffers hold too little of that token for this decree. Fund or downsize.",
+    "Not enough balance for that order. Size it down or fund the arena wallet.",
   daily_rate_limit:
-    "Thy daily tally of arena trades is spent. Return when the sun crosses again.",
+    "Your daily trades are spent. The arena is closed to you until the next reset.",
   needs_gladiator_mint:
-    "Thou hast no fighter in the lists. Mint thy gladiator in the Mini App, then return.",
+    "You need an arena wallet first. Enter the Mini App, mint it, then come back with conviction.",
   non_whitelisted_token:
-    "That token is not admitted to these sands. Name a listed champion only.",
+    "That symbol is not in the arena. Pick one from the live list.",
   price_impact:
-    "The market turned too fierce between quote and strike — the trade could not stand.",
+    "The market moved too hard between quote and execution. The arena rejected the slippage.",
   revert: CHAIN_REJECTED_SWAP,
   reverted: CHAIN_REJECTED_SWAP,
   decode_log_missing:
-    "The arena could not read victory from the chain receipt — the scribes were silent.",
+    "The chain confirmed something, but the receipt did not prove the fill. Rome does not score mysteries.",
   decode_log_mismatch:
-    "The fill did not match the plotted course — call off the heralds and await word.",
-  unknown: "The duel is undone. The reason remains unknown.",
+    "The fill did not match the order. The scoreboard only respects execution.",
+  unknown: "The trade failed. Rome got no useful explanation, which is rude but familiar.",
 };
 
 export function voiceForExecutionFailure(
@@ -51,14 +51,14 @@ export function voiceForExecutionFailure(
 ): string {
   if (reason === "oversize" && details?.maxTradeUsdc != null) {
     return (
-      `The decree exceeds thy ${details.maxTradeUsdc.toString()} USDC single-trade limit. ` +
-      "Name a smaller sum, or the gates stay barred."
+      `Size it down. Max single trade is ${details.maxTradeUsdc.toString()} USDC. ` +
+      "The arena is not impressed by oversized paperwork."
     );
   }
 
   return (
     EXECUTION_FAILURE_VOICE[reason] ??
-    `The duel falters: ${reason}. Commodus shall speak when the omen clears.`
+    `The trade failed: ${reason}. The scoreboard only respects execution.`
   );
 }
 
@@ -96,7 +96,7 @@ function prefixGladiator(name: string, body: string): string {
 
 /**
  * Intent-reply cast after policy passes and a quote is reserved — tells the
- * citizen the arena will execute on their behalf.
+ * challenger the arena will execute on their behalf.
  */
 export function buildIntentReply(
   intent: TradeIntent,
@@ -104,14 +104,14 @@ export function buildIntentReply(
 ): string {
   if (intent.action === "buy") {
     const body =
-      `Thy decree stands. Commodus shall march ${intent.amount_value.toString()} USDC ` +
-      `into ${intent.symbol} from thy arena coffers. Stand ready for the trumpet.`;
+      `Order accepted. Commodus is moving ${intent.amount_value.toString()} USDC ` +
+      `into ${intent.symbol}. The arena gets to watch now.`;
     return prefixGladiator(ctx.gladiatorName, body);
   }
 
   const body =
-    `Thy decree stands. Commodus shall retire ${intent.amount_value.toString()}% of ` +
-    `${intent.symbol} from thy shield hand, per thy word. Await the proclamation.`;
+    `Order accepted. Commodus is selling ${intent.amount_value.toString()}% of ` +
+    `${intent.symbol}. The arena gets to watch now.`;
   return prefixGladiator(ctx.gladiatorName, body);
 }
 
@@ -140,13 +140,15 @@ export function buildOutcomeReply(
 
   if (outcome.action === "sell") {
     const body =
-      `Victory. Struck ${qty} ${outcome.symbol} into ${notional} USDC gross.${pnlPart} ` +
+      `Executed. Sold ${qty} ${outcome.symbol} for ${notional} USDC gross.${pnlPart} ` +
+      "The scoreboard noticed. " +
       `Proof: ${outcome.txHash.slice(0, 10)}…`;
     return prefixGladiator(ctx.gladiatorName, body);
   }
 
   const body =
-    `Victory. Claimed ${qty} ${outcome.symbol} for ${notional} USDC. ` +
+    `Executed. Bought ${qty} ${outcome.symbol} for ${notional} USDC. ` +
+    "The scoreboard noticed. " +
     `Proof: ${outcome.txHash.slice(0, 10)}…`;
   return prefixGladiator(ctx.gladiatorName, body);
 }
@@ -167,18 +169,15 @@ export function policyRejectionMessage(
     case "needs_gladiator_mint":
       return NO_WALLET_ONBOARDING_REPLY;
     case "asset_not_whitelisted":
-      return "That symbol is not matched against our scroll of admitted tokens. Name a listed champion.";
+      return "That symbol is not in the arena. Pick one from the live list.";
     case "max_trades_per_day":
-      return "Thy daily count of arena trades is spent. Rest until the morrow's trumpet.";
+      return "Your daily trades are spent. The arena is closed to you until the next reset.";
     case "max_trade_usdc": {
       const cap =
         limits?.maxTradeUsdc != null
           ? limits.maxTradeUsdc.toString()
-          : "the law";
-      return (
-        `Thy decree exceeds the ${cap} USDC limit for a single passage. ` +
-        "Shave thy sum and cast again."
-      );
+          : "the current";
+      return `Size it down. Max single trade is ${cap} USDC.`;
     }
     case "wallet_cap_usdc": {
       const cap =
@@ -186,12 +185,12 @@ export function policyRejectionMessage(
           ? limits.walletCapUsdc.toString()
           : "the cap";
       return (
-        `Thy custodied treasure—including arms still held—would breach the ${cap} USDC ` +
-        "wallet ceiling. Lighten the vault before the next charge."
+        `That would push your arena wallet over the ${cap} USDC cap. ` +
+        "Lighten the wallet before you posture again."
       );
     }
     case "insufficient_balance":
-      return "That stake is too lean for this decree. Claim a smaller share or gather more blades.";
+      return "Not enough balance. Size it down or fund the arena wallet.";
   }
 }
 
@@ -216,16 +215,16 @@ export type ParserRejectionReason =
 
 export const REJECTION_REPLIES: Record<ParserRejectionReason, string> = {
   grammar:
-    "Speak as Rome taught thee. Valid decrees: `buy N usdc of SYMBOL`, `sell N% of SYMBOL`, `status`.",
+    "Bad command. Use: `buy N usdc of SYMBOL`, `sell N% of SYMBOL`, or `status`. Rome can't execute vibes.",
   no_arena_wallet:
     NO_WALLET_ONBOARDING_REPLY,
   non_whitelisted_token:
-    "That token is not yoked to these games. Name a champion from the live list in the Mini App.",
-  oversize: "Thy sum overshoots the proconsul's cap for a single trade. Name a smaller tally.",
+    "That symbol is not in the arena. Pick one from the live list.",
+  oversize: "Size it down. That order is over the single-trade cap.",
 };
 
 export function buildAcceptedReply(amount: number, symbol: string): string {
-  return `Hark — accepted. ${amount.toString()} USDC shall march into ${symbol}.`;
+  return `Accepted. ${amount.toString()} USDC into ${symbol}. Try not to make me regret reading that.`;
 }
 
 /** Templated (non-LLM) copy for `@commodus status` public replies — issue #13 / #20. */
@@ -247,7 +246,8 @@ export function buildStatusReplyText(params: {
   const name = params.displayHandle.trim();
   const opener = name.length > 0 ? `${name} — ` : "";
   return (
-    `${opener}Commodus reads ${rankPart}, ${pts} monthly points, ${usd} USDC in the arena vault, ` +
-    `${slots} trade${params.dailySlotsRemaining === 1 ? "" : "s"} left this day.`
+    `${opener}${rankPart}, ${pts} monthly points, ${usd} USDC in the arena wallet, ` +
+    `${slots} trade${params.dailySlotsRemaining === 1 ? "" : "s"} left today. ` +
+    "The scoreboard only respects execution."
   );
 }
