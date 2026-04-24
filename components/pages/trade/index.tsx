@@ -8,9 +8,8 @@ import { Button } from "@/components/shared/ui/button";
 import { useFarcaster } from "@/contexts/farcaster-context";
 import { useApiQuery } from "@/hooks/use-api-query";
 import type { ArenaRules, WhitelistEntry } from "@/lib/arena/types";
+import { COMMAND_BOT_FID, COMMAND_BOT_HANDLE } from "@/lib/commodus/bot";
 
-const COMMAND_BOT_HANDLE = "@commo";
-const COMMAND_BOT_FID = 3318962;
 const DEFAULT_BUY_PRESETS = [1, 3, 5, 10];
 const SELL_PRESETS = [25, 50, 100];
 

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { COMMAND_BOT_HANDLE } from "@/lib/commodus/bot";
+
 import {
   buildTradeCommandSnapResponse,
-  COMMAND_BOT_HANDLE,
   type TradeCommandSnapContext,
   type TradeCommandSnapLinks,
 } from "./build-trade-command-snap";
@@ -15,7 +16,7 @@ const baseCtx: TradeCommandSnapContext = {
 
 const snapLinks: TradeCommandSnapLinks = {
   standings: {
-    kind: "snap",
+    action: "open_snap",
     target: "https://app.example/api/snaps/standings/123",
   },
   walletMiniApp: "https://app.example/?tab=wallet",
@@ -73,7 +74,7 @@ describe("buildTradeCommandSnapResponse", () => {
     const snap = buildTradeCommandSnapResponse(baseCtx, {
       ...snapLinks,
       standings: {
-        kind: "mini_app",
+        action: "open_mini_app",
         target: "https://app.example/?tab=standings",
       },
     });

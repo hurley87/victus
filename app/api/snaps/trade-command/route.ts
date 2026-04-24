@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getPublicArenaRules } from "@/lib/arena/service";
+import { COMMAND_BOT_HANDLE } from "@/lib/commodus/bot";
 import { miniAppTabDeepLink } from "@/lib/commodus/deep-links";
 import {
   buildTradeCommandSnapResponse,
-  COMMAND_BOT_HANDLE,
   type TradeCommandSnapContext,
 } from "@/lib/snap/build-trade-command-snap";
 import {
@@ -75,11 +75,11 @@ export async function GET(request: NextRequest) {
     const standings =
       Number.isInteger(fid) && fid > 0
         ? {
-            kind: "snap" as const,
+            action: "open_snap" as const,
             target: `${request.nextUrl.origin}/api/snaps/standings/${fid}`,
           }
         : {
-            kind: "mini_app" as const,
+            action: "open_mini_app" as const,
             target: miniAppTabDeepLink("standings"),
           };
 

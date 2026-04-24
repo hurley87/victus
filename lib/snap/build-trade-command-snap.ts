@@ -1,3 +1,5 @@
+import { COMMAND_BOT_HANDLE } from "@/lib/commodus/bot";
+
 import type { SnapResponse } from "./types";
 import {
   buildElementMap,
@@ -7,36 +9,29 @@ import {
   snapOpenMiniAppEntry,
   snapStack,
   snapText,
-  type SnapActionLinks,
 } from "./response";
 
-export const COMMAND_BOT_HANDLE = "@commo";
-
 export type TradeCommandSnapContext = {
-  /** Pre-filled text passed to `compose_cast`. e.g. `@commo buy 1 usdc of AERO`. */
   starterCommand: string;
-  /** Example buy command shown as a reference row (without the @commo prefix). */
   buyExample: string;
-  /** Example sell command shown as a reference row (without the @commo prefix). */
   sellExample: string;
 };
 
-export type TradeCommandSnapLinks = Pick<
-  SnapActionLinks,
-  "walletMiniApp" | "miniApp"
-> & {
-  /**
-   * Where the "Standings" button goes. When `kind: "snap"`, the button uses
-   * `open_snap` to launch the inline standings snap for a specific FID. When
-   * `kind: "mini_app"`, it falls back to `open_mini_app` on the standings tab
-   * (used when no FID is available in context).
-   */
-  standings: { kind: "snap"; target: string } | { kind: "mini_app"; target: string };
+export type StandingsPress =
+  | { action: "open_snap"; target: string }
+  | { action: "open_mini_app"; target: string };
+
+export type TradeCommandSnapLinks = {
+  standings: StandingsPress;
+  walletMiniApp: string;
+  miniApp: string;
 };
 
 /**
- * Simple compose-first trade command snap. Direct {@link https://docs.farcaster.xyz/snap/actions#compose_cast compose_cast}
- * action — no server round-trip, no signed form submission.
+ * Compose-first trade command snap. The primary button fires
+ * {@link https://docs.farcaster.xyz/snap/actions#compose_cast compose_cast}
+ * directly — no `submit` round-trip and no signed form data, because
+ * compose_cast params don't interpolate field values anyway.
  */
 export function buildTradeCommandSnapResponse(
   ctx: TradeCommandSnapContext,
@@ -78,9 +73,10 @@ export function buildTradeCommandSnapResponse(
     snapButton(
       "act_standings",
       "Standings",
-      links.standings.kind === "snap"
-        ? { action: "open_snap", params: { target: links.standings.target } }
-        : { action: "open_mini_app", params: { target: links.standings.target } },
+      {
+        action: links.standings.action,
+        params: { target: links.standings.target },
+      },
       { variant: "secondary", icon: "bar-chart" },
     ),
     snapButton(

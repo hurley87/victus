@@ -32,6 +32,12 @@ export type PublishReplyOnceParams = {
   kind: ReplyKind;
   text: string;
   embeds?: { url: string }[];
+  /**
+   * When true, inserts `cast_replies` with a null `reply_cast_hash` and does
+   * not call Neynar. Used for server-initiated commands with no parent cast
+   * (e.g. `/api/cron/scheduled-trade`).
+   */
+  skipNeynarPublish?: boolean;
 };
 
 export type PublishReplyOnceResult = {
@@ -42,9 +48,14 @@ export type PublishReplyOnceResult = {
 export async function publishReplyOnce(
   params: PublishReplyOnceParams,
 ): Promise<PublishReplyOnceResult> {
-  const existing = await loadExistingReply(params.castHash, params.kind);
+  const existing = await loadExistingReplyRow(params.castHash, params.kind);
   if (existing) {
-    return { replyCastHash: existing, published: false };
+    return { replyCastHash: existing.replyCastHash, published: false };
+  }
+
+  if (params.skipNeynarPublish) {
+    await recordReply(params.castHash, params.kind, null);
+    return { replyCastHash: null, published: true };
   }
 
   let replyCastHash: string | null = null;
@@ -68,10 +79,12 @@ export async function publishReplyOnce(
   return { replyCastHash, published: true };
 }
 
-async function loadExistingReply(
+type ExistingReplyRow = { replyCastHash: string | null };
+
+async function loadExistingReplyRow(
   castHash: string,
   kind: ReplyKind,
-): Promise<string | null> {
+): Promise<ExistingReplyRow | null> {
   const { data, error } = await supabaseAdmin
     .from("cast_replies")
     .select("reply_cast_hash")
@@ -80,7 +93,8 @@ async function loadExistingReply(
     .maybeSingle();
 
   if (error) throw new Error(`cast_replies lookup failed: ${error.message}`);
-  return data?.reply_cast_hash ?? null;
+  if (!data) return null;
+  return { replyCastHash: data.reply_cast_hash };
 }
 
 async function recordReply(

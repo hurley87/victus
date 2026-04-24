@@ -9,7 +9,6 @@ const links = {
   tradeSnap: "https://app.example/api/snaps/trade-command",
   standingsSnap: "https://app.example/api/snaps/standings/123",
   miniApp: "https://app.example/?tab=standings",
-  walletMiniApp: "https://app.example/?tab=wallet",
 };
 
 describe("buildStandingsSnapResponse", () => {
