@@ -5,6 +5,7 @@ import { erc20Abi, getAddress, parseUnits, type Address } from "viem";
 import { base } from "viem/chains";
 import {
   useAccount,
+  useConnect,
   useSwitchChain,
   useWaitForTransactionReceipt,
   useWriteContract,
@@ -36,7 +37,9 @@ type FundingSourceResponse = {
   funding_wallet_verified_at: string;
 };
 
-type ManualPhase = "idle" | "switching" | "signing" | "saving";
+const FARCASTER_CONNECTOR_ID = "farcaster";
+
+type ManualPhase = "idle" | "connecting" | "switching" | "signing" | "saving";
 
 export function DepositButton({
   arenaAddress,
@@ -57,6 +60,7 @@ export function DepositButton({
   const [manualPhase, setManualPhase] = useState<ManualPhase>("idle");
 
   const { isConnected, chainId } = useAccount();
+  const { connectors, connectAsync } = useConnect();
   const { switchChainAsync, isPending: isSwitching } = useSwitchChain();
   const {
     writeContractAsync,
@@ -124,13 +128,34 @@ export function DepositButton({
   const handleDeposit = async () => {
     resetDeposit();
 
+    let currentChainId = chainId;
+
     if (!isConnected) {
-      setUiError("Connect your Farcaster wallet first.");
-      return;
+      const farcasterConnector = connectors.find(
+        (connector) => connector.id === FARCASTER_CONNECTOR_ID,
+      );
+
+      if (!farcasterConnector) {
+        setUiError("Open Victus in Farcaster to fund your arena wallet.");
+        return;
+      }
+
+      try {
+        setManualPhase("connecting");
+        const connection = await connectAsync({
+          connector: farcasterConnector,
+          chainId: base.id,
+        });
+        currentChainId = connection.chainId;
+      } catch {
+        setManualPhase("idle");
+        setUiError("Couldn't connect your Farcaster wallet. Try again.");
+        return;
+      }
     }
 
     try {
-      if (chainId !== base.id) {
+      if (currentChainId !== base.id) {
         setManualPhase("switching");
         await switchChainAsync({ chainId: base.id });
       }
@@ -301,6 +326,7 @@ export function DepositButton({
 
 type DepositPhase =
   | "idle"
+  | "connecting"
   | "switching"
   | "signing"
   | "confirming"
@@ -321,6 +347,7 @@ function derivePhase(args: {
   if (args.hasError) return "idle";
   if (args.manualPhase === "saving" || args.isSavingFundingSource) return "saving";
   if (args.isConfirming) return "confirming";
+  if (args.manualPhase === "connecting") return "connecting";
   if (args.manualPhase === "switching" || args.isSwitching) return "switching";
   if (args.manualPhase === "signing" || args.isWalletPending) return "signing";
   if (args.hasReceipt) return "saving";
@@ -329,6 +356,8 @@ function derivePhase(args: {
 
 function phaseDescription(phase: DepositPhase): string {
   switch (phase) {
+    case "connecting":
+      return "Connecting your Farcaster wallet.";
     case "switching":
       return "Switching your wallet to Base.";
     case "signing":
@@ -344,6 +373,8 @@ function phaseDescription(phase: DepositPhase): string {
 
 function phaseLabel(phase: DepositPhase, amountLabel: string): string {
   switch (phase) {
+    case "connecting":
+      return "Connecting wallet…";
     case "switching":
       return "Switching to Base…";
     case "signing":
