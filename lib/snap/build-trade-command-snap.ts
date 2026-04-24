@@ -1,161 +1,100 @@
-import type { SnapElement, SnapResponse } from "./types";
+import type { SnapResponse } from "./types";
 import {
   buildElementMap,
   snapButton,
-  snapInput,
   snapItem,
   snapItemGroup,
   snapOpenMiniAppEntry,
   snapStack,
   snapText,
-  snapToggleGroup,
   type SnapActionLinks,
 } from "./response";
 
 export const COMMAND_BOT_HANDLE = "@commo";
 
-export type TradeCommandMode = "buy" | "sell";
-
 export type TradeCommandSnapContext = {
-  mode: TradeCommandMode;
-  token: string;
-  tokens: string[];
-  buyAmount: string;
-  sellPercent: string;
-  maxTradeUsdc: number;
-  command: string | null;
-  error: string | null;
-  submitUrl: string;
-  editUrl: string;
+  /** Pre-filled text passed to `compose_cast`. e.g. `@commo buy 1 usdc of AERO`. */
+  starterCommand: string;
+  /** Example buy command shown as a reference row (without the @commo prefix). */
+  buyExample: string;
+  /** Example sell command shown as a reference row (without the @commo prefix). */
+  sellExample: string;
 };
 
-function snapOptions(tokens: string[]): string[] {
-  return tokens.slice(0, 6).map((token) => token.toUpperCase());
-}
+export type TradeCommandSnapLinks = Pick<
+  SnapActionLinks,
+  "walletMiniApp" | "miniApp"
+> & {
+  /**
+   * Where the "Standings" button goes. When `kind: "snap"`, the button uses
+   * `open_snap` to launch the inline standings snap for a specific FID. When
+   * `kind: "mini_app"`, it falls back to `open_mini_app` on the standings tab
+   * (used when no FID is available in context).
+   */
+  standings: { kind: "snap"; target: string } | { kind: "mini_app"; target: string };
+};
 
-function selectedToken(ctx: TradeCommandSnapContext): string {
-  const options = snapOptions(ctx.tokens);
-  return options.includes(ctx.token.toUpperCase())
-    ? ctx.token.toUpperCase()
-    : options[0] ?? "AERO";
-}
-
-function formEntries(ctx: TradeCommandSnapContext): [string, SnapElement][] {
-  const tokenOptions = snapOptions(ctx.tokens);
-  const token = selectedToken(ctx);
-
-  return [
-    snapToggleGroup("mode", {
-      name: "mode",
-      label: "Side",
-      options: ["Buy", "Sell"],
-      defaultValue: ctx.mode === "buy" ? "Buy" : "Sell",
-      variant: "outline",
-    }),
-    tokenOptions.length >= 2
-      ? snapToggleGroup("token", {
-          name: "token",
-          label: "Token",
-          options: tokenOptions,
-          defaultValue: token,
-          variant: "outline",
-        })
-      : snapInput("token", {
-          name: "token",
-          label: "Token",
-          defaultValue: token,
-          maxLength: 12,
-        }),
-    snapStack("amounts", ["buy_amount", "sell_percent"], { gap: "sm" }),
-    snapInput("buy_amount", {
-      name: "buyAmount",
-      type: "number",
-      label: `Buy amount, max ${ctx.maxTradeUsdc} USDC`,
-      placeholder: "1",
-      defaultValue: ctx.buyAmount,
-      maxLength: 12,
-    }),
-    snapInput("sell_percent", {
-      name: "sellPercent",
-      type: "number",
-      label: "Sell amount, 1-100%",
-      placeholder: "50",
-      defaultValue: ctx.sellPercent,
-      maxLength: 3,
-    }),
+/**
+ * Simple compose-first trade command snap. Direct {@link https://docs.farcaster.xyz/snap/actions#compose_cast compose_cast}
+ * action — no server round-trip, no signed form submission.
+ */
+export function buildTradeCommandSnapResponse(
+  ctx: TradeCommandSnapContext,
+  links: TradeCommandSnapLinks,
+): SnapResponse {
+  const elements = buildElementMap([
+    snapStack(
+      "root",
+      ["hdr", "body", "examples", "compose", "nav", "open_app"],
+      { gap: "md" },
+    ),
+    snapText("hdr", "Trade", { weight: "bold", size: "md" }),
     snapText(
-      "note",
-      ctx.error ?? "Choose side, token, and amount before composing.",
+      "body",
+      `Reply to ${COMMAND_BOT_HANDLE} with a trade command. The arena executes, the scoreboard updates.`,
       { size: "sm" },
     ),
-    snapButton(
-      "preview",
-      "Preview Cast",
-      { action: "submit", params: { target: ctx.submitUrl } },
-      { variant: "primary", icon: "chevron-right" },
-    ),
-  ];
-}
-
-function previewEntries(ctx: TradeCommandSnapContext): [string, SnapElement][] {
-  const castText = `${COMMAND_BOT_HANDLE} ${ctx.command}`;
-
-  return [
-    snapItemGroup("summary", ["i_side", "i_token", "i_amount"], {
-      separator: true,
-    }),
-    snapItem("i_side", ctx.mode === "buy" ? "Buy" : "Sell", "Side"),
-    snapItem("i_token", selectedToken(ctx), "Token"),
+    snapItemGroup("examples", ["ex_buy", "ex_sell"], { separator: true }),
     snapItem(
-      "i_amount",
-      ctx.mode === "buy" ? `${ctx.buyAmount} USDC` : `${ctx.sellPercent}%`,
-      "Amount",
+      "ex_buy",
+      `${COMMAND_BOT_HANDLE} ${ctx.buyExample}`,
+      "Example buy",
     ),
-    snapText("cast", castText, { size: "sm", weight: "bold" }),
-    snapStack("actions", ["compose", "edit"], {
+    snapItem(
+      "ex_sell",
+      `${COMMAND_BOT_HANDLE} ${ctx.sellExample}`,
+      "Example sell",
+    ),
+    snapButton(
+      "compose",
+      "Preview Cast",
+      { action: "compose_cast", params: { text: ctx.starterCommand } },
+      { variant: "primary", icon: "share" },
+    ),
+    snapStack("nav", ["act_standings", "act_wallet"], {
       direction: "horizontal",
       gap: "sm",
     }),
     snapButton(
-      "compose",
-      "Compose Cast",
-      { action: "compose_cast", params: { text: castText } },
-      { variant: "primary", icon: "share" },
+      "act_standings",
+      "Standings",
+      links.standings.kind === "snap"
+        ? { action: "open_snap", params: { target: links.standings.target } }
+        : { action: "open_mini_app", params: { target: links.standings.target } },
+      { variant: "secondary", icon: "bar-chart" },
     ),
     snapButton(
-      "edit",
-      "Edit",
-      { action: "open_snap", params: { target: ctx.editUrl } },
-      { variant: "secondary", icon: "arrow-left" },
+      "act_wallet",
+      "Wallet",
+      { action: "open_mini_app", params: { target: links.walletMiniApp } },
+      { variant: "secondary", icon: "wallet" },
     ),
-  ];
-}
-
-export function buildTradeCommandSnapResponse(
-  ctx: TradeCommandSnapContext,
-  links: Pick<SnapActionLinks, "miniApp">,
-): SnapResponse {
-  const isPreview = ctx.command != null && ctx.error == null;
-
-  const elements = buildElementMap([
-    snapStack(
-      "root",
-      isPreview
-        ? ["hdr", "summary", "cast", "actions", "open_app"]
-        : ["hdr", "mode", "token", "amounts", "note", "preview", "open_app"],
-      { gap: "md" },
-    ),
-    snapText("hdr", isPreview ? "Confirm Trade Cast" : "Trade", {
-      weight: "bold",
-      size: "md",
-    }),
-    ...(isPreview ? previewEntries(ctx) : formEntries(ctx)),
     snapOpenMiniAppEntry(links.miniApp),
   ]);
 
   return {
     version: "2.0",
-    theme: { accent: ctx.mode === "sell" ? "green" : "purple" },
+    theme: { accent: "purple" },
     ui: {
       root: "root",
       elements,

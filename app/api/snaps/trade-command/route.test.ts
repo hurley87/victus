@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ArenaRules } from "@/lib/arena/types";
 import { SNAP_MEDIA } from "@/lib/snap/http";
 
-import { GET, POST } from "./route";
+import { GET } from "./route";
 
 const mockRules: ArenaRules = {
   whitelist: [
@@ -28,24 +28,39 @@ vi.mock("@/lib/arena/service", () => ({
   getPublicArenaRules: vi.fn(),
 }));
 
-vi.mock("@/lib/snap/jfs", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("@/lib/snap/jfs")>();
-  return {
-    ...mod,
-    verifySnapActionRequest: vi.fn(),
-  };
-});
-
 import { getPublicArenaRules } from "@/lib/arena/service";
-import { SnapJfsError, verifySnapActionRequest } from "@/lib/snap/jfs";
 
 function snapRequest(url: string, init?: RequestInit): NextRequest {
   return new NextRequest(url, {
     method: init?.method,
     body: init?.body,
-    headers: { Accept: SNAP_MEDIA, ...(init?.headers as Record<string, string> | undefined) },
+    headers: {
+      Accept: SNAP_MEDIA,
+      ...(init?.headers as Record<string, string> | undefined),
+    },
   });
 }
+
+type SnapPressAction = {
+  action: string;
+  params?: { text?: string; target?: string };
+};
+
+type SnapJsonBody = {
+  version: string;
+  ui: {
+    root: string;
+    elements: Record<
+      string,
+      {
+        type?: string;
+        props?: { content?: string; title?: string; label?: string };
+        children?: string[];
+        on?: { press?: SnapPressAction };
+      }
+    >;
+  };
+};
 
 describe("GET /api/snaps/trade-command", () => {
   beforeEach(() => {
@@ -67,181 +82,62 @@ describe("GET /api/snaps/trade-command", () => {
     expect(html).toContain("https://app.test/?tab=trade");
   });
 
-  it("returns Snap 2.0 form JSON when Accept is the Snap media type", async () => {
+  it("returns Snap 2.0 compose_cast + Standings/Wallet/Open Mini App card", async () => {
     const req = snapRequest("https://example.com/api/snaps/trade-command");
     const res = await GET(req);
-    const body = (await res.json()) as {
-      version: string;
-      ui: { elements: Record<string, { on?: { press?: { action: string } } }> },
-    };
+    const body = (await res.json()) as SnapJsonBody;
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe(SNAP_MEDIA);
     expect(body.version).toBe("2.0");
-    expect(body.ui.elements.compose).toBeUndefined();
-    expect(body.ui.elements.cast).toBeUndefined();
-    expect(body.ui.elements.preview?.on?.press).toBeDefined();
-  });
-});
 
-describe("POST /api/snaps/trade-command", () => {
-  beforeEach(() => {
-    vi.mocked(getPublicArenaRules).mockResolvedValue(mockRules);
-  });
-
-  it("returns compose preview for a valid buy", async () => {
-    vi.mocked(verifySnapActionRequest).mockResolvedValue({
-      fid: 1,
-      payload: {
-        inputs: {
-          mode: "Buy",
-          token: "AERO",
-          buyAmount: "3",
-        },
-      },
-    });
-
-    const req = snapRequest("https://example.com/api/snaps/trade-command", {
-      method: "POST",
-      body: "{}",
-    });
-    const res = await POST(req);
-    const body = (await res.json()) as {
-      ui: { elements: Record<string, { props?: { content?: string }; on?: { press?: { action: string; params?: { text?: string } } } }> },
-    };
-
-    expect(res.status).toBe(200);
-    expect(body.ui.elements.cast?.props?.content).toBe(
-      "@commo buy 3 usdc of aero",
-    );
-    expect(body.ui.elements.compose?.on?.press).toEqual({
-      action: "compose_cast",
-      params: { text: "@commo buy 3 usdc of aero" },
-    });
-  });
-
-  it("returns compose preview for a valid sell", async () => {
-    vi.mocked(verifySnapActionRequest).mockResolvedValue({
-      fid: 1,
-      payload: {
-        inputs: {
-          mode: "Sell",
-          token: "AERO",
-          sellPercent: "50",
-        },
-      },
-    });
-
-    const req = snapRequest("https://example.com/api/snaps/trade-command", {
-      method: "POST",
-      body: "{}",
-    });
-    const res = await POST(req);
-    const body = (await res.json()) as {
-      ui: { elements: Record<string, { props?: { content?: string } }> },
-    };
-
-    expect(body.ui.elements.cast?.props?.content).toBe(
-      "@commo sell 50% of aero",
-    );
-  });
-
-  it("returns over-cap buy error on the form without compose", async () => {
-    vi.mocked(verifySnapActionRequest).mockResolvedValue({
-      fid: 1,
-      payload: {
-        inputs: {
-          mode: "Buy",
-          token: "AERO",
-          buyAmount: "999",
-        },
-      },
-    });
-
-    const req = snapRequest("https://example.com/api/snaps/trade-command", {
-      method: "POST",
-      body: "{}",
-    });
-    const res = await POST(req);
-    const body = (await res.json()) as {
-      ui: { elements: Record<string, { props?: { content?: string } }> },
-    };
-
-    expect(body.ui.elements.note?.props?.content).toMatch(
-      /^Max buy is 10 USDC\./,
-    );
-    expect(body.ui.elements.compose).toBeUndefined();
-  });
-
-  it.each([
-    { sellPercent: "0" },
-    { sellPercent: "150" },
-    { sellPercent: "12.5" },
-  ] as const)("rejects sell percent $sellPercent", async ({ sellPercent }) => {
-    vi.mocked(verifySnapActionRequest).mockResolvedValue({
-      fid: 1,
-      payload: {
-        inputs: {
-          mode: "Sell",
-          token: "AERO",
-          sellPercent,
-        },
-      },
-    });
-
-    const req = snapRequest("https://example.com/api/snaps/trade-command", {
-      method: "POST",
-      body: "{}",
-    });
-    const res = await POST(req);
-    const body = (await res.json()) as {
-      ui: { elements: Record<string, { props?: { content?: string } }> },
-    };
-
-    expect(body.ui.elements.note?.props?.content).toBe(
-      "Sell amount must be a whole percent from 1 to 100.",
-    );
-    expect(body.ui.elements.compose).toBeUndefined();
-  });
-
-  it("rejects a non-whitelisted token", async () => {
-    vi.mocked(verifySnapActionRequest).mockResolvedValue({
-      fid: 1,
-      payload: {
-        inputs: {
-          mode: "Buy",
-          token: "ZZZ",
-          buyAmount: "1",
-        },
-      },
-    });
-
-    const req = snapRequest("https://example.com/api/snaps/trade-command", {
-      method: "POST",
-      body: "{}",
-    });
-    const res = await POST(req);
-    const body = (await res.json()) as {
-      ui: { elements: Record<string, { props?: { content?: string } }> },
-    };
-
-    expect(body.ui.elements.note?.props?.content).toBe("Pick a live arena token.");
-    expect(body.ui.elements.compose).toBeUndefined();
-  });
-
-  it("returns 401 when verifySnapActionRequest throws SnapJfsError", async () => {
-    vi.mocked(verifySnapActionRequest).mockRejectedValue(
-      new SnapJfsError("Invalid snap signature", 401),
+    expect(body.ui.elements.compose?.on?.press?.action).toBe("compose_cast");
+    expect(body.ui.elements.compose?.on?.press?.params?.text).toBe(
+      "@commo buy 1 usdc of aero",
     );
 
-    const req = snapRequest("https://example.com/api/snaps/trade-command", {
-      method: "POST",
-      body: "{}",
+    expect(body.ui.elements.nav?.children).toEqual([
+      "act_standings",
+      "act_wallet",
+    ]);
+    expect(body.ui.elements.act_wallet?.on?.press).toEqual({
+      action: "open_mini_app",
+      params: { target: "https://app.test/?tab=wallet" },
     });
-    const res = await POST(req);
-    const errBody = (await res.json()) as { error: string };
 
-    expect(res.status).toBe(401);
-    expect(errBody.error).toBe("Invalid snap signature");
+    expect(body.ui.elements.open_app?.on?.press).toEqual({
+      action: "open_mini_app",
+      params: { target: "https://app.test/?tab=trade" },
+    });
+
+    expect(body.ui.elements.mode).toBeUndefined();
+    expect(body.ui.elements.token).toBeUndefined();
+    expect(body.ui.elements.preview).toBeUndefined();
+  });
+
+  it("uses open_snap for Standings when a viewer FID is provided via query", async () => {
+    const req = snapRequest(
+      "https://example.com/api/snaps/trade-command?fid=123",
+    );
+    const res = await GET(req);
+    const body = (await res.json()) as SnapJsonBody;
+
+    expect(body.ui.elements.act_standings?.on?.press).toEqual({
+      action: "open_snap",
+      params: { target: "https://example.com/api/snaps/standings/123" },
+    });
+  });
+
+  it("falls back to open_mini_app for Standings when no valid FID is present", async () => {
+    const req = snapRequest(
+      "https://example.com/api/snaps/trade-command?fid=0",
+    );
+    const res = await GET(req);
+    const body = (await res.json()) as SnapJsonBody;
+
+    expect(body.ui.elements.act_standings?.on?.press).toEqual({
+      action: "open_mini_app",
+      params: { target: "https://app.test/?tab=standings" },
+    });
   });
 });

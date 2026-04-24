@@ -169,7 +169,10 @@ export function buildElementMap(entries: [string, SnapElement][]): SnapUiSpec["e
 export type SnapActionLinks = {
   tradeSnap: string;
   standingsSnap: string;
+  /** Mini-app URL for the primary "Open Mini App" footer on the current page. */
   miniApp: string;
+  /** Mini-app URL for the wallet tab — used by inline wallet buttons. */
+  walletMiniApp: string;
 };
 
 /** Inline snap navigation. The mini-app escape hatch is rendered separately as the final root child. */

@@ -2,81 +2,102 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildTradeCommandSnapResponse,
+  COMMAND_BOT_HANDLE,
   type TradeCommandSnapContext,
+  type TradeCommandSnapLinks,
 } from "./build-trade-command-snap";
 
 const baseCtx: TradeCommandSnapContext = {
-  mode: "buy",
-  token: "AERO",
-  tokens: ["AERO", "DEGEN", "VIRTUAL"],
-  buyAmount: "3",
-  sellPercent: "50",
-  maxTradeUsdc: 10,
-  command: null,
-  error: null,
-  submitUrl: "https://app.example/api/snaps/trade-command",
-  editUrl: "https://app.example/api/snaps/trade-command",
+  starterCommand: `${COMMAND_BOT_HANDLE} buy 1 usdc of aero`,
+  buyExample: "buy 5 usdc of aero",
+  sellExample: "sell 50% of aero",
 };
 
-const links = {
+const snapLinks: TradeCommandSnapLinks = {
+  standings: {
+    kind: "snap",
+    target: "https://app.example/api/snaps/standings/123",
+  },
+  walletMiniApp: "https://app.example/?tab=wallet",
   miniApp: "https://app.example/?tab=trade",
 };
 
 describe("buildTradeCommandSnapResponse", () => {
-  it("renders a snap form for side, token, and amounts", () => {
-    const snap = buildTradeCommandSnapResponse(baseCtx, links);
-    const { elements } = snap.ui;
+  it("renders a compose-first card with Standings and Wallet between the CTA and Open Mini App", () => {
+    const snap = buildTradeCommandSnapResponse(baseCtx, snapLinks);
+    const { elements, root } = snap.ui;
 
     expect(snap.version).toBe("2.0");
-    expect(elements.root?.children?.length).toBeLessThanOrEqual(7);
-    expect(Object.keys(elements).length).toBeLessThanOrEqual(64);
-    expect(elements.mode?.type).toBe("toggle_group");
-    expect(elements.token?.type).toBe("toggle_group");
-    expect(elements.buy_amount?.type).toBe("input");
-    expect(elements.sell_percent?.type).toBe("input");
-    expect(elements.preview?.on?.press).toEqual({
-      action: "submit",
-      params: { target: baseCtx.submitUrl },
-    });
-    expect(elements.open_app?.on?.press).toEqual({
-      action: "open_mini_app",
-      params: { target: links.miniApp },
-    });
-  });
+    expect(root).toBe("root");
+    expect(elements.root?.children).toEqual([
+      "hdr",
+      "body",
+      "examples",
+      "compose",
+      "nav",
+      "open_app",
+    ]);
 
-  it("renders a compose preview for a valid command", () => {
-    const snap = buildTradeCommandSnapResponse(
-      {
-        ...baseCtx,
-        command: "buy 3 usdc of aero",
-      },
-      links,
+    expect(elements.examples?.type).toBe("item_group");
+    expect(elements.examples?.children).toEqual(["ex_buy", "ex_sell"]);
+    expect(elements.ex_buy?.props?.title).toBe(
+      `${COMMAND_BOT_HANDLE} ${baseCtx.buyExample}`,
+    );
+    expect(elements.ex_sell?.props?.title).toBe(
+      `${COMMAND_BOT_HANDLE} ${baseCtx.sellExample}`,
     );
 
-    const { elements } = snap.ui;
-    expect(elements.cast?.props?.content).toBe("@commo buy 3 usdc of aero");
+    expect(elements.compose?.type).toBe("button");
     expect(elements.compose?.on?.press).toEqual({
       action: "compose_cast",
-      params: { text: "@commo buy 3 usdc of aero" },
+      params: { text: baseCtx.starterCommand },
     });
-    expect(elements.edit?.on?.press).toEqual({
+
+    expect(elements.nav?.children).toEqual(["act_standings", "act_wallet"]);
+    expect(elements.act_standings?.on?.press).toEqual({
       action: "open_snap",
-      params: { target: baseCtx.editUrl },
+      params: { target: "https://app.example/api/snaps/standings/123" },
+    });
+    expect(elements.act_wallet?.on?.press).toEqual({
+      action: "open_mini_app",
+      params: { target: snapLinks.walletMiniApp },
+    });
+
+    expect(elements.open_app?.on?.press).toEqual({
+      action: "open_mini_app",
+      params: { target: snapLinks.miniApp },
     });
   });
 
-  it("keeps validation errors on the form instead of composing", () => {
-    const snap = buildTradeCommandSnapResponse(
-      {
-        ...baseCtx,
-        error: "Max buy is 10 USDC.",
+  it("falls back to open_mini_app for Standings when no FID context is available", () => {
+    const snap = buildTradeCommandSnapResponse(baseCtx, {
+      ...snapLinks,
+      standings: {
+        kind: "mini_app",
+        target: "https://app.example/?tab=standings",
       },
-      links,
-    );
+    });
 
+    expect(snap.ui.elements.act_standings?.on?.press).toEqual({
+      action: "open_mini_app",
+      params: { target: "https://app.example/?tab=standings" },
+    });
+  });
+
+  it("omits form inputs — no submit/signature path, no toggles, no text inputs", () => {
+    const snap = buildTradeCommandSnapResponse(baseCtx, snapLinks);
     const { elements } = snap.ui;
-    expect(elements.note?.props?.content).toBe("Max buy is 10 USDC.");
-    expect(elements.compose).toBeUndefined();
-    expect(elements.preview?.on?.press?.action).toBe("submit");
+
+    expect(elements.mode).toBeUndefined();
+    expect(elements.token).toBeUndefined();
+    expect(elements.buy_amount).toBeUndefined();
+    expect(elements.sell_percent).toBeUndefined();
+    expect(elements.preview).toBeUndefined();
+    expect(elements.edit).toBeUndefined();
+
+    const actions = Object.values(elements)
+      .map((el) => el.on?.press?.action)
+      .filter(Boolean);
+    expect(actions).not.toContain("submit");
   });
 });
