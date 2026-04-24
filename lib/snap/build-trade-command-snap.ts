@@ -1,5 +1,3 @@
-import { COMMAND_BOT_HANDLE } from "@/lib/commodus/bot";
-
 import type { SnapElement, SnapResponse } from "./types";
 import {
   buildElementMap,
@@ -63,15 +61,10 @@ export function buildTradeCommandSnapResponse(
   const elements = buildElementMap([
     snapStack(
       "root",
-      ["hdr", "body", "action", "symbol", "amount", "compose", "nav", "open_app"],
+      ["hdr", "action", "symbol", "amount", "compose", "nav", "open_app"],
       { gap: "md" },
     ),
     snapText("hdr", "Trade", { weight: "bold", size: "md" }),
-    snapText(
-      "body",
-      `Pick a side, a token, and an amount. We'll draft the cast to ${COMMAND_BOT_HANDLE}.`,
-      { size: "sm" },
-    ),
     snapToggleGroup("action", {
       name: "action",
       label: "Side",

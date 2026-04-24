@@ -35,7 +35,6 @@ describe("buildTradeCommandSnapResponse", () => {
     expect(root).toBe("root");
     expect(elements.root?.children).toEqual([
       "hdr",
-      "body",
       "action",
       "symbol",
       "amount",
@@ -43,6 +42,7 @@ describe("buildTradeCommandSnapResponse", () => {
       "nav",
       "open_app",
     ]);
+    expect(elements.root?.children?.length).toBeLessThanOrEqual(7);
 
     expect(elements.action?.type).toBe("toggle_group");
     expect(elements.action?.props).toMatchObject({
