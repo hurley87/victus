@@ -30,6 +30,25 @@ vi.mock("@/lib/arena/service", () => ({
 
 import { getPublicArenaRules } from "@/lib/arena/service";
 
+/** Minimal JFS-style compact body (production clients); signature is not verified in tests. */
+function snapJfsCompactBody(inputs: Record<string, string>): string {
+  const header = Buffer.from(JSON.stringify({ typ: "test" })).toString(
+    "base64url",
+  );
+  const payload = Buffer.from(
+    JSON.stringify({
+      fid: 12345,
+      inputs,
+      timestamp: 1_710_864_000,
+      audience: "https://example.com",
+      user: { fid: 12345 },
+      surface: { type: "standalone" },
+    }),
+  ).toString("base64url");
+  const signature = Buffer.from("not-a-real-sig").toString("base64url");
+  return `${header}.${payload}.${signature}`;
+}
+
 function snapRequest(
   url: string,
   init?: { method?: string; body?: string; headers?: Record<string, string> },
@@ -186,6 +205,51 @@ describe("POST /api/snaps/trade-command", () => {
       },
     });
     expect(body.ui.elements.open_app?.on?.press?.action).toBe("open_mini_app");
+  });
+
+  it("uses the submitted USDC amount from bare JSON (not the default)", async () => {
+    const req = snapRequest(
+      "https://example.com/api/snaps/trade-command?fid=123",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          inputs: { action: "Buy", symbol: "AERO", amount: "1" },
+        }),
+      },
+    );
+    const res = await POST(req);
+    const body = (await res.json()) as SnapJsonBody;
+
+    expect(body.ui.elements.preview?.props?.content).toBe(
+      "@commo buy 1 usdc of aero",
+    );
+    expect(body.ui.elements.compose?.on?.press?.params?.text).toBe(
+      "@commo buy 1 usdc of aero",
+    );
+  });
+
+  it("uses the submitted USDC amount from a JFS compact POST body", async () => {
+    const req = snapRequest(
+      "https://example.com/api/snaps/trade-command?fid=123",
+      {
+        method: "POST",
+        body: snapJfsCompactBody({
+          action: "Buy",
+          symbol: "AERO",
+          amount: "1",
+        }),
+        headers: { "Content-Type": "text/plain" },
+      },
+    );
+    const res = await POST(req);
+    const body = (await res.json()) as SnapJsonBody;
+
+    expect(body.ui.elements.preview?.props?.content).toBe(
+      "@commo buy 1 usdc of aero",
+    );
+    expect(body.ui.elements.compose?.on?.press?.params?.text).toBe(
+      "@commo buy 1 usdc of aero",
+    );
   });
 
   it("defaults an untouched form submission to Buy with the visible default token and amount", async () => {

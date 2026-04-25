@@ -18,6 +18,7 @@ import {
   snapVaryHeader,
 } from "@/lib/snap/http";
 import { standingsSnapUrl, walletSnapUrl } from "@/lib/snap/links";
+import { parseSnapSubmitInputsFromBody } from "@/lib/snap/parse-submit-inputs";
 import {
   interpolateTradeCommand,
   type TradeCommandFormValues,
@@ -149,15 +150,11 @@ async function parseSubmitInputs(
   request: NextRequest,
 ): Promise<Record<string, unknown>> {
   try {
-    const body = (await request.json()) as { inputs?: unknown };
-    const inputs = body?.inputs;
-    if (typeof inputs === "object" && inputs !== null && !Array.isArray(inputs)) {
-      return inputs as Record<string, unknown>;
-    }
+    const raw = await request.text();
+    return parseSnapSubmitInputsFromBody(raw);
   } catch {
-    // fall through to empty inputs
+    return {};
   }
-  return {};
 }
 
 function applyTradeFormDefaults(
