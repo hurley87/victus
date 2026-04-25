@@ -52,21 +52,24 @@ describe("buildTradeCommandSnapResponse", () => {
     expect(elements.action?.props).toMatchObject({
       name: "action",
       options: ["Buy", "Sell"],
-      defaultValue: { $bindState: "/action" },
+      value: { $bindState: "/action" },
+      defaultValue: "Buy",
     });
 
     expect(elements.symbol?.type).toBe("toggle_group");
     expect(elements.symbol?.props).toMatchObject({
       name: "symbol",
       options: baseCtx.symbols,
-      defaultValue: { $bindState: "/symbol" },
+      value: { $bindState: "/symbol" },
+      defaultValue: "AERO",
     });
 
     expect(elements.amount?.type).toBe("input");
     expect(elements.amount?.props).toMatchObject({
       name: "amount",
       type: "number",
-      defaultValue: { $bindState: "/amount" },
+      value: { $bindState: "/amount" },
+      defaultValue: "5",
     });
 
     expect(elements.compose?.type).toBe("stack");

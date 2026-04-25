@@ -101,6 +101,7 @@ type SnapJsonBody = {
           label?: string;
           name?: string;
           options?: string[];
+          value?: unknown;
           defaultValue?: unknown;
         };
         children?: string[];

@@ -95,7 +95,8 @@ export function snapInput(
     type?: "text" | "number";
     label?: string;
     placeholder?: string;
-    defaultValue?: string | JsonRenderExpression;
+    value?: JsonRenderExpression;
+    defaultValue?: string;
     maxLength?: number;
   },
 ): [string, SnapElement] {
@@ -116,7 +117,8 @@ export function snapToggleGroup(
     options: string[];
     multiple?: boolean;
     orientation?: "horizontal" | "vertical";
-    defaultValue?: string | string[] | JsonRenderExpression;
+    value?: JsonRenderExpression;
+    defaultValue?: string | string[];
     variant?: "default" | "outline";
     label?: string;
   },
