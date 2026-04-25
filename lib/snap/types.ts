@@ -17,6 +17,8 @@ export type SnapTheme = {
   accent?: SnapPaletteAccent | string;
 };
 
+export type JsonRenderExpression = Record<string, unknown>;
+
 export type SnapUiSpec = {
   root: string;
   elements: Record<string, SnapElement>;
@@ -27,6 +29,7 @@ export type SnapElement = {
   type: string;
   props?: Record<string, unknown>;
   children?: string[];
+  visible?: JsonRenderExpression | boolean;
   on?: {
     press?: {
       action: string;

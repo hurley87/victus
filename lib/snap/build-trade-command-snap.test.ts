@@ -14,7 +14,6 @@ const baseCtx: TradeCommandSnapContext = {
 };
 
 const snapLinks: TradeCommandSnapLinks = {
-  composeSubmit: "https://app.example/api/snaps/trade-command?fid=123",
   standings: {
     action: "open_snap",
     target: "https://app.example/api/snaps/standings/123",
@@ -27,7 +26,7 @@ const snapLinks: TradeCommandSnapLinks = {
 };
 
 describe("buildTradeCommandSnapResponse", () => {
-  it("renders the trade form + submit-powered Make Trade CTA + Standings/Wallet nav", () => {
+  it("renders the trade form + state-powered compose CTAs + Standings/Wallet nav", () => {
     const snap = buildTradeCommandSnapResponse(baseCtx, snapLinks);
     const { elements, root } = snap.ui;
 
@@ -38,38 +37,61 @@ describe("buildTradeCommandSnapResponse", () => {
       "action",
       "symbol",
       "amount",
-      "compose",
+      "compose_buy",
+      "compose_sell",
       "nav",
       "open_app",
     ]);
-    expect(elements.root?.children?.length).toBeLessThanOrEqual(7);
+    expect(elements.root?.children?.length).toBeLessThanOrEqual(8);
+    expect(snap.ui.state).toEqual({
+      action: "Buy",
+      symbol: "AERO",
+      amount: "5",
+    });
 
     expect(elements.action?.type).toBe("toggle_group");
     expect(elements.action?.props).toMatchObject({
       name: "action",
       options: ["Buy", "Sell"],
-      defaultValue: "Buy",
+      defaultValue: { $bindState: "/action" },
     });
 
     expect(elements.symbol?.type).toBe("toggle_group");
     expect(elements.symbol?.props).toMatchObject({
       name: "symbol",
       options: baseCtx.symbols,
-      defaultValue: "AERO",
+      defaultValue: { $bindState: "/symbol" },
     });
 
     expect(elements.amount?.type).toBe("input");
     expect(elements.amount?.props).toMatchObject({
       name: "amount",
       type: "number",
-      defaultValue: "5",
+      defaultValue: { $bindState: "/amount" },
     });
 
-    expect(elements.compose?.type).toBe("button");
-    expect(elements.compose?.props?.label).toBe("Make Trade");
-    expect(elements.compose?.on?.press).toEqual({
-      action: "submit",
-      params: { target: snapLinks.composeSubmit },
+    expect(elements.compose_buy?.type).toBe("button");
+    expect(elements.compose_buy?.props?.label).toBe("Make Trade");
+    expect(elements.compose_buy?.visible).toEqual({
+      $state: "/action",
+      eq: "Buy",
+    });
+    expect(elements.compose_buy?.on?.press).toEqual({
+      action: "compose_cast",
+      params: {
+        text: { $template: "@commo buy ${/amount} usdc of ${/symbol}" },
+      },
+    });
+    expect(elements.compose_sell?.type).toBe("button");
+    expect(elements.compose_sell?.visible).toEqual({
+      $state: "/action",
+      eq: "Sell",
+    });
+    expect(elements.compose_sell?.on?.press).toEqual({
+      action: "compose_cast",
+      params: {
+        text: { $template: "@commo sell ${/amount}% of ${/symbol}" },
+      },
     });
 
     expect(elements.nav?.children).toEqual(["act_standings", "act_wallet"]);

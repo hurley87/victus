@@ -83,13 +83,14 @@ function snapRequest(
 
 type SnapPressAction = {
   action: string;
-  params?: { text?: string; target?: string };
+  params?: { text?: unknown; target?: string };
 };
 
 type SnapJsonBody = {
   version: string;
   ui: {
     root: string;
+    state?: Record<string, unknown>;
     elements: Record<
       string,
       {
@@ -100,9 +101,10 @@ type SnapJsonBody = {
           label?: string;
           name?: string;
           options?: string[];
-          defaultValue?: string;
+          defaultValue?: unknown;
         };
         children?: string[];
+        visible?: unknown;
         on?: { press?: SnapPressAction };
       }
     >;
@@ -149,11 +151,22 @@ describe("GET /api/snaps/trade-command", () => {
     ]);
     expect(body.ui.elements.amount?.type).toBe("input");
 
-    expect(body.ui.elements.compose?.props?.label).toBe("Make Trade");
-    expect(body.ui.elements.compose?.on?.press).toEqual({
-      action: "submit",
+    expect(body.ui.state).toEqual({
+      action: "Buy",
+      symbol: "AERO",
+      amount: "5",
+    });
+    expect(body.ui.elements.compose_buy?.props?.label).toBe("Make Trade");
+    expect(body.ui.elements.compose_buy?.on?.press).toEqual({
+      action: "compose_cast",
       params: {
-        target: "https://example.com/api/snaps/trade-command?fid=123",
+        text: { $template: "@commo buy ${/amount} usdc of ${/symbol}" },
+      },
+    });
+    expect(body.ui.elements.compose_sell?.on?.press).toEqual({
+      action: "compose_cast",
+      params: {
+        text: { $template: "@commo sell ${/amount}% of ${/symbol}" },
       },
     });
 
