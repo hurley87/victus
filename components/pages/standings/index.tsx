@@ -1,12 +1,16 @@
 "use client";
 
+import { useState } from "react";
+import { sdk } from "@farcaster/miniapp-sdk";
 import { ScoringTable } from "@/components/shared/ui/scoring-table";
 import { Button } from "@/components/shared/ui/button";
+import { useFarcaster } from "@/contexts/farcaster-context";
 import { useUser } from "@/contexts/user-context";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { miniAppTabDeepLink } from "@/lib/commodus/deep-links";
 import type { CurrentLeaderboardResult, LeaderboardEntry } from "@/lib/leaderboard/service";
 import { cn, formatUsd } from "@/lib/utils";
-import { Crown, Swords } from "lucide-react";
+import { Crown, Share2, Swords } from "lucide-react";
 
 const RANK_MEDALS: Record<number, string> = {
   1: "🏆",
@@ -14,9 +18,32 @@ const RANK_MEDALS: Record<number, string> = {
   3: "🥉",
 };
 
+function useShareCast() {
+  const { capabilities } = useFarcaster();
+  const canCompose = capabilities?.includes("actions.composeCast") ?? true;
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function share(key: string, text: string) {
+    setPending(key);
+    setError(null);
+    try {
+      await sdk.actions.composeCast({ text });
+    } catch (err) {
+      console.error("Failed to open Farcaster cast composer", err);
+      setError("Could not open the Farcaster cast composer.");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return { canCompose, pending, error, share };
+}
+
 export default function StandingsPage() {
   const { user } = useUser();
-  const viewerFid = user?.data ? Number(user.data.fid) : -1;
+  const viewerFid = user?.data != null ? Number(user.data.fid) : -1;
+  const sharing = useShareCast();
 
   const { data, isLoading, error, refetch } =
     useApiQuery<CurrentLeaderboardResult>({
@@ -66,9 +93,19 @@ export default function StandingsPage() {
         </p>
       </header>
 
-      {commodusEntry ? (
-        <CommodusBossCard commodus={commodusEntry} viewer={viewerEntry} />
-      ) : null}
+      {commodusEntry && (
+        <CommodusBossCard
+          commodus={commodusEntry}
+          viewer={viewerEntry}
+          sharing={sharing}
+        />
+      )}
+
+      {viewerEntry && <ViewerShareCard viewer={viewerEntry} sharing={sharing} />}
+
+      {sharing.error && (
+        <p className="text-xs text-pnl-negative">{sharing.error}</p>
+      )}
 
       <div className="rounded-xl border border-imperial-border overflow-hidden bg-imperial-surface">
         <div className="grid grid-cols-[2.5rem_1fr_5rem_6rem] border-b border-imperial-border px-3 py-2">
@@ -91,7 +128,7 @@ export default function StandingsPage() {
             No player scores yet this month.
           </div>
         ) : (
-          playerEntries.map((row: LeaderboardEntry) => (
+          playerEntries.map((row) => (
             <StandingsRow
               key={row.user_id}
               row={row}
@@ -106,23 +143,40 @@ export default function StandingsPage() {
   );
 }
 
+type ShareController = ReturnType<typeof useShareCast>;
+
+function ShareComposeGlyph({ isPending }: { isPending: boolean }) {
+  if (isPending) {
+    return (
+      <span className="size-4 animate-spin rounded-full border-2 border-gold border-t-transparent" />
+    );
+  }
+  return <Share2 className="size-4" aria-hidden="true" />;
+}
+
 function CommodusBossCard({
   commodus,
   viewer,
+  sharing,
 }: {
   commodus: LeaderboardEntry;
   viewer: LeaderboardEntry | undefined;
+  sharing: ShareController;
 }) {
   const pnl = commodus.realized_pnl_usdc;
   const pnlPositive = pnl >= 0;
+  const viewerAhead = viewer != null && viewer.points > commodus.points;
   let statusText: string;
   if (viewer == null) {
     statusText = "Score your first trade to start chasing him";
-  } else if (viewer.points > commodus.points) {
+  } else if (viewerAhead) {
     statusText = "You are ahead of Commodus";
   } else {
     statusText = `You need ${commodus.points - viewer.points + 1} more pts to pass him`;
   }
+  const shareKey = "commodus-boss";
+  const shareText = `Commodus sits at ${commodus.points} pts (#${commodus.rank}) in the arena. Think you can pass him?\n\n${miniAppTabDeepLink("standings")}`;
+  const showShare = !viewerAhead && sharing.canCompose;
 
   return (
     <section className="overflow-hidden rounded-xl border border-gold/40 bg-[linear-gradient(135deg,rgba(200,168,78,0.18),rgba(20,20,20,0.96)_44%,rgba(0,0,0,0.92))] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.34),0_0_32px_rgba(200,168,78,0.12)]">
@@ -182,6 +236,56 @@ function CommodusBossCard({
             </p>
           </div>
         </div>
+      </div>
+
+      {showShare && (
+        <Button
+          type="button"
+          variant="imperial-outline"
+          className="mt-3 min-h-11 w-full justify-center gap-2 rounded-lg border-gold/40 text-sm text-gold hover:bg-gold/10"
+          disabled={sharing.pending !== null}
+          onClick={() => void sharing.share(shareKey, shareText)}
+        >
+          <ShareComposeGlyph isPending={sharing.pending === shareKey} />
+          Challenge a friend
+        </Button>
+      )}
+    </section>
+  );
+}
+
+function ViewerShareCard({
+  viewer,
+  sharing,
+}: {
+  viewer: LeaderboardEntry;
+  sharing: ShareController;
+}) {
+  if (!sharing.canCompose) return null;
+  const shareKey = `viewer-${viewer.user_id}`;
+  const shareText = `I'm #${viewer.rank} in the Victus arena with ${viewer.points} pts.\n\n${miniAppTabDeepLink("standings")}`;
+
+  return (
+    <section className="rounded-xl border border-imperial-border bg-imperial-surface p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gold-muted">
+            Your standing
+          </p>
+          <p className="truncate text-sm text-zinc-200">
+            #{viewer.rank} · {viewer.points} pts
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="imperial-outline"
+          className="min-h-11 shrink-0 gap-2 rounded-lg border-gold/40 text-sm text-gold hover:bg-gold/10"
+          disabled={sharing.pending !== null}
+          onClick={() => void sharing.share(shareKey, shareText)}
+        >
+          <ShareComposeGlyph isPending={sharing.pending === shareKey} />
+          Share rank
+        </Button>
       </div>
     </section>
   );

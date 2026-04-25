@@ -114,11 +114,13 @@ The product already has the ingredients for this: public commands, scoring, stan
 
 ## Prioritized Actions
 
-1. Replace remaining notification template copy with Victus-native copy.
-2. Add share buttons to Standings and post-trade/status moments.
-3. Add dynamic OG score, rank, trade, and boss cards.
-4. Add recent activity and social proof to Standings.
-5. Add challenge and deep-link URLs for shareable entry points.
+1. ✅ Replace remaining notification template copy with Victus-native copy. — Done in `app/api/webhook/route.ts`: `frame_added` and `notifications_enabled` now use game-status copy ("Welcome to the arena", "Notifications armed").
+2. 🟡 Add share buttons to Standings and post-trade/status moments. — Standings done in `components/pages/standings/index.tsx`: viewer "Share rank" card and Commodus "Challenge a friend" button, both gated on `actions.composeCast` and deep-linking to `?tab=standings`. Post-trade/status share moments still pending (the trade itself is already a public cast; the open gap is sharing once a trade scores).
+3. ⬜ Add dynamic OG score, rank, trade, and boss cards. — Only the template route at `app/api/og/example/[id]/route.tsx` exists. No production cards yet for rank, trade, boss, or standings.
+4. ⬜ Add recent activity and social proof to Standings. — Standings still shows only the leaderboard table and Commodus benchmark. No recent-trades feed, active-today count, or scored-this-month signal.
+5. 🟡 Add challenge and deep-link URLs for shareable entry points. — Tab routing (`miniAppTabDeepLink`) is fully wired and now used by the new share buttons. Challenge-payload links carrying suggested token/amount are still pending.
+
+Status key: ✅ done · 🟡 partial · ⬜ not started.
 
 ## Product Guardrails
 

@@ -30,14 +30,14 @@ const KEY_REGISTRY_ABI = [
   },
 ] as const;
 
-async function verifyFidOwnership(fid: number, appKey: `0x${string}`) {
-  const client = createPublicClient({
-    chain: optimism,
-    transport: http(),
-  });
+const optimismClient = createPublicClient({
+  chain: optimism,
+  transport: http(),
+});
 
+async function verifyFidOwnership(fid: number, appKey: `0x${string}`) {
   try {
-    const result = await client.readContract({
+    const result = await optimismClient.readContract({
       address: KEY_REGISTRY_ADDRESS,
       abi: KEY_REGISTRY_ABI,
       functionName: "keyDataOf",
@@ -75,24 +75,20 @@ export async function POST(request: Request) {
   }
 
   switch (event.event) {
-    case "frame_added":
-      console.log(
-        "frame_added",
-        "event.notificationDetails",
-        event.notificationDetails
-      );
+    case "frame_added": {
+      console.log("frame_added", event.notificationDetails);
       if (event.notificationDetails) {
         await setUserNotificationDetails(fid, event.notificationDetails);
         await sendFrameNotification({
           fid,
-          title: `Welcome to Farcaster Mini App Template`,
-          body: `Thank you for adding Farcaster Mini App Template`,
+          title: `Welcome to the arena`,
+          body: `Fund your wallet and cast a command to begin.`,
         });
       } else {
         await deleteUserNotificationDetails(fid);
       }
-
       break;
+    }
     case "frame_removed": {
       console.log("frame_removed");
       await deleteUserNotificationDetails(fid);
@@ -103,16 +99,14 @@ export async function POST(request: Request) {
       await setUserNotificationDetails(fid, event.notificationDetails);
       await sendFrameNotification({
         fid,
-        title: `Welcome to Farcaster Mini App Template`,
-        body: `Thank you for enabling notifications for Farcaster Mini App Template`,
+        title: `Notifications armed`,
+        body: `We'll ping you when your trades score and when your rank shifts.`,
       });
-
       break;
     }
     case "notifications_disabled": {
       console.log("notifications_disabled");
       await deleteUserNotificationDetails(fid);
-
       break;
     }
   }
