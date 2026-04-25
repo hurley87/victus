@@ -1,4 +1,5 @@
 import { sendFrameNotification } from "@/lib/notification-client";
+import { log } from "@/lib/logger";
 import {
   deleteUserNotificationDetails,
   setUserNotificationDetails,
@@ -46,37 +47,36 @@ async function verifyFidOwnership(fid: number, appKey: `0x${string}`) {
 
     return result.state === 1 && result.keyType === 1;
   } catch (error) {
-    console.error("Key Registry verification failed:", error);
+    log.error("Key Registry verification failed", {
+      err: error instanceof Error ? error.message : String(error),
+    });
     return false;
   }
 }
 
-function decode(encoded: string) {
+function decodeBase64Json(encoded: string) {
   return JSON.parse(Buffer.from(encoded, "base64url").toString("utf-8"));
 }
 
 export async function POST(request: Request) {
-  const requestJson = await request.json();
+  const body = (await request.json()) as {
+    header: string;
+    payload: string;
+  };
 
-  const { header: encodedHeader, payload: encodedPayload } = requestJson;
+  const { fid, key } = decodeBase64Json(body.header);
+  const event = decodeBase64Json(body.payload);
 
-  const headerData = decode(encodedHeader);
-  const event = decode(encodedPayload);
-
-  const { fid, key } = headerData;
-
-  const valid = await verifyFidOwnership(fid, key);
-
-  if (!valid) {
+  if (!(await verifyFidOwnership(fid, key))) {
     return Response.json(
       { success: false, error: "Invalid FID ownership" },
-      { status: 401 }
+      { status: 401 },
     );
   }
 
   switch (event.event) {
     case "frame_added": {
-      console.log("frame_added", event.notificationDetails);
+      log.info("frame_added", { fid, hasNotificationDetails: Boolean(event.notificationDetails) });
       if (event.notificationDetails) {
         await setUserNotificationDetails(fid, event.notificationDetails);
         await sendFrameNotification({
@@ -90,12 +90,12 @@ export async function POST(request: Request) {
       break;
     }
     case "frame_removed": {
-      console.log("frame_removed");
+      log.info("frame_removed", { fid });
       await deleteUserNotificationDetails(fid);
       break;
     }
     case "notifications_enabled": {
-      console.log("notifications_enabled", event.notificationDetails);
+      log.info("notifications_enabled", { fid });
       await setUserNotificationDetails(fid, event.notificationDetails);
       await sendFrameNotification({
         fid,
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
       break;
     }
     case "notifications_disabled": {
-      console.log("notifications_disabled");
+      log.info("notifications_disabled", { fid });
       await deleteUserNotificationDetails(fid);
       break;
     }

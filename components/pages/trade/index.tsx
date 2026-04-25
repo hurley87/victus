@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { Send } from "lucide-react";
 import { ScoringTable } from "@/components/shared/ui/scoring-table";
@@ -98,14 +99,38 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
     () => buyPresets(rules.max_trade_usdc),
     [rules.max_trade_usdc],
   );
-  const initialBuyAmount = formatNumberInput(
-    buyAmountPresets[buyAmountPresets.length - 1] ?? rules.max_trade_usdc,
+  const searchParams = useSearchParams();
+  const tradableSymbols = useMemo(
+    () => tradableSymbolsLower(rules),
+    [rules],
   );
-  const initialToken = tradableTokens[0]?.symbol.toLowerCase() ?? "symbol";
+
+  const urlTokenRaw = searchParams.get("token")?.trim().toLowerCase() ?? null;
+  const urlToken =
+    urlTokenRaw && tradableSymbols.includes(urlTokenRaw) ? urlTokenRaw : null;
+  const urlAmountRaw = Number(searchParams.get("amount"));
+  const urlAmount =
+    Number.isFinite(urlAmountRaw) &&
+    urlAmountRaw > 0 &&
+    urlAmountRaw <= rules.max_trade_usdc
+      ? urlAmountRaw
+      : null;
+  const urlModeRaw = searchParams.get("mode");
+  const urlMode: TradeMode | null =
+    urlModeRaw === "buy" || urlModeRaw === "sell" ? urlModeRaw : null;
+
+  const initialBuyAmount = formatNumberInput(
+    urlAmount ??
+      buyAmountPresets[buyAmountPresets.length - 1] ??
+      rules.max_trade_usdc,
+  );
+  const initialToken =
+    urlToken ?? tradableTokens[0]?.symbol.toLowerCase() ?? "symbol";
+  const initialMode: TradeMode = urlMode ?? "buy";
   const { capabilities } = useFarcaster();
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const [composeError, setComposeError] = useState<string | null>(null);
-  const [mode, setMode] = useState<TradeMode>("buy");
+  const [mode, setMode] = useState<TradeMode>(initialMode);
   const [selectedSymbol, setSelectedSymbol] = useState(initialToken);
   const [buyAmount, setBuyAmount] = useState(initialBuyAmount);
   const [sellPercent, setSellPercent] = useState("50");

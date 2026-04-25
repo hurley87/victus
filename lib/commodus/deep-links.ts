@@ -22,11 +22,42 @@ export function portfolioDeepLinkForFid(fid: number): string {
   return `${appBaseUrl()}/portfolio?fid=${fid}`;
 }
 
+export type MiniAppTabParams = {
+  token?: string;
+  amount?: number;
+  mode?: "buy" | "sell";
+};
+
 /**
- * HTTPS URL that opens a specific Mini App tab.
+ * HTTPS URL that opens a specific Mini App tab. Optional params are appended
+ * as query string values so shared casts can deep-link into a pre-filled
+ * trade composer or other tab-specific context.
  */
-export function miniAppTabDeepLink(tab: MiniAppTab): string {
-  return `${appBaseUrl()}/?tab=${tab}`;
+export function miniAppTabDeepLink(
+  tab: MiniAppTab,
+  params?: MiniAppTabParams,
+): string {
+  const search = new URLSearchParams({ tab });
+  if (params?.token) {
+    const token = params.token.trim().toLowerCase();
+    if (token) search.set("token", token);
+  }
+  if (params?.amount != null && Number.isFinite(params.amount) && params.amount > 0) {
+    search.set("amount", String(params.amount));
+  }
+  if (params?.mode) {
+    search.set("mode", params.mode);
+  }
+  return `${appBaseUrl()}/?${search.toString()}`;
+}
+
+/**
+ * Public HTTPS URL for the dynamic rank OG card for a given Farcaster FID.
+ * Used as a Farcaster cast embed so shared standings render visually in feed.
+ */
+export function rankCardImageUrl(fid: number): string {
+  assertValidFid(fid, "rankCardImageUrl");
+  return `${appBaseUrl()}/api/og/rank/${fid}`;
 }
 
 /**

@@ -7,7 +7,7 @@ import { Button } from "@/components/shared/ui/button";
 import { useFarcaster } from "@/contexts/farcaster-context";
 import { useUser } from "@/contexts/user-context";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { miniAppTabDeepLink } from "@/lib/commodus/deep-links";
+import { miniAppTabDeepLink, rankCardImageUrl } from "@/lib/commodus/deep-links";
 import type { CurrentLeaderboardResult, LeaderboardEntry } from "@/lib/leaderboard/service";
 import { cn, formatUsd } from "@/lib/utils";
 import { Crown, Share2, Swords } from "lucide-react";
@@ -24,11 +24,12 @@ function useShareCast() {
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function share(key: string, text: string) {
+  async function share(key: string, text: string, embedUrl?: string) {
     setPending(key);
     setError(null);
     try {
-      await sdk.actions.composeCast({ text });
+      const embeds = embedUrl ? ([embedUrl] as [string]) : undefined;
+      await sdk.actions.composeCast({ text, embeds });
     } catch (err) {
       console.error("Failed to open Farcaster cast composer", err);
       setError("Could not open the Farcaster cast composer.");
@@ -145,6 +146,46 @@ export default function StandingsPage() {
 
 type ShareController = ReturnType<typeof useShareCast>;
 
+function SignedUsdPnl({
+  amount,
+  className,
+}: {
+  amount: number;
+  className?: string;
+}) {
+  const isNonNegative = amount >= 0;
+  return (
+    <span
+      className={cn(
+        "font-mono text-sm",
+        isNonNegative ? "text-pnl-positive" : "text-pnl-negative",
+        className,
+      )}
+    >
+      {isNonNegative ? "+" : ""}
+      {formatUsd(amount)}
+    </span>
+  );
+}
+
+function RankCell({ rank }: { rank: number }) {
+  const medal = RANK_MEDALS[rank];
+  if (medal) {
+    return <span className="text-base leading-none">{medal}</span>;
+  }
+  const isTopThree = rank <= 3;
+  return (
+    <span
+      className={cn(
+        "font-mono text-sm",
+        isTopThree ? "font-semibold text-gold" : "text-zinc-400",
+      )}
+    >
+      {rank}
+    </span>
+  );
+}
+
 function ShareComposeGlyph({ isPending }: { isPending: boolean }) {
   if (isPending) {
     return (
@@ -164,7 +205,6 @@ function CommodusBossCard({
   sharing: ShareController;
 }) {
   const pnl = commodus.realized_pnl_usdc;
-  const pnlPositive = pnl >= 0;
   const viewerAhead = viewer != null && viewer.points > commodus.points;
   let statusText: string;
   if (viewer == null) {
@@ -175,7 +215,9 @@ function CommodusBossCard({
     statusText = `You need ${commodus.points - viewer.points + 1} more pts to pass him`;
   }
   const shareKey = "commodus-boss";
-  const shareText = `Commodus sits at ${commodus.points} pts (#${commodus.rank}) in the arena. Think you can pass him?\n\n${miniAppTabDeepLink("standings")}`;
+  const challengeLink = miniAppTabDeepLink("trade", { mode: "buy", amount: 5 });
+  const shareText = `Commodus sits at ${commodus.points} pts (#${commodus.rank}) in the arena. Think you can pass him?\n\n${challengeLink}`;
+  const shareEmbed = viewer ? rankCardImageUrl(viewer.fid) : undefined;
   const showShare = !viewerAhead && sharing.canCompose;
 
   return (
@@ -225,15 +267,7 @@ function CommodusBossCard({
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
               Monthly PnL
             </p>
-            <p
-              className={cn(
-                "font-mono text-sm",
-                pnlPositive ? "text-pnl-positive" : "text-pnl-negative",
-              )}
-            >
-              {pnlPositive ? "+" : ""}
-              {formatUsd(pnl)}
-            </p>
+            <SignedUsdPnl amount={pnl} />
           </div>
         </div>
       </div>
@@ -244,7 +278,7 @@ function CommodusBossCard({
           variant="imperial-outline"
           className="mt-3 min-h-11 w-full justify-center gap-2 rounded-lg border-gold/40 text-sm text-gold hover:bg-gold/10"
           disabled={sharing.pending !== null}
-          onClick={() => void sharing.share(shareKey, shareText)}
+          onClick={() => void sharing.share(shareKey, shareText, shareEmbed)}
         >
           <ShareComposeGlyph isPending={sharing.pending === shareKey} />
           Challenge a friend
@@ -264,6 +298,7 @@ function ViewerShareCard({
   if (!sharing.canCompose) return null;
   const shareKey = `viewer-${viewer.user_id}`;
   const shareText = `I'm #${viewer.rank} in the Victus arena with ${viewer.points} pts.\n\n${miniAppTabDeepLink("standings")}`;
+  const shareEmbed = rankCardImageUrl(viewer.fid);
 
   return (
     <section className="rounded-xl border border-imperial-border bg-imperial-surface p-3">
@@ -281,7 +316,7 @@ function ViewerShareCard({
           variant="imperial-outline"
           className="min-h-11 shrink-0 gap-2 rounded-lg border-gold/40 text-sm text-gold hover:bg-gold/10"
           disabled={sharing.pending !== null}
-          onClick={() => void sharing.share(shareKey, shareText)}
+          onClick={() => void sharing.share(shareKey, shareText, shareEmbed)}
         >
           <ShareComposeGlyph isPending={sharing.pending === shareKey} />
           Share rank
@@ -298,13 +333,10 @@ function StandingsRow({
   row: LeaderboardEntry;
   isViewer: boolean;
 }) {
-  const medal = RANK_MEDALS[row.rank];
-  const isTopThree = row.rank <= 3;
   const playerLabel = row.username
     ? `@${row.username}`
     : `fid ${row.fid}`;
   const pnl = row.realized_pnl_usdc;
-  const pnlPositive = pnl >= 0;
 
   return (
     <div
@@ -314,18 +346,7 @@ function StandingsRow({
       )}
     >
       <div className="flex items-center">
-        {medal ? (
-          <span className="text-base leading-none">{medal}</span>
-        ) : (
-          <span
-            className={cn(
-              "font-mono text-sm",
-              isTopThree ? "text-gold font-semibold" : "text-zinc-400",
-            )}
-          >
-            {row.rank}
-          </span>
-        )}
+        <RankCell rank={row.rank} />
       </div>
 
       <div className="min-w-0">
@@ -340,15 +361,7 @@ function StandingsRow({
       </div>
 
       <div className="text-right">
-        <span
-          className={cn(
-            "font-mono text-sm",
-            pnlPositive ? "text-pnl-positive" : "text-pnl-negative",
-          )}
-        >
-          {pnlPositive ? "+" : ""}
-          {formatUsd(pnl)}
-        </span>
+        <SignedUsdPnl amount={pnl} />
       </div>
     </div>
   );
