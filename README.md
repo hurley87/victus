@@ -150,6 +150,12 @@ CTA lazily provisions a custodial **Privy server wallet** on Base that Commodus
 signs from on the user's behalf (TEE-custodied, non-extractable). See
 `docs/mvp.md` § Wallet Funding Gate for the full flow.
 
+### Commodus Autotrader (boss bot)
+
+- **Provisioning the house player (once per env):** `POST /api/admin/commodus/bootstrap` with `Authorization: Bearer $ADMIN_API_TOKEN` creates the Commodus system user, links `COMMODUS_FID`, and mints a **dedicated** Privy arena wallet. Then fund that wallet with USDC.
+- **Daily cron:** Vercel runs `GET /api/cron/commodus-autotrade` (Bearer `CRON_SECRET`) per `vercel.json`. The bot uses the same execution pipeline, policy, and scoring as human players; strategy is described in `docs/commodus-trading-strategy.md` §9.
+- **Local dry run:** `curl -H "Authorization: Bearer $CRON_SECRET" "http://localhost:3000/api/cron/commodus-autotrade?dryRun=1"`
+
 ### Required env vars
 
 ```bash

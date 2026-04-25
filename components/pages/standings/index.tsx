@@ -108,7 +108,14 @@ function StandingsRow({
 }) {
   const medal = RANK_MEDALS[row.rank];
   const isTopThree = row.rank <= 3;
-  const playerLabel = row.username ? `@${row.username}` : `fid ${row.fid}`;
+  let playerLabel: string;
+  if (row.is_commodus) {
+    playerLabel = "Commodus (Emperor)";
+  } else if (row.username) {
+    playerLabel = `@${row.username}`;
+  } else {
+    playerLabel = `fid ${row.fid}`;
+  }
   const pnl = row.realized_pnl_usdc;
   const pnlPositive = pnl >= 0;
 

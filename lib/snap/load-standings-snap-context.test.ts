@@ -14,6 +14,7 @@ function leaderboardEntry(
     username: null,
     realized_pnl_usdc: 0,
     last_trade_at: null,
+    is_commodus: false,
     ...partial,
   };
 }

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
 import { utcCurrentMonthString, utcMonthBounds } from "@/lib/scoring/dates";
@@ -12,6 +13,8 @@ export type LeaderboardEntry = {
   points: number;
   realized_pnl_usdc: number;
   last_trade_at: string | null;
+  /** True for the `COMMODUS_FID` system player — UI themes as Emperor / boss. */
+  is_commodus: boolean;
 };
 
 export type CurrentLeaderboardResult = {
@@ -126,17 +129,29 @@ export async function getCurrentMonthLeaderboard(): Promise<CurrentLeaderboardRe
     }
   }
 
-  const userIdList = [
+  const baseList = [
     ...new Set([...pointsByUser.keys(), ...pnlByUser.keys()]),
   ];
-  if (userIdList.length === 0) {
+
+  const commodusFidN =
+    env.COMMODUS_FID != null ? Number(env.COMMODUS_FID) : null;
+  const commodusUserId = commodusFidN
+    ? await loadUserIdByFid(commodusFidN)
+    : null;
+
+  const userIdListOut =
+    commodusUserId && !baseList.includes(commodusUserId)
+      ? [...baseList, commodusUserId]
+      : baseList;
+
+  if (userIdListOut.length === 0) {
     return { month, entries: [] };
   }
 
   const { data: accounts, error: acctErr } = await supabaseAdmin
     .from("farcaster_accounts")
     .select("user_id, fid, username")
-    .in("user_id", userIdList);
+    .in("user_id", userIdListOut);
 
   if (acctErr) {
     throw new Error(`leaderboard: farcaster_accounts ${acctErr.message}`);
@@ -149,16 +164,18 @@ export async function getCurrentMonthLeaderboard(): Promise<CurrentLeaderboardRe
     (accounts ?? []).map((a) => [a.user_id, a.username]),
   );
 
-  const entries: LeaderboardEntry[] = userIdList.map((user_id) => {
+  const entries: LeaderboardEntry[] = userIdListOut.map((user_id) => {
     const lastTs = lastTradeByUser.get(user_id);
+    const fid = fidByUser.get(user_id) ?? 0;
     return {
       rank: 0,
       user_id,
-      fid: fidByUser.get(user_id) ?? 0,
+      fid,
       username: usernameByUser.get(user_id) ?? null,
       points: pointsByUser.get(user_id) ?? 0,
       realized_pnl_usdc: pnlByUser.get(user_id) ?? 0,
       last_trade_at: lastTs != null ? new Date(lastTs).toISOString() : null,
+      is_commodus: commodusFidN != null && fid === commodusFidN,
     };
   });
 
@@ -177,4 +194,16 @@ export async function getCurrentMonthLeaderboard(): Promise<CurrentLeaderboardRe
   });
 
   return { month, entries };
+}
+
+async function loadUserIdByFid(fid: number): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from("farcaster_accounts")
+    .select("user_id")
+    .eq("fid", fid)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`leaderboard: commodus user lookup ${error.message}`);
+  }
+  return data?.user_id ?? null;
 }

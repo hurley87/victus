@@ -180,6 +180,60 @@ export type Database = {
           },
         ]
       }
+      commodus_autotrader_runs: {
+        Row: {
+          analysis: Json
+          cast_command_id: string | null
+          created_at: string
+          error: string | null
+          id: string
+          published_cast_hash: string | null
+          slot_key: string
+          status: string
+          trade_execution_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          analysis?: Json
+          cast_command_id?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          published_cast_hash?: string | null
+          slot_key: string
+          status?: string
+          trade_execution_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          analysis?: Json
+          cast_command_id?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          published_cast_hash?: string | null
+          slot_key?: string
+          status?: string
+          trade_execution_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commodus_autotrader_runs_cast_command_id_fkey"
+            columns: ["cast_command_id"]
+            isOneToOne: false
+            referencedRelation: "cast_commands"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commodus_autotrader_runs_trade_execution_id_fkey"
+            columns: ["trade_execution_id"]
+            isOneToOne: false
+            referencedRelation: "trade_executions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commodus_lore_posts: {
         Row: {
           cast_hash: string | null

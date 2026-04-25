@@ -12,7 +12,13 @@ import type {
 } from "./build-standings-snap";
 
 function displayName(entry: LeaderboardEntry): string {
-  return entry.username ? `@${entry.username}` : `fid ${entry.fid}`;
+  if (entry.is_commodus) {
+    return "Commodus (Emperor)";
+  }
+  if (entry.username) {
+    return `@${entry.username}`;
+  }
+  return `fid ${entry.fid}`;
 }
 
 function toSnapEntry(

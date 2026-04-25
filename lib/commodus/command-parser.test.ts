@@ -4,6 +4,17 @@ import type { generateText } from "ai";
 
 import { parseCommandIntent } from "@/lib/execution/parse";
 
+vi.mock("@/lib/execution/policy", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/lib/execution/policy")>();
+  return {
+    ...mod,
+    /** Avoid live Supabase in Vitest; real `asset_whitelist` is covered elsewhere. */
+    isTradableCommandSymbol: vi
+      .fn()
+      .mockImplementation((symbol: string) => Promise.resolve(symbol === "AERO")),
+  };
+});
+
 /**
  * End-to-end coverage of the Stage 2 LLM fallback wired through
  * `parseCommandIntent`. The regex pre-filter is exercised by

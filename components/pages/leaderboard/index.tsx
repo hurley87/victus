@@ -124,20 +124,44 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
               ) : (
                 data.entries.map((row) => {
                   const isViewer = row.fid === viewerFid;
-                  const label = row.username ? `@${row.username}` : `fid ${row.fid}`;
+                  const isCommodus = row.is_commodus;
+                  const label = isCommodus
+                    ? "Commodus (Emperor)"
+                    : row.username
+                      ? `@${row.username}`
+                      : `fid ${row.fid}`;
                   return (
                     <tr
                       key={row.user_id}
                       className={cn(
                         "border-t border-black/10",
                         isViewer && "bg-purple-50",
+                        isCommodus &&
+                          "bg-amber-50/90 ring-1 ring-amber-400/30 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.15)]",
                       )}
                     >
                       <td className="px-2 py-2 font-mono text-black/70">
                         {row.rank}
                       </td>
                       <td className="px-2 py-2">
-                        <span className="font-medium">{label}</span>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-medium">{label}</span>
+                            {isCommodus && (
+                              <span
+                                className="text-[10px] uppercase tracking-wide font-semibold text-amber-800 bg-amber-200/60 px-1.5 py-0.5 rounded"
+                                title="System opponent, same rules as you"
+                              >
+                                Boss
+                              </span>
+                            )}
+                          </div>
+                          {row.username && !isCommodus && (
+                            <span className="text-[11px] text-black/50">
+                              @{row.username}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-2 py-2 text-right font-mono">
                         {row.points}
