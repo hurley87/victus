@@ -1,9 +1,4 @@
-import type {
-  JsonRenderExpression,
-  SnapElement,
-  SnapPaletteAccent,
-  SnapUiSpec,
-} from "./types";
+import type { SnapElement, SnapPaletteAccent, SnapUiSpec } from "./types";
 
 /** @see https://docs.farcaster.xyz/snap/elements#text */
 export function snapText(
@@ -95,7 +90,6 @@ export function snapInput(
     type?: "text" | "number";
     label?: string;
     placeholder?: string;
-    value?: JsonRenderExpression;
     defaultValue?: string;
     maxLength?: number;
   },
@@ -117,7 +111,6 @@ export function snapToggleGroup(
     options: string[];
     multiple?: boolean;
     orientation?: "horizontal" | "vertical";
-    value?: JsonRenderExpression;
     defaultValue?: string | string[];
     variant?: "default" | "outline";
     label?: string;

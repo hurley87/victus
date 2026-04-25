@@ -1,5 +1,3 @@
-import { COMMAND_BOT_HANDLE } from "@/lib/commodus/bot";
-
 import {
   buildElementMap,
   snapButton,
@@ -9,7 +7,7 @@ import {
   snapText,
   snapToggleGroup,
 } from "./response";
-import type { JsonRenderExpression, SnapElement, SnapResponse } from "./types";
+import type { SnapElement, SnapResponse } from "./types";
 
 /** Snap `toggle_group` supports 2–6 options; keep the whitelist bounded accordingly. */
 export const TRADE_COMMAND_SYMBOL_LIMIT = 6;
@@ -28,8 +26,8 @@ export type StandingsPress =
   | { action: "open_mini_app"; target: string };
 
 export type TradeCommandSnapLinks = {
-  /** Legacy POST target retained for callers still wiring the fallback route. */
-  composeSubmit?: string;
+  /** POST target for the "Make Trade" submit button. */
+  composeSubmit: string;
   /** Always prefers `open_snap`; falls back to `open_mini_app` only if no FID context is available. */
   standings: StandingsPress;
   /** Wallet/portfolio snap. Falls back to `open_mini_app` only when FID is missing. */
@@ -38,15 +36,17 @@ export type TradeCommandSnapLinks = {
   miniApp: string;
 };
 
-const TRADE_STATE_PATHS = {
-  action: "/action",
-  symbol: "/symbol",
-  amount: "/amount",
-} as const;
-
 /**
  * Trade composer snap. Users pick buy/sell, a token, and an amount; the
- * primary CTA opens the composer directly using json-render state templates.
+ * "Make Trade" button submits the form so the server can interpolate the
+ * chosen values into a `compose_cast` follow-up.
+ *
+ * Snap 2.0 field components (`toggle_group`, `input`) only collect values
+ * via the `submit` POST flow — they do not honour live `$bindState` reads
+ * inside `compose_cast` params, so a server round-trip is required to read
+ * what the user actually selected.
+ *
+ * @see https://docs.farcaster.xyz/snap/actions#submit
  */
 export function buildTradeCommandSnapResponse(
   ctx: TradeCommandSnapContext,
@@ -65,15 +65,7 @@ export function buildTradeCommandSnapResponse(
   const elements = buildElementMap([
     snapStack(
       "root",
-      [
-        "hdr",
-        "action",
-        "symbol",
-        "amount",
-        "compose",
-        "nav",
-        "open_app",
-      ],
+      ["hdr", "action", "symbol", "amount", "compose", "nav", "open_app"],
       { gap: "md" },
     ),
     snapText("hdr", "Trade", { weight: "bold", size: "md" }),
@@ -81,14 +73,12 @@ export function buildTradeCommandSnapResponse(
       name: "action",
       label: "Side",
       options: ["Buy", "Sell"],
-      value: bindTradeState("action"),
       defaultValue: "Buy",
     }),
     snapToggleGroup("symbol", {
       name: "symbol",
       label: "Token",
       options: symbols,
-      value: bindTradeState("symbol"),
       defaultValue: defaultSymbol,
     }),
     snapInput("amount", {
@@ -96,12 +86,14 @@ export function buildTradeCommandSnapResponse(
       type: "number",
       label: "Amount (USDC to buy, % to sell)",
       placeholder: ctx.amountDefault,
-      value: bindTradeState("amount"),
       defaultValue: ctx.amountDefault,
     }),
-    snapStack("compose", ["compose_buy", "compose_sell"], { gap: "none" }),
-    tradeComposeButton("compose_buy", "Buy"),
-    tradeComposeButton("compose_sell", "Sell"),
+    snapButton(
+      "compose",
+      "Make Trade",
+      { action: "submit", params: { target: links.composeSubmit } },
+      { variant: "primary", icon: "share" },
+    ),
     snapStack("nav", ["act_standings", "act_wallet"], {
       direction: "horizontal",
       gap: "sm",
@@ -130,60 +122,8 @@ export function buildTradeCommandSnapResponse(
   return {
     version: "2.0",
     theme: { accent: "purple" },
-    ui: {
-      root: "root",
-      elements,
-      state: {
-        action: "Buy",
-        symbol: defaultSymbol,
-        amount: ctx.amountDefault,
-      },
-    },
+    ui: { root: "root", elements },
   };
-}
-
-function bindTradeState(
-  key: keyof typeof TRADE_STATE_PATHS,
-): JsonRenderExpression {
-  return { $bindState: TRADE_STATE_PATHS[key] };
-}
-
-function selectedTradeSide(side: "Buy" | "Sell"): JsonRenderExpression {
-  return { $state: TRADE_STATE_PATHS.action, eq: side };
-}
-
-function tradeCommandTemplate(side: "Buy" | "Sell"): JsonRenderExpression {
-  const body =
-    side === "Buy"
-      ? `buy \${${TRADE_STATE_PATHS.amount}} usdc of \${${TRADE_STATE_PATHS.symbol}}`
-      : `sell \${${TRADE_STATE_PATHS.amount}}% of \${${TRADE_STATE_PATHS.symbol}}`;
-
-  return { $template: `${COMMAND_BOT_HANDLE} ${body}` };
-}
-
-function tradeComposeButton(
-  id: string,
-  side: "Buy" | "Sell",
-): [string, SnapElement] {
-  return withVisibility(
-    snapButton(
-      id,
-      "Make Trade",
-      {
-        action: "compose_cast",
-        params: { text: tradeCommandTemplate(side) },
-      },
-      { variant: "primary", icon: "share" },
-    ),
-    selectedTradeSide(side),
-  );
-}
-
-function withVisibility(
-  [id, element]: [string, SnapElement],
-  visible: JsonRenderExpression,
-): [string, SnapElement] {
-  return [id, { ...element, visible }];
 }
 
 /* ------------------------------------------------------------------ */

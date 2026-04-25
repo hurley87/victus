@@ -129,6 +129,7 @@ export async function GET(request: NextRequest) {
     const nav = navLinksForFid(request, fid);
 
     const links: TradeCommandSnapLinks = {
+      composeSubmit: snapResourceUrl(request, fid),
       standings: nav.standings,
       wallet: nav.wallet,
       miniApp: miniAppTabDeepLink("trade"),

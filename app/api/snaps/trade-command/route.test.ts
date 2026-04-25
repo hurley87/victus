@@ -152,22 +152,11 @@ describe("GET /api/snaps/trade-command", () => {
     ]);
     expect(body.ui.elements.amount?.type).toBe("input");
 
-    expect(body.ui.state).toEqual({
-      action: "Buy",
-      symbol: "AERO",
-      amount: "5",
-    });
-    expect(body.ui.elements.compose_buy?.props?.label).toBe("Make Trade");
-    expect(body.ui.elements.compose_buy?.on?.press).toEqual({
-      action: "compose_cast",
+    expect(body.ui.elements.compose?.props?.label).toBe("Make Trade");
+    expect(body.ui.elements.compose?.on?.press).toEqual({
+      action: "submit",
       params: {
-        text: { $template: "@commo buy ${/amount} usdc of ${/symbol}" },
-      },
-    });
-    expect(body.ui.elements.compose_sell?.on?.press).toEqual({
-      action: "compose_cast",
-      params: {
-        text: { $template: "@commo sell ${/amount}% of ${/symbol}" },
+        target: "https://example.com/api/snaps/trade-command?fid=123",
       },
     });
 
