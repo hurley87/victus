@@ -37,12 +37,11 @@ describe("buildTradeCommandSnapResponse", () => {
       "action",
       "symbol",
       "amount",
-      "compose_buy",
-      "compose_sell",
+      "compose",
       "nav",
       "open_app",
     ]);
-    expect(elements.root?.children?.length).toBeLessThanOrEqual(8);
+    expect(elements.root?.children?.length).toBeLessThanOrEqual(7);
     expect(snap.ui.state).toEqual({
       action: "Buy",
       symbol: "AERO",
@@ -70,6 +69,8 @@ describe("buildTradeCommandSnapResponse", () => {
       defaultValue: { $bindState: "/amount" },
     });
 
+    expect(elements.compose?.type).toBe("stack");
+    expect(elements.compose?.children).toEqual(["compose_buy", "compose_sell"]);
     expect(elements.compose_buy?.type).toBe("button");
     expect(elements.compose_buy?.props?.label).toBe("Make Trade");
     expect(elements.compose_buy?.visible).toEqual({

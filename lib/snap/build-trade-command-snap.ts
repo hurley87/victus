@@ -70,8 +70,7 @@ export function buildTradeCommandSnapResponse(
         "action",
         "symbol",
         "amount",
-        "compose_buy",
-        "compose_sell",
+        "compose",
         "nav",
         "open_app",
       ],
@@ -97,6 +96,7 @@ export function buildTradeCommandSnapResponse(
       placeholder: ctx.amountDefault,
       defaultValue: bindTradeState("amount"),
     }),
+    snapStack("compose", ["compose_buy", "compose_sell"], { gap: "none" }),
     tradeComposeButton("compose_buy", "Buy"),
     tradeComposeButton("compose_sell", "Sell"),
     snapStack("nav", ["act_standings", "act_wallet"], {
