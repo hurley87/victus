@@ -107,6 +107,46 @@ describe("narrateCommodusOutcome", () => {
     expect(out).toBe(fallbackNarration(a));
   });
 
+  it("does not leak runner-up tickers into the LLM prompt", async () => {
+    testEnv.OPENAI_API_KEY = "k-test";
+    const a: CommodusAnalysisForNarration = {
+      kind: "buy",
+      slotKey: "k",
+      slotDate: "2026-01-01",
+      decision: {
+        action: "buy",
+        reason: "scored_buy",
+        intent: {
+          action: "buy",
+          symbol: "AERO",
+          amount_type: "usdc_in",
+          amount_value: 1,
+        },
+        candidate: { ...stubBuyLeg },
+        bestBuy: { ...stubBuyLeg },
+        bestSell: {
+          kind: "sell",
+          symbol: "VIRTUAL",
+          sizeUsdcOrPercent: 50,
+          scores: { ...zeroScores },
+          quoteLiquidityAvailable: true,
+          quoteSlippageProxy: 0,
+        },
+      },
+      trace: "t",
+    };
+    let seenPrompt = "";
+    const generate = vi.fn(async (args: { prompt: string }) => {
+      seenPrompt = args.prompt;
+      return { output: { text: "I bought $AERO." } };
+    });
+    await narrateCommodusOutcome(a, { generate: generate as never });
+    expect(seenPrompt).not.toContain("VIRTUAL");
+    expect(seenPrompt).not.toContain("bestSell");
+    expect(seenPrompt).not.toContain("bestBuy");
+    expect(seenPrompt).toContain("AERO");
+  });
+
   it("falls back when generateText keeps failing", async () => {
     testEnv.OPENAI_API_KEY = "k-test";
     const a: CommodusAnalysisForNarration = {

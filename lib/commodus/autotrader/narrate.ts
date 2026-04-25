@@ -25,6 +25,7 @@ The user message is a JSON object of facts. You must write 1-2 very short Farcas
 Rules:
 - No financial advice to the reader. No "you should buy" or "not financial advice" disclaimers. No "this is a signal" language.
 - Do not add ticker symbols that are not in the JSON. Use $SYMBOL style only for symbols the JSON already names.
+- Name at most one token — the one in decision.candidate (or fill.symbol). Never reference, hint at, or contrast with any other ticker, even narratively (no "meanwhile", no "instead of", no runner-ups). On hold or failure, name no token.
 - If the action was hold or a failed trade, stay theatrical but accurate to the reason field.
 - English only.`;
 
@@ -74,13 +75,29 @@ export async function narrateCommodusOutcome(
 
   const model = opts.model ?? DEFAULT_COMMAND_PARSER_MODEL;
   const generate = opts.generate ?? generateText;
+  const d = analysis.decision;
+  const slimDecision =
+    d.action === "hold"
+      ? { action: d.action, reason: d.reason }
+      : {
+          action: d.action,
+          reason: d.reason,
+          candidate: {
+            kind: d.candidate.kind,
+            symbol: d.candidate.symbol,
+            sizeUsdcOrPercent: d.candidate.sizeUsdcOrPercent,
+            scores: d.candidate.scores,
+            quoteLiquidityAvailable: d.candidate.quoteLiquidityAvailable,
+            quoteSlippageProxy: d.candidate.quoteSlippageProxy,
+          },
+        };
   const payload = {
     kind: analysis.kind,
     slotKey: analysis.slotKey,
     slotDate: analysis.slotDate,
     trace: analysis.trace,
     policyRejection: analysis.policyRejection ?? null,
-    decision: analysis.decision,
+    decision: slimDecision,
     fill: analysis.fill ?? null,
   };
 

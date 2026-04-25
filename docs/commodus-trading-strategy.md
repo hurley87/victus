@@ -119,7 +119,7 @@ This is a **v1 heuristic**. Weights and sub-scores may change; when they do, **u
 
 ## 9. v1 implementation pointers (code)
 
-- **Cron** — `GET /api/cron/commodus-autotrade` (see `vercel.json`, `0 14 * * `* UTC). Idempotency key per run: `commodus-autotrade:YYYY-MM-DD:slot-1`. Optional `?dryRun=1`.
+- **Cron** — `GET /api/cron/commodus-autotrade` (see `vercel.json`, `0 14 * `* * UTC). Idempotency key per run: `commodus-autotrade:YYYY-MM-DD:slot-1`. Optional `?dryRun=1`.
 - **Bootstrap** — `POST /api/admin/commodus/bootstrap` (Bearer `ADMIN_API_TOKEN`) provisions the Commodus `users` + `farcaster_accounts` + `arena_wallets` + `wallet_policies` row and a dedicated Privy wallet. Fund that wallet with USDC like any player; `funded_at` is set so the same **wallet-funded** gate as everyone else applies.
 - **Engine** — `lib/commodus/autotrader/decision.ts` (weights in §5) + `snapshot.ts` (whitelist, 0x quotes, positions, cooldown). **Sizing v1:** BUY **1 USDC** stated; SELL **25%** of position.
 - **Execution** — `lib/commodus/autotrader/execute.ts` reuses `validatePolicy`, `reserveOrLoadExecution`, Privy swap, decode, fee transfer, lots, `scoreTradeAfterExecution` (same path as human players).
