@@ -2,18 +2,20 @@
 
 Validate the autotrader from unit tests through a real swap and cast. **Preview or staging first**, then production.
 
-Strategy and file map: [`commodus-trading-strategy.md`](./commodus-trading-strategy.md) §9.
+Strategy and file map: `[commodus-trading-strategy.md](./commodus-trading-strategy.md)` §9.
 
 ---
 
 ## Prerequisites (once per environment)
 
-| Item | Note |
-|------|------|
-| Env | `COMMODUS_FID`, `CRON_SECRET`, `ADMIN_API_TOKEN`, `NEYNAR_SIGNER_UUID` (casts), same Supabase / Privy as the app |
-| Bootstrap | `POST /api/admin/commodus/bootstrap` with Bearer `ADMIN_API_TOKEN` (idempotent) |
-| USDC | Fund the Commodus arena wallet on Base (v1 BUY = **1 USDC**; buffer for fees). No autodeposit. |
-| Gas | If `PRIVY_SPONSOR_GAS` is false, the arena wallet needs a little ETH on Base |
+
+| Item      | Note                                                                                                             |
+| --------- | ---------------------------------------------------------------------------------------------------------------- |
+| Env       | `COMMODUS_FID`, `CRON_SECRET`, `ADMIN_API_TOKEN`, `NEYNAR_SIGNER_UUID` (casts), same Supabase / Privy as the app |
+| Bootstrap | `POST /api/admin/commodus/bootstrap` with Bearer `ADMIN_API_TOKEN` (idempotent)                                  |
+| USDC      | Fund the Commodus arena wallet on Base (v1 BUY = **1 USDC**; buffer for fees). No autodeposit.                   |
+| Gas       | If `PRIVY_SPONSOR_GAS` is false, the arena wallet needs a little ETH on Base                                     |
+
 
 ```bash
 curl -s -X POST "$BASE/api/admin/commodus/bootstrap" \
@@ -87,10 +89,10 @@ Watch host logs at the scheduled time; expect one success or `skipped` if the da
 
 ## Tips
 
-- **`$BASE`** — `http://localhost:3000`, a Vercel preview URL, or production.
+- `**$BASE**` — `http://localhost:3000`, a Vercel preview URL, or production.
 - **Slot keys** — Use `test:…` / `manual:…` for experiments; keep the `commodus-autotrade:YYYY-MM-DD:slot-1` shape for the real daily run.
 - **Auth** — When `CRON_SECRET` is set, cron requests need `Authorization: Bearer <CRON_SECRET>`.
-- **`not_provisioned`** — Complete prerequisites; fund the wallet.
+- `**not_provisioned`** — Complete prerequisites; fund the wallet.
 - **Retries** — New `slotKey` for a new attempt; do not edit old run rows to replay.
 - **Casts** — Set `NEYNAR_SIGNER_UUID` before debugging publish behavior.
 
