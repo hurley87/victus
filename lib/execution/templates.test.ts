@@ -9,7 +9,7 @@ import {
   policyRejectionMessage,
 } from "./templates";
 
-const voice = { gladiatorName: "Maximus" };
+const voice = { playerLabel: "@maximus" };
 
 describe("buildIntentReply", () => {
   it("renders a buy order with the notional and symbol", () => {
@@ -24,7 +24,7 @@ describe("buildIntentReply", () => {
     );
     expect(text).toContain("5");
     expect(text).toContain("AERO");
-    expect(text).toContain("Maximus");
+    expect(text).toContain("@maximus");
     expect(text.toLowerCase()).toMatch(/moving|usdc/);
   });
 
@@ -63,13 +63,13 @@ describe("buildOutcomeReply", () => {
     expect(text).toContain("4.95");
     expect(text).toContain(`https://basescan.org/tx/${txHash}`);
     expect(text).not.toContain("Proof:");
-    expect(text).toContain("Maximus");
+    expect(text).toContain("@maximus");
   });
 
   it("renders templated voice for a failed trade", () => {
     const text = buildOutcomeReply(
       { kind: "failure", reason: "revert" },
-      { gladiatorName: "" },
+      { playerLabel: "" },
     );
     expect(text.toLowerCase()).toMatch(/trade|onchain|failed/);
   });
@@ -77,7 +77,7 @@ describe("buildOutcomeReply", () => {
 
 describe("POLICY_REJECTION_COPY", () => {
   it("covers every rejection reason in the policy union", () => {
-    expect(POLICY_REJECTION_COPY.needs_gladiator_mint).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.needs_wallet_funding).toBeTruthy();
     expect(POLICY_REJECTION_COPY.asset_not_whitelisted).toBeTruthy();
     expect(POLICY_REJECTION_COPY.max_trades_per_day).toBeTruthy();
     expect(POLICY_REJECTION_COPY.max_trade_usdc).toBeTruthy();
@@ -91,12 +91,13 @@ describe("POLICY_REJECTION_COPY", () => {
   });
 
   it("uses competitive onboarding copy for no-wallet users", () => {
-    expect(policyRejectionMessage("needs_gladiator_mint")).toBe(
+    expect(policyRejectionMessage("needs_wallet_funding")).toBe(
       NO_WALLET_ONBOARDING_REPLY,
     );
     expect(REJECTION_REPLIES.no_arena_wallet).toBe(NO_WALLET_ONBOARDING_REPLY);
     expect(NO_WALLET_ONBOARDING_REPLY).toMatch(/Commodus/i);
     expect(NO_WALLET_ONBOARDING_REPLY).toMatch(/Mini App/i);
+    expect(NO_WALLET_ONBOARDING_REPLY).toMatch(/fund your wallet/i);
     expect(NO_WALLET_ONBOARDING_REPLY).toMatch(/beat/i);
   });
 

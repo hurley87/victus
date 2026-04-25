@@ -12,7 +12,6 @@ function leaderboardEntry(
   return {
     user_id: `user-${partial.fid}`,
     username: null,
-    gladiator_name: null,
     realized_pnl_usdc: 0,
     last_trade_at: null,
     ...partial,
@@ -49,12 +48,12 @@ describe("loadStandingsSnapContext", () => {
     const result: CurrentLeaderboardResult = {
       month: "2025-06",
       entries: [
-        leaderboardEntry({ rank: 1, fid: 1, points: 100, gladiator_name: "Aurelius" }),
-        leaderboardEntry({ rank: 2, fid: 2, points: 90, gladiator_name: "Lucilla" }),
-        leaderboardEntry({ rank: 3, fid: 99, points: 85, gladiator_name: "Hero" }),
-        leaderboardEntry({ rank: 4, fid: 4, points: 70, gladiator_name: "D" }),
-        leaderboardEntry({ rank: 5, fid: 5, points: 60, gladiator_name: "E" }),
-        leaderboardEntry({ rank: 6, fid: 6, points: 50, gladiator_name: "F" }),
+        leaderboardEntry({ rank: 1, fid: 1, points: 100, username: "aurelius" }),
+        leaderboardEntry({ rank: 2, fid: 2, points: 90, username: "lucilla" }),
+        leaderboardEntry({ rank: 3, fid: 99, points: 85, username: "hero" }),
+        leaderboardEntry({ rank: 4, fid: 4, points: 70, username: "d" }),
+        leaderboardEntry({ rank: 5, fid: 5, points: 60, username: "e" }),
+        leaderboardEntry({ rank: 6, fid: 6, points: 50, username: "f" }),
       ],
     };
     vi.mocked(getCurrentMonthLeaderboard).mockResolvedValue(result);
@@ -68,7 +67,7 @@ describe("loadStandingsSnapContext", () => {
     expect(onlyUser).toBeDefined();
     expect(onlyUser).toMatchObject({
       rank: 3,
-      label: "Hero",
+      label: "@hero",
       points: 85,
       isUser: true,
     });
@@ -78,12 +77,12 @@ describe("loadStandingsSnapContext", () => {
     const result: CurrentLeaderboardResult = {
       month: "2025-06",
       entries: [
-        leaderboardEntry({ rank: 1, fid: 1, points: 100, gladiator_name: "A" }),
-        leaderboardEntry({ rank: 2, fid: 2, points: 90, gladiator_name: "B" }),
-        leaderboardEntry({ rank: 3, fid: 3, points: 80, gladiator_name: "C" }),
-        leaderboardEntry({ rank: 4, fid: 4, points: 70, gladiator_name: "D" }),
-        leaderboardEntry({ rank: 5, fid: 5, points: 60, gladiator_name: "E" }),
-        leaderboardEntry({ rank: 6, fid: 99, points: 45, gladiator_name: "Maximus" }),
+        leaderboardEntry({ rank: 1, fid: 1, points: 100, username: "a" }),
+        leaderboardEntry({ rank: 2, fid: 2, points: 90, username: "b" }),
+        leaderboardEntry({ rank: 3, fid: 3, points: 80, username: "c" }),
+        leaderboardEntry({ rank: 4, fid: 4, points: 70, username: "d" }),
+        leaderboardEntry({ rank: 5, fid: 5, points: 60, username: "e" }),
+        leaderboardEntry({ rank: 6, fid: 99, points: 45, username: "maximus" }),
       ],
     };
     vi.mocked(getCurrentMonthLeaderboard).mockResolvedValue(result);
@@ -94,7 +93,7 @@ describe("loadStandingsSnapContext", () => {
     const appended = ctx?.entries[5];
     expect(appended).toMatchObject({
       rank: 6,
-      label: "Maximus",
+      label: "@maximus",
       points: 45,
       isUser: true,
     });

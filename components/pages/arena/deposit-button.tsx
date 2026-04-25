@@ -426,7 +426,7 @@ function FundingConfirmedPanel({
 }
 
 function pickDefaultAmount(minDepositUsdc: number): DepositAmount {
-  // Default to the smallest option that clears the mint threshold. In
+  // Default to the smallest option that clears the funding threshold. In
   // practice this is always $5 (the policy default) but the math keeps
   // us honest if an operator ever raises the floor.
   for (const opt of AMOUNT_OPTIONS) {

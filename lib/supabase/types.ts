@@ -17,6 +17,7 @@ export type Database = {
       arena_wallets: {
         Row: {
           created_at: string
+          funded_at: string | null
           funding_wallet_address: string | null
           funding_wallet_tx_hash: string | null
           funding_wallet_verified_at: string | null
@@ -29,6 +30,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          funded_at?: string | null
           funding_wallet_address?: string | null
           funding_wallet_tx_hash?: string | null
           funding_wallet_verified_at?: string | null
@@ -41,6 +43,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          funded_at?: string | null
           funding_wallet_address?: string | null
           funding_wallet_tx_hash?: string | null
           funding_wallet_verified_at?: string | null
@@ -264,44 +267,6 @@ export type Database = {
             foreignKeyName: "farcaster_accounts_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      gladiators: {
-        Row: {
-          funded_at: string | null
-          id: string
-          minted_at: string
-          name: string
-          status: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          funded_at?: string | null
-          id?: string
-          minted_at?: string
-          name: string
-          status?: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          funded_at?: string | null
-          id?: string
-          minted_at?: string
-          name?: string
-          status?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "gladiators_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: true
             referencedRelation: "users"
             referencedColumns: ["id"]
           },
@@ -787,7 +752,7 @@ export type Database = {
           max_slippage_bps: number
           max_trade_usdc: number
           max_trades_per_day: number
-          min_mint_deposit_usdc: number
+          min_funding_deposit_usdc: number
           swap_fee_bps: number
           swap_fee_min_usdc: number
           updated_at: string
@@ -802,7 +767,7 @@ export type Database = {
           max_slippage_bps?: number
           max_trade_usdc?: number
           max_trades_per_day?: number
-          min_mint_deposit_usdc?: number
+          min_funding_deposit_usdc?: number
           swap_fee_bps?: number
           swap_fee_min_usdc?: number
           updated_at?: string
@@ -817,7 +782,7 @@ export type Database = {
           max_slippage_bps?: number
           max_trade_usdc?: number
           max_trades_per_day?: number
-          min_mint_deposit_usdc?: number
+          min_funding_deposit_usdc?: number
           swap_fee_bps?: number
           swap_fee_min_usdc?: number
           updated_at?: string

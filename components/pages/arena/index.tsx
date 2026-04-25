@@ -6,14 +6,11 @@ import { useFarcaster } from "@/contexts/farcaster-context";
 import { useUser } from "@/contexts/user-context";
 import { useApiMutation } from "@/hooks/use-api-mutation";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { ApiError } from "@/lib/api-error";
 import type {
   ArenaBalance,
   ArenaProfile,
   ArenaRules,
-  GladiatorSummary,
-  MintGladiatorRequest,
-  MintGladiatorResponse,
+  ProvisionArenaWalletResponse,
   PositionBalance,
 } from "@/lib/arena/types";
 import { cn, copyToClipboard, formatWalletAddress } from "@/lib/utils";
@@ -21,17 +18,18 @@ import { Button } from "@/components/shared/ui/button";
 import Link from "next/link";
 import { DepositButton } from "./deposit-button";
 import { WithdrawButton } from "./withdraw-button";
+import { mapProvisionError } from "./provision-error";
 import { Website } from "../website";
 
 /**
  * Arena onboarding page. Three states driven by `GET /api/arena/me`:
  *
- *   - no gladiator yet  → mint button (auto-derived name)
+ *   - no wallet yet      → wallet provisioning + fund CTA
  *   - pending funding   → in-app deposit button + live progress meter
- *   - alive             → trading UI with live balance + rules + slots
+ *   - funded            → trading UI with live balance + rules + slots
  *
  * The page polls `/api/arena/me` while `needs_funding` is true so the
- * server-side self-heal (`getArenaProfile` flips pending_funding → alive
+ * server-side self-heal (`getArenaProfile` sets `arena_wallets.funded_at`
  * when on-chain USDC clears the threshold) surfaces within ~5s of the
  * server's RPC seeing the deposit.
  */
@@ -112,9 +110,11 @@ function ArenaContent() {
         <header className="space-y-1">
           <h1 className="text-2xl font-semibold">Arena</h1>
           <p className="text-sm text-muted-foreground">
-            Mint your gladiator, fund the arena wallet once, and cast orders at
-            <span className="font-mono"> @commodus</span>. Commodus executes from
-            your arena wallet — no per-trade wallet signature.
+            Fund your wallet, make trades in the arena, and beat Commodus to
+            earn rewards. Cast orders at{" "}
+            <span className="font-mono">@commodus</span>;{" "}
+            Commodus executes from your arena wallet with no per-trade wallet
+            signature.
           </p>
         </header>
 
@@ -127,22 +127,20 @@ function ArenaContent() {
 }
 
 function renderState(profile: ArenaProfile, onChange: () => void) {
-  if (!profile.gladiator) {
+  if (!profile.wallet) {
     return (
-      <PreMintCard
-        suggestedName={profile.suggested_name ?? "gladiator"}
-        minMintDepositUsdc={profile.rules.min_mint_deposit_usdc}
-        onMinted={onChange}
+      <PreFundingCard
+        minFundingDepositUsdc={profile.rules.min_funding_deposit_usdc}
+        onProvisioned={onChange}
       />
     );
   }
   if (profile.needs_funding && profile.arena_address) {
     return (
       <PendingFundingCard
-        gladiator={profile.gladiator}
         arenaAddress={profile.arena_address}
         balance={profile.balance}
-        minDepositUsdc={profile.rules.min_mint_deposit_usdc}
+        minDepositUsdc={profile.rules.min_funding_deposit_usdc}
         onFundingConfirmed={onChange}
       />
     );
@@ -150,7 +148,6 @@ function renderState(profile: ArenaProfile, onChange: () => void) {
   if (profile.arena_address) {
     return (
       <AliveCard
-        gladiator={profile.gladiator}
         arenaAddress={profile.arena_address}
         balance={profile.balance}
         withdrawDestinationAddress={profile.withdraw_destination?.address ?? null}
@@ -165,52 +162,39 @@ function renderState(profile: ArenaProfile, onChange: () => void) {
   return null;
 }
 
-function PreMintCard({
-  suggestedName,
-  minMintDepositUsdc,
-  onMinted,
+function PreFundingCard({
+  minFundingDepositUsdc,
+  onProvisioned,
 }: {
-  suggestedName: string;
-  minMintDepositUsdc: number;
-  onMinted: () => void;
+  minFundingDepositUsdc: number;
+  onProvisioned: () => void;
 }) {
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Empty body — server derives the name from the session's Farcaster
-  // username. Kept typed as MintGladiatorRequest so the hook's generics
-  // still line up if we reintroduce a custom-name surface later.
-  const { mutate: mint, isPending } = useApiMutation<
-    MintGladiatorResponse,
-    MintGladiatorRequest
+  const { mutate: provisionWallet, isPending } = useApiMutation<
+    ProvisionArenaWalletResponse,
+    Record<string, never>
   >({
-    url: "/api/gladiators/mint",
+    url: "/api/arena/wallet",
     method: "POST",
     body: () => ({}),
     onSuccess: () => {
       setFormError(null);
-      onMinted();
+      onProvisioned();
     },
     onError: (err) => {
-      setFormError(mapMintError(err));
+      setFormError(mapProvisionError(err));
     },
   });
 
   return (
     <SectionCard>
-      <h2 className="text-sm font-semibold">Enter the Arena</h2>
+      <h2 className="text-sm font-semibold">Fund your wallet</h2>
       <p className="text-xs text-muted-foreground">
-        Commodus will mint a gladiator under your Farcaster handle and
-        provision a custodial arena wallet on Base. Fund it with at least $
-        {minMintDepositUsdc.toFixed(2)} USDC to unlock trading by casting at{" "}
-        <span className="font-mono">@commodus</span>.
+        Fund your wallet, make trades in the arena, and beat Commodus to earn
+        rewards. Add at least ${minFundingDepositUsdc.toFixed(2)} USDC on Base
+        to unlock trading by casting at <span className="font-mono">@commodus</span>.
       </p>
-
-      <div className="rounded-md border border-black/10 bg-black/[0.02] p-2">
-        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-          Gladiator name
-        </p>
-        <p className="font-mono text-sm break-all">{suggestedName}</p>
-      </div>
 
       {formError && <ErrorLine message={formError} />}
 
@@ -219,24 +203,22 @@ function PreMintCard({
         className="w-full"
         onClick={() => {
           setFormError(null);
-          mint({});
+          provisionWallet({});
         }}
         disabled={isPending}
       >
-        {isPending ? "Minting…" : "Mint gladiator"}
+        {isPending ? "Preparing wallet…" : "Fund wallet"}
       </Button>
     </SectionCard>
   );
 }
 
 function PendingFundingCard({
-  gladiator,
   arenaAddress,
   balance,
   minDepositUsdc,
   onFundingConfirmed,
 }: {
-  gladiator: GladiatorSummary;
   arenaAddress: string;
   balance: ArenaBalance;
   minDepositUsdc: number;
@@ -251,15 +233,12 @@ function PendingFundingCard({
     <section className="rounded-xl border border-amber-900/10 bg-amber-50 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-amber-800">
-          Pending funding
-        </span>
-        <span className="text-[11px] text-amber-800/70 font-mono">
-          {gladiator.name}
+          Wallet needs funding
         </span>
       </div>
 
       <p className="text-sm text-black/80">
-        Fund your gladiator with ≥ ${minDepositUsdc.toFixed(2)} USDC on
+        Fund your wallet with ≥ ${minDepositUsdc.toFixed(2)} USDC on
         Base. Trading unlocks as soon as the deposit confirms.
       </p>
 
@@ -292,14 +271,13 @@ function PendingFundingCard({
       </div>
 
       <p className="text-[11px] text-muted-foreground" aria-live="polite">
-        Trading is disabled until your gladiator is alive.
+        Trading is disabled until your wallet is funded.
       </p>
     </section>
   );
 }
 
 function AliveCard({
-  gladiator,
   arenaAddress,
   balance,
   withdrawDestinationAddress,
@@ -309,7 +287,6 @@ function AliveCard({
   rules,
   onWithdrawn,
 }: {
-  gladiator: GladiatorSummary;
   arenaAddress: string;
   balance: ArenaBalance;
   withdrawDestinationAddress: string | null;
@@ -348,7 +325,7 @@ function AliveCard({
     <section className="rounded-xl border border-green-900/10 bg-green-50 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-green-800">
-          Gladiator alive
+          Wallet funded
         </span>
         <span className="text-[11px] text-green-800/70">
           {dailySlotsRemaining}/{maxTradesPerDay} trades left today
@@ -356,7 +333,7 @@ function AliveCard({
       </div>
 
       <div>
-        <h2 className="text-lg font-semibold">{gladiator.name}</h2>
+        <h2 className="text-lg font-semibold">Arena wallet</h2>
         <button
           type="button"
           onClick={() => copyToClipboard(arenaAddress, setIsCopied)}
@@ -543,20 +520,4 @@ function Centered({ children }: { children: React.ReactNode }) {
       {children}
     </div>
   );
-}
-
-// With the auto-derived-name flow, 400/409 are effectively unreachable
-// (Farcaster usernames are globally unique and the `gladiator-{fid}`
-// fallback is too) — kept as defensive fallbacks in case an admin
-// surface later reintroduces an explicit-name path.
-function mapMintError(err: Error): string {
-  const status = err instanceof ApiError ? err.status : 0;
-  switch (status) {
-    case 401:
-      return "Your session expired. Please sign in again.";
-    case 503:
-      return "Arena wallet provisioning is down. Try again shortly.";
-    default:
-      return "Couldn't mint your gladiator. Try again.";
-  }
 }

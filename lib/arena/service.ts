@@ -2,7 +2,6 @@ import "server-only";
 
 import type { TradableAsset } from "@/lib/chain/balances";
 import { readArenaBalance } from "@/lib/chain/balances";
-import { deriveGladiatorName } from "@/lib/gladiators/service";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
 import { DEFAULT_POLICY } from "./policy";
@@ -10,7 +9,6 @@ import type {
   ArenaBalance,
   ArenaProfile,
   ArenaRules,
-  GladiatorStatus,
   WhitelistEntry,
 } from "./types";
 import { resolveWithdrawDestination } from "./withdraw-destination";
@@ -84,28 +82,25 @@ async function countTodaysIntents(walletId: string): Promise<number> {
 /**
  * Load the Arena profile for a signed-in user.
  *
- * Returns enough for the onboarding UI to render every state: no
- * gladiator, pending funding, or alive. Balance is always live on-chain
- * from Base so the pending-funding progress meter reflects reality.
+ * Returns enough for the onboarding UI to render every state: no arena
+ * wallet, pending funding, or funded. Balance is always live on-chain from
+ * Base so the pending-funding progress meter reflects reality.
  *
- * Also self-heals `pending_funding → alive` inline: when on-chain USDC
- * clears `min_mint_deposit_usdc`, the status bit flips during this read
- * (see `maybeMarkAlive`). The Arena page's 5s poll is the implicit
+ * Also self-heals the funding gate inline: when on-chain USDC clears
+ * `min_funding_deposit_usdc`, `arena_wallets.funded_at` is set during this
+ * read (see `maybeMarkFunded`). The Arena page's 5s poll is the implicit
  * watcher — there is no cron.
  */
 export async function getArenaProfile(
   userId: string,
-  fid: number,
+  _fid: number,
 ): Promise<ArenaProfile> {
-  const [wallet, gladiator, whitelist] = await Promise.all([
+  const [wallet, whitelist] = await Promise.all([
     supabaseAdmin
       .from("arena_wallets")
-      .select("id, wallet_address, funding_wallet_address")
-      .eq("user_id", userId)
-      .maybeSingle(),
-    supabaseAdmin
-      .from("gladiators")
-      .select("id, name, status, minted_at, funded_at")
+      .select(
+        "id, wallet_address, funding_wallet_address, status, created_at, funded_at",
+      )
       .eq("user_id", userId)
       .maybeSingle(),
     loadWhitelist(),
@@ -114,33 +109,24 @@ export async function getArenaProfile(
   if (wallet.error) {
     throw new Error(`Failed to read arena_wallets: ${wallet.error.message}`);
   }
-  if (gladiator.error) {
-    throw new Error(`Failed to read gladiators: ${gladiator.error.message}`);
-  }
 
   const rules = await loadRules(wallet.data?.id ?? null, whitelist.cards);
 
   if (!wallet.data?.wallet_address) {
-    const suggestedName = await deriveGladiatorName(fid).catch((err) => {
-      console.error("Failed to derive suggested name", err);
-      return `gladiator-${fid}`;
-    });
     return {
-      gladiator: null,
+      wallet: null,
       arena_address: null,
       withdraw_destination: null,
       balance: EMPTY_BALANCE,
       rules,
       needs_funding: false,
       daily_slots_remaining: rules.max_trades_per_day,
-      suggested_name: suggestedName,
     };
   }
 
-  const currentStatus = gladiator.data?.status as GladiatorStatus | undefined;
-  const isPendingFunding = currentStatus === "pending_funding";
+  const isPendingFunding = wallet.data.funded_at == null;
 
-  // While pending_funding the UI only shows the balance progress meter,
+  // While pending funding the UI only shows the balance progress meter,
   // not the daily-slots chip — skip the Supabase count to drop one
   // round-trip per 5s poll tick.
   const [account, balance, intentCount] = await Promise.all([
@@ -168,95 +154,84 @@ export async function getArenaProfile(
     arenaAddress: wallet.data.wallet_address,
   });
 
-  // Self-heal: if the Arena page is polling a gladiator whose client-side
-  // refetch landed before the server's RPC saw the deposit, flip the
-  // status inline on a later tick. The 5s poll is the implicit watcher.
-  const effective = await maybeMarkAlive({
+  // Self-heal: if the Arena page is polling a wallet whose client-side
+  // refetch landed before the server's RPC saw the deposit, set funded_at
+  // inline on a later tick. The 5s poll is the implicit watcher.
+  const effective = await maybeMarkFunded({
     userId,
-    gladiatorId: gladiator.data?.id ?? null,
-    mintedAt: gladiator.data?.minted_at ?? null,
-    currentStatus,
-    currentFundedAt: gladiator.data?.funded_at ?? null,
+    walletId: wallet.data.id,
+    createdAt: wallet.data.created_at,
+    currentFundedAt: wallet.data.funded_at,
     balanceUsdc: balance.usdc,
-    thresholdUsdc: rules.min_mint_deposit_usdc,
+    thresholdUsdc: rules.min_funding_deposit_usdc,
   });
 
   return {
-    gladiator: gladiator.data
-      ? {
-          name: gladiator.data.name,
-          status: effective.status ?? (gladiator.data.status as GladiatorStatus),
-          minted_at: gladiator.data.minted_at,
-          funded_at: effective.fundedAt,
-        }
-      : null,
+    wallet: {
+      status: wallet.data.status as "active" | "closed",
+      created_at: wallet.data.created_at,
+      funded_at: effective.fundedAt,
+    },
     arena_address: wallet.data.wallet_address,
     withdraw_destination: withdrawDestination,
     balance,
     rules,
-    needs_funding: effective.status === "pending_funding",
+    needs_funding: effective.fundedAt == null,
     daily_slots_remaining: Math.max(
       0,
       rules.max_trades_per_day - intentCount,
     ),
-    suggested_name: null,
   };
 }
 
-async function maybeMarkAlive(params: {
+async function maybeMarkFunded(params: {
   userId: string;
-  gladiatorId: string | null;
-  mintedAt: string | null;
-  currentStatus: GladiatorStatus | undefined;
+  walletId: string;
+  createdAt: string | null;
   currentFundedAt: string | null;
   balanceUsdc: number;
   thresholdUsdc: number;
-}): Promise<{ status: GladiatorStatus | undefined; fundedAt: string | null }> {
+}): Promise<{ fundedAt: string | null }> {
   const {
     userId,
-    gladiatorId,
-    mintedAt,
-    currentStatus,
+    walletId,
+    createdAt,
     currentFundedAt,
     balanceUsdc,
     thresholdUsdc,
   } = params;
 
-  if (
-    currentStatus !== "pending_funding" ||
-    balanceUsdc + 1e-9 < thresholdUsdc
-  ) {
-    return { status: currentStatus, fundedAt: currentFundedAt };
+  if (currentFundedAt || balanceUsdc + 1e-9 < thresholdUsdc) {
+    return { fundedAt: currentFundedAt };
   }
 
   const now = new Date().toISOString();
   const { error } = await supabaseAdmin
-    .from("gladiators")
-    .update({ status: "alive", funded_at: now })
-    .eq("user_id", userId)
-    .eq("status", "pending_funding");
+    .from("arena_wallets")
+    .update({ funded_at: now })
+    .eq("id", walletId)
+    .is("funded_at", null);
 
   if (error) {
     console.error("arena.profile.autoheal_failed", {
       user_id: userId,
+      wallet_id: walletId,
       reason: error.message,
     });
-    return { status: currentStatus, fundedAt: currentFundedAt };
+    return { fundedAt: currentFundedAt };
   }
 
-  // Telemetry: spec'd by #19. `time_to_fund_seconds` may be null on the
-  // unlikely path where `minted_at` was missing from the read.
-  const timeToFundSeconds = mintedAt
-    ? Math.max(0, (Date.parse(now) - Date.parse(mintedAt)) / 1000)
+  const timeToFundSeconds = createdAt
+    ? Math.max(0, (Date.parse(now) - Date.parse(createdAt)) / 1000)
     : null;
-  console.info("gladiator.funded", {
+  console.info("arena_wallet.funded", {
     user_id: userId,
-    gladiator_id: gladiatorId,
+    wallet_id: walletId,
     deposit_usdc: balanceUsdc,
     time_to_fund_seconds: timeToFundSeconds,
   });
 
-  return { status: "alive", fundedAt: now };
+  return { fundedAt: now };
 }
 
 async function loadRules(
@@ -273,7 +248,7 @@ async function loadRules(
   const { data, error } = await supabaseAdmin
     .from("wallet_policies")
     .select(
-      "max_trade_usdc, max_trades_per_day, wallet_cap_usdc, min_mint_deposit_usdc, swap_fee_bps, swap_fee_min_usdc",
+      "max_trade_usdc, max_trades_per_day, wallet_cap_usdc, min_funding_deposit_usdc, swap_fee_bps, swap_fee_min_usdc",
     )
     .eq("wallet_id", walletId)
     .maybeSingle();
@@ -291,7 +266,7 @@ async function loadRules(
     max_trade_usdc: Number(data.max_trade_usdc),
     max_trades_per_day: data.max_trades_per_day,
     wallet_cap_usdc: Number(data.wallet_cap_usdc),
-    min_mint_deposit_usdc: Number(data.min_mint_deposit_usdc),
+    min_funding_deposit_usdc: Number(data.min_funding_deposit_usdc),
     swap_fee_bps: data.swap_fee_bps,
     swap_fee_min_usdc: Number(data.swap_fee_min_usdc),
   };
@@ -300,7 +275,7 @@ async function loadRules(
 /**
  * Canonical rules + whitelist for display surfaces that do not have an
  * arena wallet yet (`wallet_policies` defaults) — same `loadRules` path as
- * pre-mint `GET /api/arena/me`.
+ * pre-wallet `GET /api/arena/me`.
  */
 export async function getPublicArenaRules(): Promise<ArenaRules> {
   const { cards } = await loadWhitelist();

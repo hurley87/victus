@@ -4,9 +4,9 @@
 
 **Commodus** is a Farcaster trading game built as a Mini App.
 
-Users keep their existing Farcaster account, open the Mini App, **mint a gladiator** (a one-time ritual gated by a **$5 USDC deposit** into a per-user **arena wallet** that Commodus custodies via Privy), then issue **public trade commands** by casting at `@commodus`.
+Users keep their existing Farcaster account, open the Mini App, **fund an arena wallet** with USDC, then issue **public trade commands** by casting at `@commodus`.
 
-Commodus parses the command, validates it against the user's policy and the game rules, **executes the swap autonomously from the arena wallet**, and publishes public intent and outcome reply casts naming the realized fill. The user does not sign each trade; they fund the arena wallet once at mint time and Commodus trades on their behalf from that point on.
+Commodus parses the command, validates it against the user's policy and the game rules, **executes the swap autonomously from the arena wallet**, and publishes public intent and outcome reply casts naming the realized fill. The user does not sign each trade; they fund the arena wallet first and Commodus trades on their behalf from that point on.
 
 Execution is **custodial**. Commodus holds the private key for each user's arena wallet via Privy's server-wallet API (TEE-executed inside an AWS Nitro Enclave — keys are reassembled only in memory for a single signing call and never persist outside the enclave). The application server has authorization to sign but not to export. Gas is sponsored by Privy, funded by a 0.5% fee-on-swap charged at execution time.
 
@@ -26,7 +26,7 @@ Commodus makes trading:
 
 The core loop is simple:
 
-1. Mint your gladiator ($5 USDC, one time)
+1. Fund your wallet ($5 USDC minimum, one time)
 2. Cast decrees in public; Commodus trades on your behalf
 3. Earn points
 4. Climb the leaderboard
@@ -38,7 +38,7 @@ The core loop is simple:
 
 Ship a working Farcaster Mini App that proves three things:
 
-1. users will mint a gladiator (depositing $5 USDC into a custodial arena wallet) to enter the arena
+1. users will fund a custodial arena wallet with USDC to enter the arena
 2. users will issue trade commands publicly on Farcaster and let Commodus execute them autonomously
 3. a leaderboard plus monthly rewards is enough to create engagement
 
@@ -86,13 +86,13 @@ The user signs in with Farcaster (Quick Auth) and reads a simple explanation of 
 - leaderboard is based on points
 - top 10 are highlighted monthly (prizes at operator discretion)
 
-### 3. Mint Your Gladiator
-The user chooses a gladiator name (free text, validated), which triggers the mint ritual:
+### 3. Fund Your Wallet
+The first call to action is wallet funding:
 1. Commodus lazily provisions a per-user **Privy server wallet** on Base — the arena wallet. Private key material is TEE-custodied by Privy and never extractable. The user does not import a seed phrase, does not install anything, and does not manage the key material.
 2. The Mini App surfaces the arena address with a **Deposit ≥ $5 USDC** CTA (copy / QR).
-3. Once the first deposit of ≥ $5 USDC is observed on Base, the `gladiators` row flips `status = 'alive'` and trading unlocks.
+3. Once cumulative deposits reach ≥ $5 USDC on Base, `arena_wallets.funded_at` is set and trading unlocks.
 
-The gladiator is soft-minted (a DB record, not an on-chain NFT) for MVP. No gas, no smart-contract risk. The user's arena wallet exists *only after* they commit to the mint — sign-ins that don't mint cost Commodus zero.
+Users are the gladiators; there is no separate name picker, player-character record, or on-chain NFT in MVP. The user's arena wallet exists only after they tap Fund wallet, so passive sign-ins do not provision wallets.
 
 ### 4. Review Arena Rules
 The user reads what Commodus can and cannot do, including:
@@ -157,7 +157,7 @@ Users who may not be active traders but like:
 ### Mini App
 - Farcaster sign-in (Quick Auth)
 - onboarding flow
-- **mint-your-gladiator ritual** — name picker + lazy Privy wallet provisioning + $5 USDC deposit gate
+- **fund-your-wallet flow** — lazy Privy wallet provisioning + $5 USDC deposit gate
 - surface arena address + live balance with a copy-to-clipboard deposit affordance
 - show game rules + grammar
 - show whitelisted assets
@@ -166,7 +166,7 @@ Users who may not be active traders but like:
 - show trade history
 
 ### Custodial Execution (Privy server wallets)
-- per-user Privy server wallet created **lazily at gladiator-mint time** (not at sign-in); wallet id stored on `arena_wallets.privy_wallet_id`. Users who sign in but never mint cost Commodus nothing.
+- per-user Privy server wallet created **lazily when the user taps Fund wallet** (not at sign-in); wallet id stored on `arena_wallets.privy_wallet_id`. Users who sign in but never fund cost Commodus nothing.
 - Commodus holds authorization to sign from the wallet via Privy's server-wallet API; private key material is TEE-custodied (AWS Nitro Enclave — reassembled in memory only, never persisted outside the enclave, not extractable by Privy, AWS, or a compromised Privy stack)
 - **Gas sponsored by Privy.** Each swap is submitted with `sponsor: true`; Privy pays gas from a sponsorship balance that the operator tops up. That balance is refilled by the fee-on-swap collected at execution time (see Execution Rules).
 - swap execution runs inside a durable Vercel Workflow step that calls Privy's signing API and receives the tx hash synchronously in the step's return value
@@ -220,7 +220,7 @@ Users who may not be active traders but like:
 - Farcaster identity is the canonical social identity in the app
 
 ## Wallets
-- each user has **one** arena wallet, provisioned at gladiator-mint time (not at sign-in — see § Gladiator Mint)
+- each user has **one** arena wallet, provisioned when they tap Fund wallet (not at sign-in — see § Wallet Funding Gate)
 - the arena wallet is a **Privy server wallet** on Base; `arena_wallets.privy_wallet_id` is the canonical Privy identifier and `arena_wallets.wallet_address` is its Base EOA
 - private key material is TEE-custodied by Privy (AWS Nitro Enclave); the application server has authorization to sign but cannot export the key
 - **gas is sponsored by Privy** on every swap (`sponsor: true`). The operator tops up a Privy sponsorship balance; that balance is refilled by the 0.5% fee-on-swap charged at execution. The arena wallet never needs an ETH balance.
@@ -229,34 +229,28 @@ Users who may not be active traders but like:
 - only swaps signed from the arena wallet count toward scoring; by construction, all swaps originate from there
 - the arena wallet cannot be changed once provisioned (one per user in MVP)
 
-## Gladiator Mint
+## Wallet Funding Gate
 
-The gladiator is the user's identity in the arena and the gate on Commodus's exposure to inactive wallets.
+Users are the gladiators. The product does not create a separate character, name, NFT, or player-character record for MVP.
 
-### What the mint is (MVP)
-- **Soft mint only.** A row in the `gladiators` table: `(user_id, name, status, minted_at)`. No on-chain NFT in MVP — no smart-contract risk, no user-paid mint gas, nothing to audit. (On-chain soulbound NFT is deferred to post-MVP; the schema is forward-compatible via an optional `token_id` column added later.)
-- **Name picker.** Free text, 3–32 chars, ASCII letters/numbers/spaces/hyphens, **globally unique** (first mint wins the name). Displayed on leaderboard and in Commodus's replies ("Maximus. Order accepted. 10 USDC → AERO.").
-- **Immortal for MVP.** No death, no retirement, no re-mint. This aligns with the non-goal "no weekly eliminations." A user mints once, ever.
-
-### Mint gate
-- `min_mint_deposit_usdc = 5` — the user's arena wallet must be funded with **≥ $5 USDC** for `gladiators.status` to flip from `'pending_funding'` to `'alive'`.
-- Trading is gated on `status = 'alive'`. A user with a pending gladiator can see the arena address and the live deposit balance but cannot cast a trade command.
+### Funding gate
+- `min_funding_deposit_usdc = 5` — the user's arena wallet must hold **≥ $5 USDC** before trading unlocks.
+- Trading is gated on `arena_wallets.funded_at`. A user with an unfunded wallet can see the arena address and live deposit balance but cannot cast a trade command.
 
 ### Why this gate exists
 - **Abuse protection.** Commodus pays gas sponsorship only on wallets that have already funded $5 USDC. A bot that signs in and pokes around costs $0. A bot that funds $5 has already contributed more than it can consume in gas.
-- **Narrative fit.** "Mint your gladiator to enter the arena" maps onto the Roman voice in a way "deposit $5 to unlock trading" never will. The mint is a ritual, not a meter.
+- **Clear onboarding.** The first action is concrete: fund your wallet, make trades in the arena, and beat Commodus to earn rewards.
 - **Float economics.** The $5 minimum × N users = custodied USDC float. At MVP scale this is legally negligible (see § Compliance Posture) but opens a post-MVP yield surface.
 
-### Mint flow
+### Funding flow
 1. User signs in with Farcaster (Quick Auth). No arena wallet yet.
-2. User opens the Mini App, sees a "Mint Your Gladiator" CTA.
-3. User enters a name; backend calls `POST /api/gladiators/mint`:
+2. User opens the Mini App, sees a "Fund wallet" CTA.
+3. User taps the CTA; backend calls `POST /api/arena/wallet`:
    - provisions a Privy server wallet via the server-wallet API
    - inserts `arena_wallets` (`privy_wallet_id`, `wallet_address`)
-   - inserts `gladiators` (`name`, `status='pending_funding'`)
    - returns the arena address to the client
-4. UI shows the arena address + QR + "Send ≥ $5 USDC on Base to fund your gladiator."
-5. A backend poller (or Alchemy/onchain listener) watches Base for incoming USDC to the arena address; on first confirmed deposit of cumulative ≥ $5 USDC, `gladiators.status = 'alive'`.
+4. UI shows the arena address + deposit control: "Send ≥ $5 USDC on Base to fund your wallet."
+5. The Mini App verifies the funding transaction and the profile self-heal reads live Base USDC balance; once cumulative deposits reach ≥ $5 USDC, `arena_wallets.funded_at` is set.
 6. UI flips into trading-enabled mode; user can cast their first decree.
 
 ## Trade Commands
@@ -319,7 +313,7 @@ Global defaults for MVP. **Not user-editable.**
 
 | Parameter | Value | Enforced at |
 |---|---|---|
-| `min_mint_deposit_usdc` | 5 | mint-funding check (gladiator unlocks at `status='alive'`) |
+| `min_funding_deposit_usdc` | 5 | wallet-funding check (`arena_wallets.funded_at`) |
 | `max_trade_usdc` | 10 | pre-submit (quote step) |
 | `max_trades_per_day` | 10 | pre-submit (intent step) |
 | `wallet_cap_usdc` | 50 | pre-submit on buys (arena wallet USDC + notional value of held positions) |
@@ -342,7 +336,7 @@ Global defaults for MVP. **Not user-editable.**
 - **Wallet cap (pre-submit enforcement, buys only):** rejected if arena wallet USDC + notional-at-quote-time of currently-held tradable positions exceeds `wallet_cap_usdc`.
 - **Slippage:** `max_slippage_bps` is passed to the 0x quote; the router enforces `minOut` on-chain. No user-side slippage picker.
 - **Price impact (score-time enforcement):** after the tx confirms, the server compares realized fill vs. a reference 0x quote at the same block height. Impact > 3% → `status='failed'`, reason `price_impact`, no points.
-- **Gas:** **sponsored by Privy** on every swap. The Privy signing call is invoked with `sponsor: true`; Privy pays gas from a sponsorship balance that the operator funds. The arena wallet never holds ETH. Sponsorship is only exposed on wallets that have cleared the $5 gladiator-mint gate, which caps upside abuse.
+- **Gas:** **sponsored by Privy** on every swap. The Privy signing call is invoked with `sponsor: true`; Privy pays gas from a sponsorship balance that the operator funds. The arena wallet never holds ETH. Sponsorship is only exposed on wallets that have cleared the $5 funding gate, which caps upside abuse.
 - **Fee-on-swap:** Commodus charges `max(swap_fee_bps × notional_usdc, swap_fee_min_usdc)` — 0.5% with a $0.05 floor — deducted from the **USDC leg** at execution (for buys: subtracted from the USDC input before the 0x quote; for sells: subtracted from the USDC output after the swap). The fee is transferred to the operator treasury in the same workflow step (either atomically via a multi-call or as a follow-up transfer from the arena wallet). The fee-on-swap revenue line refills the Privy sponsorship balance, which makes the gas-sponsored UX self-funding at volume.
 - **Cost basis includes the fee.** `avg_cost_usdc` and realized PnL are computed net of `swap_fee_usdc` and sponsored gas (estimated at submission block). This kills fee-farming attacks and ensures leaderboard rank reflects real economic performance.
 - **Reserve-before-submit idempotency:** `trade_executions.execution_id` is a deterministic key (derived from `cast_hash`) inserted with `status='pending'` **before** the Privy signing call. The unique constraint prevents double-submit on workflow replays. On signing-call return, `tx_hash` is populated and `status` moves to `submitted` → `confirmed` / `reverted`.
@@ -457,22 +451,22 @@ Commodus should feel imperial and theatrical, but never unclear.
 
 ### Template examples
 
-**Successful trade** (prefixed with gladiator name)
-- "Maximus. Order accepted. 25 USDC deployed into AERO."
-- "Maximus. The decree is carried out. Sold half thy AERO for 13.40 USDC. +2.40 realized."
-- "Maximus. Commodus has entered the market on thy behalf."
+**Successful trade** (prefixed with Farcaster handle/display label)
+- "@maximus. Order accepted. 25 USDC deployed into AERO."
+- "@maximus. The decree is carried out. Sold half your AERO for 13.40 USDC. +2.40 realized."
+- "@maximus. Commodus has entered the market on your behalf."
 
 **Status reply (public, with deep link)**
 - "Rank 17. 42 points. Portfolio 38.12 USDC. View the full ledger: {deep_link}"
 
 **Grammar rejection**
-- "Speak as Rome taught you, gladiator. Valid decrees: `buy N usdc of SYMBOL`, `sell N% of SYMBOL`, `status`."
+- "Valid commands: `buy N usdc of SYMBOL`, `sell N% of SYMBOL`, `status`."
 
 **Policy rejection**
 - "Order denied. Asset not approved for this arena."
 - "The arena grants only ten decrees per day. Return at the next dawn."
 - "Commodus refuses. This trade violates the laws of the arena."
-- "No gladiator bears thy name. Mint one in the arena before thou dost decree."
+- "Open the Mini App to fund your wallet, make trades in the arena, and beat Commodus to earn rewards."
 
 **Market-condition rejection**
 - "The arena does not deal in such violent movements. Order denied."
@@ -500,12 +494,12 @@ Commodus should feel imperial and theatrical, but never unclear.
 
 The execution surface was the biggest architectural call for MVP. Three viable options were considered; one was ruled out by protocol reality, one by UX, and one chosen.
 
-**Custodial Privy server wallets (chosen).** Per-user Privy wallet on Base, TEE-executed in AWS Nitro Enclaves, with gas sponsorship by Privy funded by a 0.5% fee-on-swap. The user mints a gladiator (one-time $5 USDC deposit), then casts decrees; Commodus executes autonomously. Chosen because:
+**Custodial Privy server wallets (chosen).** Per-user Privy wallet on Base, TEE-executed in AWS Nitro Enclaves, with gas sponsorship by Privy funded by a 0.5% fee-on-swap. The user funds a wallet with USDC, then casts decrees; Commodus executes autonomously. Chosen because:
 
 1. **Highest agent-feel.** The product premise is "Commodus trades on your behalf." A user signing every trade themselves is a DEX with a chat skin, not an agent. Autonomous execution is the product.
 2. **Deterministic tx hashes.** Privy's signing API returns the tx hash in the same RPC call that submits it. No capture-path reverse-engineering, no listener fallback, no latency edge cases. See `docs/spikes/snap-tx-hash.md` for the receipts on why this matters.
 3. **Revenue surface actually works.** Fee-on-swap and yield on idle balances are both viable when Commodus holds the balance. In a non-custodial model there's nothing to skim and nothing to yield. The fee-on-swap also refills the gas sponsorship balance, which makes the gas-free UX self-funding at volume.
-4. **Abuse bound by lazy provisioning + mint gate.** Privy wallets are created only on gladiator-mint (not sign-in), and the mint requires a $5 USDC deposit. A bot that signs in but doesn't mint costs $0; a bot that mints has already contributed more than it can consume in sponsored gas.
+4. **Abuse bound by lazy provisioning + funding gate.** Privy wallets are created only when the user taps Fund wallet (not sign-in), and trading requires a $5 USDC deposit. A bot that signs in but does not fund costs $0; a bot that funds has already contributed more than it can consume in sponsored gas.
 5. **TEE custody posture.** Private keys are reassembled only inside AWS Nitro Enclaves for the duration of a single signing call — not extractable by Privy, AWS, or a compromised Privy control plane. The application server's signing authorization is a revocable service-account credential, not a key-material copy.
 6. **Durable-workflow fit.** A single `submit_swap` step inside the existing Vercel Workflow calls Privy, gets the hash back, and moves on. The rest of the pipeline (quote → record → score → reply) is unchanged from the pre-Snap design.
 
@@ -529,7 +523,7 @@ The execution surface was the biggest architectural call for MVP. Three viable o
 
 Every cast runs end-to-end inside a single Vercel Workflow. There is no "user drives the next event" break point — Commodus owns the whole pipeline from webhook ingress to outcome reply. The security boundary is custody (Privy's TEE), not signature possession.
 
-Wallet provisioning is **not** part of this workflow — it happens synchronously inside the gladiator-mint endpoint (`POST /api/gladiators/mint`), before the user can cast a decree. By the time a cast arrives, the arena wallet already exists and `gladiators.status = 'alive'` (or the policy step rejects the decree).
+Wallet provisioning is **not** part of this workflow — it happens synchronously inside `POST /api/arena/wallet`, before the user can cast a decree. By the time a cast arrives, the arena wallet already exists and `arena_wallets.funded_at` is set (or the policy step rejects the decree).
 
 ```
 Farcaster user casts "@commodus buy 10 usdc of aero"
@@ -553,7 +547,7 @@ Vercel Workflow process-trade-command
           ├─ parse_command(cast_text)             regex pre-filter; LLM fallback via generateObject + Zod
           │                                       → cast_commands.status = 'parsed'
           │
-          ├─ policy_validate(intent)              gladiator_alive + whitelist + daily-rate-limit
+          ├─ policy_validate(intent)              wallet_funded + whitelist + daily-rate-limit
           │                                       + max_trade_usdc + wallet_cap_usdc
           │                                       (reads live arena wallet state)
           │                                       → cast_commands.status = 'validated' | 'rejected'
@@ -669,16 +663,8 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - wallet_address (unique — Base EOA of the Privy server wallet)
 - privy_wallet_id (unique — Privy's canonical identifier for server-side signing API calls)
 - status ('active' | 'closed')
-- created_at (set at gladiator-mint time, not at sign-in)
-
-### `gladiators`
-- id
-- user_id (unique — one gladiator per user in MVP; immortal)
-- name (3–32 chars, ASCII letters/numbers/spaces/hyphens; globally unique)
-- status ('pending_funding' | 'alive')
-- minted_at
-- funded_at (nullable; set when cumulative USDC deposits ≥ `min_mint_deposit_usdc`)
-- *(post-MVP)* `token_id` — on-chain soulbound NFT id, added in a forward-compatible migration when the NFT mint ships
+- funded_at (nullable; set when cumulative USDC deposits ≥ `min_funding_deposit_usdc`)
+- created_at (set at wallet provisioning time, not at sign-in)
 
 ### `wallet_policies`
 - id
@@ -815,10 +801,10 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - `POST /api/auth/siwf` — Farcaster Quick Auth callback (Mini App session)
 - session handling
 
-### Arena / Gladiator
-- `POST /api/gladiators/mint` — body `{ name }`. Creates a Privy server wallet for the authenticated user (if not already provisioned), inserts `arena_wallets` + `gladiators` (status=`pending_funding`), returns `{ wallet_address, gladiator: { name, status } }`. Idempotent per user — a replay returns the existing records.
-- `GET /api/arena/me` — gladiator (name, status), arena address, live balance (USDC + held positions), rules snapshot, sample command. Returns a `needs_funding` flag while `gladiators.status = 'pending_funding'`.
-- **(internal)** funding watcher — poller or on-chain listener that flips `gladiators.status` to `'alive'` and sets `funded_at` when cumulative USDC deposits to the arena wallet reach `min_mint_deposit_usdc`.
+### Arena / Wallet
+- `POST /api/arena/wallet` — creates a Privy server wallet for the authenticated user if one does not already exist, inserts `arena_wallets` + `wallet_policies`, and returns the arena address. Idempotent per user — a replay returns the existing records.
+- `GET /api/arena/me` — wallet funding state, arena address, live balance (USDC + held positions), rules snapshot, and sample command. Returns a `needs_funding` flag while `arena_wallets.funded_at` is null.
+- **(internal)** funding self-heal — the Mini App verifies the funding transaction and the profile reader sets `arena_wallets.funded_at` when cumulative USDC deposits to the arena wallet reach `min_funding_deposit_usdc`.
 
 ### Farcaster ingestion
 - `POST /api/webhooks/neynar` — verify signature, dedupe, enqueue
@@ -850,17 +836,17 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 
 ### Onboarding
 - user can sign in with Farcaster (no wallet provisioned yet)
-- user can mint a gladiator: pick a name → system lazily provisions a Privy arena wallet → user deposits ≥ $5 USDC → system flips `gladiators.status = 'alive'`
+- user can tap Fund wallet → system lazily provisions a Privy arena wallet → user deposits ≥ $5 USDC → system sets `arena_wallets.funded_at`
 - user can see their arena address + live balance
-- user can see the funding progress meter while `status = 'pending_funding'`
+- user can see the funding progress meter while `needs_funding` is true
 - user can see approved assets and grammar before trading
-- user cannot issue a trade command until their gladiator is `'alive'`
+- user cannot issue a trade command until their arena wallet is funded
 
 ### Trade Execution
 - user can issue a supported public trade command
 - system parses valid commands via agent + Zod schema
 - system rejects invalid commands with templated Commodus reply
-- system rejects commands from users whose gladiator is not `'alive'` with a templated "mint your gladiator first" reply
+- system rejects commands from users whose wallet is not funded with a templated funding reply
 - system validates policy (whitelist, daily cap, `max_trade_usdc`, `wallet_cap_usdc`) before submission
 - system computes `swap_fee_usdc = max(notional * swap_fee_bps / 10_000, swap_fee_min_usdc)` and applies it to the USDC leg
 - system reserves a `trade_executions` row (status=`pending`, unique `execution_id`) before calling Privy
@@ -887,8 +873,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 ## UX Requirements
 
 ### Arena page (home)
-Must show (post-mint, gladiator `alive`):
-- the user's gladiator name ("Maximus")
+Must show (funded wallet):
 - the user's arena address (copyable) with a prominent "Deposit USDC" call-to-action
 - live arena wallet balance (USDC + each held position's quantity and notional value)
 - approved assets
@@ -896,14 +881,15 @@ Must show (post-mint, gladiator `alive`):
 - sample commands
 - daily trade slots remaining
 
-Must show (pre-mint, no gladiator yet):
-- **"Mint Your Gladiator"** CTA with name input
+Must show (no arena wallet yet):
+- **"Fund wallet"** CTA
+- copy: "Fund your wallet, make trades in the arena, and beat Commodus to earn rewards."
 
-Must show (post-mint, pre-funding, gladiator `pending_funding`):
-- gladiator name + "Pending: send ≥ $5 USDC to fund your gladiator" banner
+Must show (wallet provisioned, pre-funding):
+- "Wallet needs funding" banner
 - arena address (copyable) with QR
 - live funding progress ("$3.14 / $5.00 USDC deposited")
-- trading UI disabled with "mint your gladiator to enter the arena" tooltip
+- trading UI disabled until the wallet is funded
 
 ### Portfolio page
 Must show:
@@ -920,7 +906,7 @@ Must show:
 
 ### Rules page
 Must show:
-- the gladiator mint ritual ($5 USDC deposit, one-time, immortal for MVP)
+- the wallet funding flow ($5 USDC minimum, one-time)
 - exact command grammar (amount/percent are authoritative sizes, enforced server-side)
 - full whitelist
 - scoring formula + daily cap + monthly reset
@@ -980,9 +966,8 @@ These are conscious tradeoffs for hackathon velocity. Each has a planned resolut
 | Compromise | Reason | Resolution |
 |---|---|---|
 | **Custodial Privy server wallets** are the execution surface | Required for the autonomous-agent product thesis; only mechanism that gives deterministic tx hashes + fee-on-swap + yield-on-idle revenue | Re-evaluate if (a) regulatory pressure mandates non-custody, in which case pivot to Mini App SDK `swapToken` per trade (`feat/miniapp-per-trade` escape hatch), or (b) Farcaster / AA ecosystem ships first-party delegated signers with usable scoping semantics. |
-| **Soft-mint gladiators (DB row, no on-chain NFT)** | Ships the narrative ritual and abuse gate without the smart-contract surface; no user-paid mint gas; forward-compatible schema for a later NFT migration | Post-MVP: soulbound ERC-721 mint on Base when there's product reason (retire-and-remint mechanic, cross-product identity, collectibility). Add `gladiators.token_id` in a non-breaking migration. |
-| **Immortal gladiators in MVP (no death/retirement)** | Aligns with the "no weekly eliminations" non-goal; keeps MVP scope on the trading loop rather than lifecycle mechanics | Revisit when adding tournament seasons, resurrection, or lineage mechanics — any of which wants a retirement signal. |
-| **Lazy wallet provisioning at mint (not at sign-in)** | Sign-in without mint costs Commodus $0; Privy sponsorship is only exposed on wallets that have cleared the $5 mint gate | No resolution needed; this is the correct steady-state policy. |
+| **No separate player character in MVP** | Users are already identified by Farcaster; removing the extra object makes onboarding clearer and faster | Revisit only if a later season needs cosmetic identity, tournament lineage, or collectibles. |
+| **Lazy wallet provisioning at first fund CTA (not at sign-in)** | Sign-in without funding costs Commodus $0; Privy sponsorship is only exposed on wallets that have cleared the $5 funding gate | No resolution needed; this is the correct steady-state policy. |
 | **No user-initiated withdraw in MVP** | Withdraw flow is operationally the most failure-sensitive path (partial fills, network races, support load); deferring lets MVP ship | Withdraw-by-request via operator; add a self-serve `POST /api/arena/withdraw` with rate-limiting and amount-cap once Phase 5 settles. |
 | **Money-transmitter / custody regulatory exposure accepted at MVP scale** | $50 wallet cap + $10 per-trade cap + no fiat rails keeps exposure small; legal-review cost exceeds risk-adjusted enforcement cost at this scale | Legal review before any of: aggregate custodied balance >$10k, fiat rails, marketing outside crypto-native audience. See § Compliance Posture. |
 | **Privy gas sponsorship funded by fee-on-swap** | Users shouldn't need to hold ETH for a USDC-in product; operator absorbs the cash-flow lag between topping up the sponsorship balance and collecting fee-on-swap revenue | Steady state at scale: sponsorship balance is self-refilling from fees. If volume outruns fee revenue, switch to a user-paid gas model (arena wallet holds ETH, gasless via paymaster, or ERC-4337 with sponsored gas metered per user). |
@@ -1031,9 +1016,9 @@ Confirm field paths in the Axiom UI after the first deploy; if logs arrive as es
 
 ### MVP success metrics
 - number of users who sign in
-- number of users who mint a gladiator (arena wallet provisioned, name chosen)
-- number of gladiators who reach `alive` status (≥ $5 USDC deposit cleared)
-- sign-in → mint → funded conversion funnel
+- number of users who tap Fund wallet (arena wallet provisioned)
+- number of wallets that reach funded status (≥ $5 USDC deposit cleared)
+- sign-in → wallet provisioned → funded conversion funnel
 - number of public trade casts
 - command parse success rate
 - intent-reply publish success rate (server-owned)
@@ -1048,14 +1033,14 @@ Confirm field paths in the Axiom UI after the first deploy; if logs arrive as es
 ### Demo success
 A successful demo should show, in order:
 1. A first-time user signs in with Farcaster
-2. User taps "Mint Your Gladiator", enters a name ("Maximus"); Mini App lazily provisions the Privy arena wallet and surfaces the address + a "Deposit ≥ $5 USDC" CTA
-3. User sends $10 USDC to the arena address; Mini App balance updates live, gladiator flips from `pending_funding` to `alive`, trading unlocks
+2. User taps "Fund wallet"; Mini App lazily provisions the Privy arena wallet and surfaces the address + a "Deposit ≥ $5 USDC" CTA
+3. User sends $10 USDC to the arena address; Mini App balance updates live, `arena_wallets.funded_at` is set, trading unlocks
 4. User posts `@commodus buy 10 usdc of aero` from Farcaster
 5. Commodus publishes an intent reply cast within seconds ("Maximus. Order accepted. 10 USDC → AERO.")
 6. Commodus executes the swap autonomously (sponsored gas, no ETH in arena wallet); outcome reply naming the realized fill publishes within ~15s of the original cast
 7. Mini App shows updated arena wallet (USDC reduced by notional + 0.5% fee, AERO holding visible) + rank
 8. User posts `@commodus sell 50% of aero`; outcome reply names realized PnL within ~15s
-9. Leaderboard page shows the user climbing, displayed by gladiator name
+9. Leaderboard page shows the user climbing, displayed by Farcaster identity
 10. At no point does the user open a signing dialog, hold ETH, or leave Farcaster
 
 ---
@@ -1067,7 +1052,7 @@ Order of operations for going live:
 1. **Infrastructure ready** — Supabase schema applied (including the non-custodial pivot and the `restore_custodial_execution` migration on top), Vercel deployment live, Neynar webhook pointed at prod URL, 0x API key in place, Privy server-wallet API key provisioned, **Privy gas-sponsorship balance funded** (seed with ~$500 to cover launch-week traffic before fee-on-swap revenue recycles), operator USDC treasury wallet configured (receives fee-on-swap transfers).
 2. **`@commodus` FID profile polished** — bio, pfp, pinned cast explaining the game.
 3. **First `reward_epoch` row created** for the launch month.
-4. **Commodus casts the arena opening:** *"The arena opens. Mint thy gladiator with 5 USDC. Speak thy decrees: `@commodus buy N usdc of SYMBOL`. Commodus trades on thy behalf."*
+4. **Commodus casts the arena opening:** *"The arena opens. Fund your wallet with 5 USDC. Speak your commands: `@commodus buy N usdc of SYMBOL`. Commodus trades on your behalf."*
 5. **Public trading begins.**
 6. **End of month:** leaderboard freezes automatically; operator exports CSV; fulfills any prizes off-app; recap cast published if desired.
 
@@ -1091,19 +1076,19 @@ Most prior open questions resolved during grilling. Remaining:
 - add `asset_whitelist` seed data (USDC quote + AERO, DEGEN, VIRTUAL tradable; **WETH retired** via follow-on migration in this repo)
 - add admin-FID allowlist env var
 
-### Phase 2 — Gladiator mint + arena wallet provisioning
-- implement `POST /api/gladiators/mint` (validate name, create Privy server wallet via server-wallet API, insert `arena_wallets` + `gladiators` with `status='pending_funding'`)
-- implement funding watcher (poller or Alchemy webhook on arena address for USDC transfers) that flips `gladiators.status='alive'` on first ≥ $5 USDC cumulative deposit
-- implement `GET /api/arena/me` (gladiator state + arena address + live balance + rules snapshot)
-- Arena page UI with three states: (a) pre-mint "Mint Your Gladiator" form, (b) pending-funding banner with progress meter, (c) post-funding trading-enabled view
-- Rules page with grammar + whitelist + scoring + mint ritual + fee-on-swap + custody posture
+### Phase 2 — Wallet funding + arena wallet provisioning
+- implement `POST /api/arena/wallet` (create Privy server wallet via server-wallet API, insert `arena_wallets` + `wallet_policies`)
+- implement funding verification/self-heal that sets `arena_wallets.funded_at` on first ≥ $5 USDC cumulative deposit
+- implement `GET /api/arena/me` (wallet funding state + arena address + live balance + rules snapshot)
+- Arena page UI with three states: (a) pre-wallet "Fund wallet" CTA, (b) pending-funding banner with progress meter, (c) funded trading-enabled view
+- Rules page with grammar + whitelist + scoring + funding flow + fee-on-swap + custody posture
 
 ### Phase 3 — Cast ingestion + custodial execution pipeline
 - implement `POST /api/webhooks/neynar` with HMAC verification + Redis idempotency + Supabase insert
 - stand up Vercel Queue `trade-commands`
 - stand up Vercel Workflow `process-trade-command`:
   - `parse_command` step: regex pre-filter → `generateObject` (Vercel AI SDK, AI Gateway model) → `TradeIntentSchema` (Zod)
-  - `policy_validate` step: `gladiator_alive` + whitelist + daily cap + `max_trade_usdc` + `wallet_cap_usdc`
+  - `policy_validate` step: `wallet_funded` + whitelist + daily cap + `max_trade_usdc` + `wallet_cap_usdc`
   - `compute_fee` step: `fee_usdc = max(notional * swap_fee_bps / 10_000, swap_fee_min_usdc)`
   - `quote_swap` step: 0x Swap API quote + calldata (net-of-fee notional for buys); reserve `trade_executions` row (`execution_id` unique, status=`pending`, `swap_fee_usdc` set)
   - `publish_intent_reply_cast` step: templated, idempotent on `(cast_hash, 'intent')`
@@ -1133,4 +1118,4 @@ Most prior open questions resolved during grilling. Remaining:
 
 ## One-Line Product Definition
 
-**Commodus is a Farcaster trading game where users mint a gladiator (one-time $5 USDC deposit into a custodial arena wallet), issue public trade decrees by casting at `@commodus`, watch Commodus execute on their behalf with sponsored gas, and climb the monthly leaderboard.**
+**Commodus is a Farcaster trading game where users fund a custodial arena wallet with USDC, issue public trade decrees by casting at `@commodus`, watch Commodus execute on their behalf with sponsored gas, and climb the monthly leaderboard.**

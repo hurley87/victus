@@ -1,6 +1,6 @@
 /**
  * Wire contracts for the Arena HTTP surface — `/api/arena/me`,
- * `/api/arena/withdraw`, and `/api/gladiators/mint`. Colocated so
+ * `/api/arena/wallet`, and `/api/arena/withdraw`. Colocated so
  * the handler, the service, and the client stay in sync.
  */
 
@@ -16,12 +16,11 @@ export type WhitelistEntry = {
   is_tradable: boolean;
 };
 
-export type GladiatorStatus = "pending_funding" | "alive";
+export type ArenaWalletStatus = "active" | "closed";
 
-export type GladiatorSummary = {
-  name: string;
-  status: GladiatorStatus;
-  minted_at: string;
+export type ArenaWalletSummary = {
+  status: ArenaWalletStatus;
+  created_at: string;
   funded_at: string | null;
 };
 
@@ -36,21 +35,21 @@ export type ArenaRules = {
   max_trade_usdc: number;
   max_trades_per_day: number;
   wallet_cap_usdc: number;
-  min_mint_deposit_usdc: number;
+  min_funding_deposit_usdc: number;
   swap_fee_bps: number;
   swap_fee_min_usdc: number;
 };
 
 /**
- * Response body for `GET /api/arena/me`. Drives all three Arena states:
- *   - `gladiator === null` → State A (pre-mint)
+ * Response body for `GET /api/arena/me`. Drives all three Wallet states:
+ *   - `wallet === null` → State A (pre-wallet)
  *   - `needs_funding === true` → State B (pending funding)
- *   - otherwise → State C (alive)
+ *   - otherwise → State C (funded)
  *
  * Addresses are lowercase hex throughout the system.
  */
 export type ArenaProfile = {
-  gladiator: GladiatorSummary | null;
+  wallet: ArenaWalletSummary | null;
   arena_address: string | null;
   withdraw_destination: {
     address: string;
@@ -60,27 +59,12 @@ export type ArenaProfile = {
   rules: ArenaRules;
   needs_funding: boolean;
   daily_slots_remaining: number;
-  /**
-   * Server-derived gladiator name preview shown on the pre-mint card
-   * (Farcaster username, or `gladiator-{fid}` fallback). Present only
-   * when `gladiator === null`; `null` otherwise. Authoritative — the
-   * mint endpoint uses the same derivation on write.
-   */
-  suggested_name: string | null;
 };
 
-/**
- * Mint request body. All fields optional — default behavior derives the
- * gladiator name from the authenticated user's Farcaster username.
- */
-export type MintGladiatorRequest = {
-  name?: string;
-};
-
-export type MintGladiatorResponse = {
+export type ProvisionArenaWalletResponse = {
   arena_address: string;
-  gladiator: GladiatorSummary;
-  min_mint_deposit_usdc: number;
+  wallet: ArenaWalletSummary;
+  min_funding_deposit_usdc: number;
 };
 
 /**

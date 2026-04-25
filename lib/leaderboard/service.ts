@@ -9,7 +9,6 @@ export type LeaderboardEntry = {
   user_id: string;
   fid: number;
   username: string | null;
-  gladiator_name: string | null;
   points: number;
   realized_pnl_usdc: number;
   last_trade_at: string | null;
@@ -134,23 +133,13 @@ export async function getCurrentMonthLeaderboard(): Promise<CurrentLeaderboardRe
     return { month, entries: [] };
   }
 
-  const [{ data: accounts, error: acctErr }, { data: gladiators, error: gladErr }] =
-    await Promise.all([
-      supabaseAdmin
-        .from("farcaster_accounts")
-        .select("user_id, fid, username")
-        .in("user_id", userIdList),
-      supabaseAdmin
-        .from("gladiators")
-        .select("user_id, name")
-        .in("user_id", userIdList),
-    ]);
+  const { data: accounts, error: acctErr } = await supabaseAdmin
+    .from("farcaster_accounts")
+    .select("user_id, fid, username")
+    .in("user_id", userIdList);
 
   if (acctErr) {
     throw new Error(`leaderboard: farcaster_accounts ${acctErr.message}`);
-  }
-  if (gladErr) {
-    throw new Error(`leaderboard: gladiators ${gladErr.message}`);
   }
 
   const fidByUser = new Map(
@@ -158,9 +147,6 @@ export async function getCurrentMonthLeaderboard(): Promise<CurrentLeaderboardRe
   );
   const usernameByUser = new Map(
     (accounts ?? []).map((a) => [a.user_id, a.username]),
-  );
-  const gladNameByUser = new Map(
-    (gladiators ?? []).map((g) => [g.user_id, g.name]),
   );
 
   const entries: LeaderboardEntry[] = userIdList.map((user_id) => {
@@ -170,7 +156,6 @@ export async function getCurrentMonthLeaderboard(): Promise<CurrentLeaderboardRe
       user_id,
       fid: fidByUser.get(user_id) ?? 0,
       username: usernameByUser.get(user_id) ?? null,
-      gladiator_name: gladNameByUser.get(user_id) ?? null,
       points: pointsByUser.get(user_id) ?? 0,
       realized_pnl_usdc: pnlByUser.get(user_id) ?? 0,
       last_trade_at: lastTs != null ? new Date(lastTs).toISOString() : null,

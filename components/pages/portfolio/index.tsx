@@ -124,9 +124,7 @@ function PortfolioContent({
       : isViewingOther
         ? null
         : viewerUsername;
-  const title =
-    data.gladiator_name ??
-    (data.display_name || (handle ? `@${handle}` : `fid ${targetFid}`));
+  const title = handle ? `@${handle}` : data.display_name || `fid ${targetFid}`;
 
   return (
     <div className="bg-white text-black min-h-screen flex flex-col items-center p-4">
@@ -136,7 +134,7 @@ function PortfolioContent({
             className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
             role="status"
           >
-            Viewing this gladiator&apos;s ledger (shared link).{" "}
+            Viewing this player&apos;s ledger (shared link).{" "}
             <Link href="/portfolio" className="font-medium text-purple-800 underline">
               Open your portfolio
             </Link>

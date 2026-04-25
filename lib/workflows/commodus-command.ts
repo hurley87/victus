@@ -147,17 +147,17 @@ export async function handleCommodusCommand(ctx: CommandContext) {
 
   const walletLookup = await resolveArenaWallet(ctx.castHash, ctx.authorFid);
   if (!walletLookup) {
-    await markRejected(ctx.castHash, "needs_gladiator_mint");
+    await markRejected(ctx.castHash, "needs_wallet_funding");
     await publishOutcomeReply(
       ctx.castHash,
-      policyRejectionMessage("needs_gladiator_mint"),
+      policyRejectionMessage("needs_wallet_funding"),
       [{ url: onboardingSnapUrlForFid(ctx.authorFid) }],
     );
-    return { status: "rejected" as const, reason: "needs_gladiator_mint" };
+    return { status: "rejected" as const, reason: "needs_wallet_funding" };
   }
 
   const voiceCtx: CommodusVoiceContext = {
-    gladiatorName: walletLookup.gladiatorName,
+    playerLabel: walletLookup.playerLabel,
   };
 
   const policyOutcome = await policyValidate(ctx.castHash, {
@@ -641,7 +641,7 @@ type WalletLookup = {
   walletId: string;
   walletAddress: string;
   privyWalletId: string;
-  gladiatorName: string;
+  playerLabel: string;
 };
 
 async function resolveArenaWallet(
@@ -653,7 +653,7 @@ async function resolveArenaWallet(
   return logStep(castHash, "resolve_arena_wallet", async () => {
     const { data: account, error: accErr } = await supabaseAdmin
       .from("farcaster_accounts")
-      .select("user_id")
+      .select("user_id, username, display_name")
       .eq("fid", fid)
       .maybeSingle();
 
@@ -669,18 +669,17 @@ async function resolveArenaWallet(
     if (wErr) throw new Error(`arena_wallets lookup failed: ${wErr.message}`);
     if (!wallet) return null;
 
-    const { data: glad } = await supabaseAdmin
-      .from("gladiators")
-      .select("name")
-      .eq("user_id", account.user_id)
-      .maybeSingle();
-
     return {
       userId: account.user_id,
       walletId: wallet.id,
       walletAddress: wallet.wallet_address,
       privyWalletId: wallet.privy_wallet_id,
-      gladiatorName: typeof glad?.name === "string" ? glad.name.trim() : "",
+      playerLabel:
+        typeof account.username === "string" && account.username.trim()
+          ? `@${account.username.trim()}`
+          : typeof account.display_name === "string"
+            ? account.display_name.trim()
+            : "",
     };
   });
 }
@@ -1543,6 +1542,6 @@ function parseRejectionFor(reason: string): {
   // so a future parser shape doesn't silently drop the reply.
   return {
     errorReason: reason,
-    reply: buildOutcomeReply({ kind: "failure", reason }, { gladiatorName: "" }),
+    reply: buildOutcomeReply({ kind: "failure", reason }, { playerLabel: "" }),
   };
 }

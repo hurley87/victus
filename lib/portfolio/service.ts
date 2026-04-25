@@ -32,7 +32,6 @@ export type PortfolioResult = {
   fid: number;
   username: string | null;
   display_name: string | null;
-  gladiator_name: string | null;
   /** Arena USDC cash plus at-cost position notionals (same basis as the holdings table). */
   total_portfolio_value_usdc: number;
   holdings: PortfolioHolding[];
@@ -88,15 +87,10 @@ export async function getPortfolioByFid(fid: number): Promise<PortfolioResult | 
 
   const userId = account.user_id;
 
-  const [{ data: wallet }, { data: gladiator }, tradableAssets] = await Promise.all([
+  const [{ data: wallet }, tradableAssets] = await Promise.all([
     supabaseAdmin
       .from("arena_wallets")
       .select("id, wallet_address")
-      .eq("user_id", userId)
-      .maybeSingle(),
-    supabaseAdmin
-      .from("gladiators")
-      .select("name")
       .eq("user_id", userId)
       .maybeSingle(),
     loadTradableAssets(),
@@ -107,7 +101,6 @@ export async function getPortfolioByFid(fid: number): Promise<PortfolioResult | 
       fid,
       username: account.username,
       display_name: account.display_name,
-      gladiator_name: gladiator?.name ?? null,
       total_portfolio_value_usdc: 0,
       holdings: [],
       realized_pnl_month_usdc: 0,
@@ -237,7 +230,6 @@ export async function getPortfolioByFid(fid: number): Promise<PortfolioResult | 
     fid,
     username: account.username,
     display_name: account.display_name,
-    gladiator_name: gladiator?.name ?? null,
     total_portfolio_value_usdc,
     holdings,
     realized_pnl_month_usdc: realizedMonth,

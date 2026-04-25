@@ -273,9 +273,9 @@ function mapWithdrawError(err: Error): string {
     case 403:
       return "No Farcaster-verified address to withdraw to. Add one to your Farcaster profile.";
     case 404:
-      return "No arena wallet found. Mint your gladiator first.";
+      return "No arena wallet found. Fund your wallet first.";
     case 409:
-      return "Withdraw blocked — another withdraw may still be in flight, or your gladiator isn't alive yet.";
+      return "Withdraw blocked — another withdraw may still be in flight, or your wallet is not funded yet.";
     case 503:
       return "Withdraw is temporarily unavailable. Try again shortly.";
     default:

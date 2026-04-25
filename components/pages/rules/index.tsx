@@ -20,11 +20,15 @@ import { Website } from "../website";
 
 const RULES_QUERY_KEY = ["arena-rules-public"] as const;
 
-function exampleBuyCommands(rules: ArenaRules): string[] {
-  const tradable = rules.whitelist
+function tradableSymbols(rules: ArenaRules): string[] {
+  const lowered = rules.whitelist
     .filter((w) => w.is_tradable)
     .map((w) => w.symbol.toLowerCase());
-  const uniq = [...new Set(tradable)];
+  return [...new Set(lowered)];
+}
+
+function exampleBuyCommands(rules: ArenaRules): string[] {
+  const uniq = tradableSymbols(rules);
   const cap = Math.min(10, rules.max_trade_usdc);
   const a = uniq[0] ?? "symbol";
   const b = uniq[1] ?? a;
@@ -39,10 +43,7 @@ function exampleBuyCommands(rules: ArenaRules): string[] {
 }
 
 function exampleSellCommands(rules: ArenaRules): string[] {
-  const tradable = rules.whitelist
-    .filter((w) => w.is_tradable)
-    .map((w) => w.symbol.toLowerCase());
-  const uniq = [...new Set(tradable)];
+  const uniq = tradableSymbols(rules);
   const a = uniq[0] ?? "symbol";
   const b = uniq[1] ?? a;
   const c = uniq[2] ?? a;
@@ -156,12 +157,12 @@ function RulesBody({ rules }: { rules: ArenaRules }) {
           <h2 className="text-sm font-semibold">Execution</h2>
           <p className="text-xs text-black/80">
             Commodus holds the arena wallet through the configured provider (Privy) and
-            signs swaps server-side. You fund USDC once at gladiator mint; you do not
-            approve each trade in a wallet extension.
+            signs swaps server-side. You fund USDC once; you do not approve each
+            trade in a wallet extension.
           </p>
           <p className="text-xs text-black/80">
-            Mint a gladiator with ≥ ${rules.min_mint_deposit_usdc.toFixed(2)} USDC. Trading
-            unlocks when your gladiator is alive.
+            Fund your wallet with ≥ ${rules.min_funding_deposit_usdc.toFixed(2)} USDC.
+            Trading unlocks when the deposit confirms.
           </p>
         </section>
 
@@ -224,8 +225,8 @@ function RulesBody({ rules }: { rules: ArenaRules }) {
               <span className="font-mono">wallet_cap_usdc</span>).
             </li>
             <li>
-              Minimum mint deposit: ${rules.min_mint_deposit_usdc.toFixed(2)} USDC (
-              <span className="font-mono">min_mint_deposit_usdc</span>).
+              Minimum funding deposit: ${rules.min_funding_deposit_usdc.toFixed(2)} USDC (
+              <span className="font-mono">min_funding_deposit_usdc</span>).
             </li>
           </ul>
         </section>

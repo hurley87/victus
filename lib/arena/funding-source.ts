@@ -3,6 +3,8 @@ import "server-only";
 import { getAddress, isHash, type Address, type Hex } from "viem";
 
 import { basePublicClient } from "@/lib/chain/client";
+import { readUsdcBalance } from "@/lib/chain/erc20";
+import { DEFAULT_POLICY } from "@/lib/arena/policy";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import {
   FundingSourceValidationError,
@@ -54,7 +56,7 @@ export async function verifyAndSaveFundingSource(params: {
 
   const { data: wallet, error } = await supabaseAdmin
     .from("arena_wallets")
-    .select("id, wallet_address")
+    .select("id, wallet_address, funded_at")
     .eq("user_id", params.userId)
     .maybeSingle();
 
@@ -90,6 +92,19 @@ export async function verifyAndSaveFundingSource(params: {
 
   const verifiedAt = new Date().toISOString();
   const fundingWalletAddress = getAddress(verified.fundingWalletAddress);
+  const threshold = await loadFundingThreshold(wallet.id);
+  let liveUsdc: number;
+  try {
+    liveUsdc = await readUsdcBalance(getAddress(wallet.wallet_address));
+  } catch (err) {
+    throw new FundingSourceUnavailableError(
+      err instanceof Error
+        ? `Failed to read arena wallet balance: ${err.message}`
+        : "Failed to read arena wallet balance",
+    );
+  }
+  const shouldMarkFunded =
+    wallet.funded_at == null && liveUsdc + 1e-9 >= threshold;
 
   const { error: updateErr } = await supabaseAdmin
     .from("arena_wallets")
@@ -97,6 +112,7 @@ export async function verifyAndSaveFundingSource(params: {
       funding_wallet_address: fundingWalletAddress,
       funding_wallet_tx_hash: txHash,
       funding_wallet_verified_at: verifiedAt,
+      ...(shouldMarkFunded ? { funded_at: verifiedAt } : {}),
     })
     .eq("id", wallet.id);
 
@@ -112,6 +128,7 @@ export async function verifyAndSaveFundingSource(params: {
     funding_wallet_address: fundingWalletAddress,
     funding_wallet_tx_hash: params.txHash,
     amount_base_units: verified.amountBaseUnits.toString(),
+    wallet_funded: shouldMarkFunded,
   });
 
   return {
@@ -119,4 +136,22 @@ export async function verifyAndSaveFundingSource(params: {
     funding_wallet_tx_hash: txHash,
     funding_wallet_verified_at: verifiedAt,
   };
+}
+
+async function loadFundingThreshold(walletId: string): Promise<number> {
+  const { data, error } = await supabaseAdmin
+    .from("wallet_policies")
+    .select("min_funding_deposit_usdc")
+    .eq("wallet_id", walletId)
+    .maybeSingle();
+
+  if (error) {
+    throw new FundingSourceUnavailableError(
+      `Failed to read wallet policy: ${error.message}`,
+    );
+  }
+
+  return Number(
+    data?.min_funding_deposit_usdc ?? DEFAULT_POLICY.min_funding_deposit_usdc,
+  );
 }

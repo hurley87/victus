@@ -17,7 +17,7 @@ import type { TradeIntent } from "./intents";
  * the matching outcome-reply template.
  *
  * Order (PRD § Execution Rules, issue #8 / #12):
- *   1. gladiator_alive       — requires an `alive` gladiator
+ *   1. wallet_funded         — requires a funded arena wallet
  *   2. asset_not_whitelisted — symbol must be active + tradable + not blocklisted
  *   3. max_trades_per_day    — completed swaps since 00:00 UTC
  *   4. max_trade_usdc        — size cap (buys only)
@@ -31,7 +31,7 @@ import type { TradeIntent } from "./intents";
  */
 
 export type PolicyRejectionReason =
-  | "needs_gladiator_mint"
+  | "needs_wallet_funding"
   | "asset_not_whitelisted"
   | "max_trades_per_day"
   | "max_trade_usdc"
@@ -91,8 +91,8 @@ export async function isTradableCommandSymbol(symbol: string): Promise<boolean> 
 export async function validatePolicy(
   params: PolicyValidateParams,
 ): Promise<PolicyResult> {
-  const aliveReason = await checkGladiatorAlive(params.userId);
-  if (aliveReason) return { ok: false, reason: aliveReason };
+  const fundingReason = await checkWalletFunded(params.walletId);
+  if (fundingReason) return { ok: false, reason: fundingReason };
 
   const asset = await loadWhitelistedAsset(params.intent.symbol);
   if (!asset) return { ok: false, reason: "asset_not_whitelisted" };
@@ -166,17 +166,17 @@ export async function validatePolicy(
 // Internals
 // ---------------------------------------------------------------------------
 
-async function checkGladiatorAlive(
-  userId: string,
+async function checkWalletFunded(
+  walletId: string,
 ): Promise<PolicyRejectionReason | null> {
   const { data, error } = await supabaseAdmin
-    .from("gladiators")
-    .select("status")
-    .eq("user_id", userId)
+    .from("arena_wallets")
+    .select("funded_at")
+    .eq("id", walletId)
     .maybeSingle();
 
-  if (error) throw new Error(`gladiators lookup failed: ${error.message}`);
-  if (!data || data.status !== "alive") return "needs_gladiator_mint";
+  if (error) throw new Error(`arena_wallets lookup failed: ${error.message}`);
+  if (!data?.funded_at) return "needs_wallet_funding";
   return null;
 }
 

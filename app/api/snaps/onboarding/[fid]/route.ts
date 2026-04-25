@@ -35,8 +35,8 @@ function htmlFallbackForNonSnapAccept(
   <title>Victus arena challenge</title>
 </head>
 <body>
-  <p>Commodus waits in the Victus games.</p>
-  <p><a href="${escapeHtml(walletUrl)}">Enter the Mini App</a></p>
+  <p>Fund your wallet, make trades in the arena, and beat Commodus to earn rewards.</p>
+  <p><a href="${escapeHtml(walletUrl)}">Fund wallet</a></p>
 </body>
 </html>`;
 
@@ -65,11 +65,8 @@ export async function GET(
     return htmlFallbackForNonSnapAccept(request, fid);
   }
 
-  const taunt = request.nextUrl.searchParams.get("taunt") === "1";
   const selfSnapUrl = snapResourceUrl(request, fid, false);
   const snap = buildOnboardingSnapResponse({
-    taunt,
-    tauntUrl: snapResourceUrl(request, fid, true),
     miniAppWalletUrl: walletDeepLink(),
   });
 

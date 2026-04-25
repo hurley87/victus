@@ -29,7 +29,7 @@ import {
  * user's custodial Privy wallet back to their Farcaster-verified
  * destination. The first custodial outflow the platform supports.
  *
- * Destination resolution (per PRD § Rewards recipient rule): first
+ * Destination resolution: saved funding wallet → first
  * `farcaster_accounts.verifications[]` entry → Farcaster custody
  * address (via Neynar) → reject. We never sweep back to the arena
  * wallet itself.
@@ -69,9 +69,9 @@ export class ArenaWalletMissingError extends WithdrawError {
   }
 }
 
-export class GladiatorNotAliveError extends WithdrawError {
+export class WalletNotFundedError extends WithdrawError {
   constructor() {
-    super("Gladiator must be alive to withdraw", 409);
+    super("Arena wallet must be funded to withdraw", 409);
   }
 }
 
@@ -264,31 +264,20 @@ function isGasCreditsExhausted(err: PrivyApiError): boolean {
 }
 
 async function loadArenaState(userId: string): Promise<ArenaState> {
-  const [{ data: wallet, error: walletErr }, { data: gladiator, error: glErr }] =
-    await Promise.all([
-      supabaseAdmin
-        .from("arena_wallets")
-        .select("wallet_address, privy_wallet_id, funding_wallet_address")
-        .eq("user_id", userId)
-        .maybeSingle(),
-      supabaseAdmin
-        .from("gladiators")
-        .select("status")
-        .eq("user_id", userId)
-        .maybeSingle(),
-    ]);
+  const { data: wallet, error: walletErr } = await supabaseAdmin
+    .from("arena_wallets")
+    .select("wallet_address, privy_wallet_id, funding_wallet_address, funded_at")
+    .eq("user_id", userId)
+    .maybeSingle();
 
   if (walletErr) {
     throw new WithdrawUnavailableError(`Failed to read arena_wallets: ${walletErr.message}`);
   }
-  if (glErr) {
-    throw new WithdrawUnavailableError(`Failed to read gladiators: ${glErr.message}`);
-  }
   if (!wallet?.wallet_address || !wallet.privy_wallet_id) {
     throw new ArenaWalletMissingError();
   }
-  if (gladiator?.status !== "alive") {
-    throw new GladiatorNotAliveError();
+  if (!wallet.funded_at) {
+    throw new WalletNotFundedError();
   }
 
   return {

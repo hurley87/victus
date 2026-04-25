@@ -15,7 +15,7 @@ const mockRules: ArenaRules = {
   max_trade_usdc: 10,
   max_trades_per_day: 3,
   wallet_cap_usdc: 5_000,
-  min_mint_deposit_usdc: 5,
+  min_funding_deposit_usdc: 5,
   swap_fee_bps: 50,
   swap_fee_min_usdc: 0.1,
 };

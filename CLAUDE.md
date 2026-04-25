@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Victus Imperium** is a Farcaster Mini App — a public trading game on Base. Players mint a gladiator (one-time $5 USDC deposit), issue trade commands via public casts at `@commodus`, and the bot executes swaps from custodial arena wallets. Points are scored on volume, realized PnL, and time-in-market.
+**Victus Imperium** is a Farcaster Mini App — a public trading game on Base. Players fund a custodial arena wallet with USDC, issue trade commands via public casts at `@commodus`, and the bot executes swaps from those wallets. Points are scored on volume, realized PnL, and time-in-market.
 
 ## Commands
 
@@ -68,7 +68,7 @@ Supporting modules: FIFO lot accounting (`lot-persistence.ts`, `lot-accounting.t
 |-------|---------|
 | `/api/auth/sign-in` | Exchange Farcaster Quick Auth token for JWT |
 | `/api/webhook` | Neynar `cast.created` events → durable workflow trigger |
-| `/api/arena/me` | Gladiator mint status + arena balance |
+| `/api/arena/me` | Arena wallet funding status + balance |
 | `/api/users/me` | Authenticated user profile (Neynar) |
 | `/api/leaderboard/current` | Monthly top 10 |
 | `/api/snaps/status/[fid]` | Public Snap card (bypasses JWT, CORS headers instead) |
@@ -102,7 +102,7 @@ Schema documentation is in `docs/supabase.md`. Migrations live in `supabase/`. A
 
 ## Documentation
 
-- `docs/mvp.md` — Product PRD: mint flow, game loop, command parsing, leaderboard rules
+- `docs/mvp.md` — Product PRD: wallet funding flow, game loop, command parsing, leaderboard rules
 - `docs/supabase.md` — Full DB schema and RLS posture
 - `docs/future.md` — Post-MVP roadmap (weekly eliminations, leverage, etc.)
 - `docs/commodus-trading-strategy.md` — Human-approved strategy for **Commodus Autotrader** (candidate scoring, HOLD vs trade, Neynar for context only). **Not** an extra policy layer: the app still enforces the same whitelist, trade restrictions, execution, accounting, and leaderboard as for normal players; the doc only describes how Commodus picks among already-allowed actions.

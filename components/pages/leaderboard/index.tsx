@@ -124,9 +124,7 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
               ) : (
                 data.entries.map((row) => {
                   const isViewer = row.fid === viewerFid;
-                  const label =
-                    row.gladiator_name ??
-                    (row.username ? `@${row.username}` : `fid ${row.fid}`);
+                  const label = row.username ? `@${row.username}` : `fid ${row.fid}`;
                   return (
                     <tr
                       key={row.user_id}
@@ -140,11 +138,6 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
                       </td>
                       <td className="px-2 py-2">
                         <span className="font-medium">{label}</span>
-                        {row.username && row.gladiator_name && (
-                          <span className="block text-[11px] text-black/50">
-                            @{row.username}
-                          </span>
-                        )}
                       </td>
                       <td className="px-2 py-2 text-right font-mono">
                         {row.points}

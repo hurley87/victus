@@ -293,7 +293,7 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
             />
             <LimitCell
               label="Min Deposit"
-              value={`$${rules.min_mint_deposit_usdc.toFixed(2)}`}
+              value={`$${rules.min_funding_deposit_usdc.toFixed(2)}`}
             />
           </div>
         </section>

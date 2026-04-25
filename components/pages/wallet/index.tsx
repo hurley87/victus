@@ -4,19 +4,17 @@ import { useCallback, useMemo, useState } from "react";
 import { useUser } from "@/contexts/user-context";
 import { useApiMutation } from "@/hooks/use-api-mutation";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { ApiError } from "@/lib/api-error";
 import type {
   ArenaProfile,
-  GladiatorSummary,
   ArenaBalance,
-  MintGladiatorRequest,
-  MintGladiatorResponse,
+  ProvisionArenaWalletResponse,
 } from "@/lib/arena/types";
 import type { PortfolioResult, PortfolioHolding, PortfolioTrade } from "@/lib/portfolio/service";
 import { cn, formatUsd, formatWalletAddress, copyToClipboard } from "@/lib/utils";
 import { Button } from "@/components/shared/ui/button";
 import { DepositButton } from "@/components/pages/arena/deposit-button";
 import { WithdrawButton } from "@/components/pages/arena/withdraw-button";
+import { mapProvisionError } from "@/components/pages/arena/provision-error";
 
 const ARENA_QUERY_KEY = ["arena-me"] as const;
 
@@ -24,7 +22,7 @@ export default function WalletPage() {
   const { user } = useUser();
   const fid = user?.data?.fid;
 
-  // Arena data — poll while pending_funding so the server self-heal surfaces quickly
+  // Arena data — poll while pending funding so the server self-heal surfaces quickly
   const {
     data: arena,
     isLoading: arenaLoading,
@@ -39,13 +37,13 @@ export default function WalletPage() {
       query.state.data?.needs_funding ? 5_000 : false,
   });
 
-  // Portfolio data — only fetch once gladiator exists
+  // Portfolio data — only fetch once an arena wallet exists
   const { data: portfolio } = useApiQuery<PortfolioResult>({
     queryKey: ["portfolio", fid],
     url: `/api/users/${fid}/portfolio`,
     isProtected: true,
     retry: false,
-    enabled: !!fid && !!arena?.gladiator,
+    enabled: !!fid && !!arena?.wallet,
   });
 
   const refetchArena = useCallback(() => {
@@ -73,15 +71,14 @@ export default function WalletPage() {
     );
   }
 
-  // --- Three-state mint flow ---
+  // --- Three-state wallet flow ---
 
-  if (!arena.gladiator) {
+  if (!arena.wallet) {
     return (
       <div className="pt-4">
-        <PreMintCard
-          suggestedName={arena.suggested_name ?? "gladiator"}
-          minMintDepositUsdc={arena.rules.min_mint_deposit_usdc}
-          onMinted={refetchArena}
+        <PreFundingCard
+          minFundingDepositUsdc={arena.rules.min_funding_deposit_usdc}
+          onProvisioned={refetchArena}
         />
       </div>
     );
@@ -91,10 +88,9 @@ export default function WalletPage() {
     return (
       <div className="pt-4">
         <PendingFundingCard
-          gladiator={arena.gladiator}
           arenaAddress={arena.arena_address}
           balance={arena.balance}
-          minDepositUsdc={arena.rules.min_mint_deposit_usdc}
+          minDepositUsdc={arena.rules.min_funding_deposit_usdc}
           onFundingConfirmed={refetchArena}
         />
       </div>
@@ -104,14 +100,13 @@ export default function WalletPage() {
   if (arena.arena_address) {
     return (
       <AliveWalletView
-        gladiator={arena.gladiator}
         arenaAddress={arena.arena_address}
         balance={arena.balance}
         withdrawDestinationAddress={arena.withdraw_destination?.address ?? null}
         portfolio={portfolio ?? null}
         onWithdrawn={refetchArena}
         onFundingConfirmed={refetchArena}
-        minDepositUsdc={arena.rules.min_mint_deposit_usdc}
+        minDepositUsdc={arena.rules.min_funding_deposit_usdc}
       />
     );
   }
@@ -120,55 +115,44 @@ export default function WalletPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Pre-mint card
+// Pre-funding card
 // ---------------------------------------------------------------------------
 
-function PreMintCard({
-  suggestedName,
-  minMintDepositUsdc,
-  onMinted,
+function PreFundingCard({
+  minFundingDepositUsdc,
+  onProvisioned,
 }: {
-  suggestedName: string;
-  minMintDepositUsdc: number;
-  onMinted: () => void;
+  minFundingDepositUsdc: number;
+  onProvisioned: () => void;
 }) {
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { mutate: mint, isPending } = useApiMutation<
-    MintGladiatorResponse,
-    MintGladiatorRequest
+  const { mutate: provisionWallet, isPending } = useApiMutation<
+    ProvisionArenaWalletResponse,
+    Record<string, never>
   >({
-    url: "/api/gladiators/mint",
+    url: "/api/arena/wallet",
     method: "POST",
     body: () => ({}),
     onSuccess: () => {
       setFormError(null);
-      onMinted();
+      onProvisioned();
     },
     onError: (err) => {
-      setFormError(mapMintError(err));
+      setFormError(mapProvisionError(err));
     },
   });
 
   return (
     <section className="bg-imperial-surface rounded-xl border border-imperial-border p-4 space-y-3">
       <h2 className="text-lg font-serif font-semibold text-gold">
-        Enter the Arena
+        Fund your wallet
       </h2>
       <p className="text-sm text-zinc-300">
-        Commodus will mint a gladiator under your Farcaster handle and provision
-        a custodial arena wallet on Base. Fund it with at least $
-        {minMintDepositUsdc.toFixed(2)} USDC to unlock trading.
+        Fund your wallet, make trades in the arena, and beat Commodus to earn
+        rewards. Add at least ${minFundingDepositUsdc.toFixed(2)} USDC on Base
+        to unlock trading.
       </p>
-
-      <div className="rounded-md border border-imperial-border bg-imperial-bg p-2">
-        <p className="text-[11px] uppercase tracking-wider text-zinc-500 mb-1">
-          Gladiator name
-        </p>
-        <p className="font-mono text-sm text-zinc-200 break-all">
-          {suggestedName}
-        </p>
-      </div>
 
       {formError && (
         <p className="text-xs text-red-400" role="alert">
@@ -182,11 +166,11 @@ function PreMintCard({
         className="w-full"
         onClick={() => {
           setFormError(null);
-          mint({});
+          provisionWallet({});
         }}
         disabled={isPending}
       >
-        {isPending ? "Minting…" : "Mint gladiator"}
+        {isPending ? "Preparing wallet…" : "Fund wallet"}
       </Button>
     </section>
   );
@@ -197,13 +181,11 @@ function PreMintCard({
 // ---------------------------------------------------------------------------
 
 function PendingFundingCard({
-  gladiator,
   arenaAddress,
   balance,
   minDepositUsdc,
   onFundingConfirmed,
 }: {
-  gladiator: GladiatorSummary;
   arenaAddress: string;
   balance: ArenaBalance;
   minDepositUsdc: number;
@@ -218,15 +200,12 @@ function PendingFundingCard({
     <section className="bg-imperial-surface rounded-xl border border-gold/20 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-gold">
-          Pending funding
-        </span>
-        <span className="text-[11px] text-gold/70 font-mono">
-          {gladiator.name}
+          Wallet needs funding
         </span>
       </div>
 
       <p className="text-sm text-zinc-300">
-        Fund your gladiator with ≥ ${minDepositUsdc.toFixed(2)} USDC on Base.
+        Fund your wallet with ≥ ${minDepositUsdc.toFixed(2)} USDC on Base.
         Trading unlocks as soon as the deposit confirms.
       </p>
 
@@ -259,7 +238,7 @@ function PendingFundingCard({
       </div>
 
       <p className="text-[11px] text-zinc-500" aria-live="polite">
-        Trading is disabled until your gladiator is alive.
+        Trading is disabled until your wallet is funded.
       </p>
     </section>
   );
@@ -270,7 +249,6 @@ function PendingFundingCard({
 // ---------------------------------------------------------------------------
 
 function AliveWalletView({
-  gladiator: _gladiator,
   arenaAddress,
   balance,
   withdrawDestinationAddress,
@@ -279,7 +257,6 @@ function AliveWalletView({
   onFundingConfirmed,
   minDepositUsdc,
 }: {
-  gladiator: GladiatorSummary;
   arenaAddress: string;
   balance: ArenaBalance;
   withdrawDestinationAddress: string | null;
@@ -545,20 +522,4 @@ function CopyIcon() {
       <path d="M2 4H1a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1H9v1H1V5h1V4Z" />
     </svg>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Error helpers
-// ---------------------------------------------------------------------------
-
-function mapMintError(err: Error): string {
-  const status = err instanceof ApiError ? err.status : 0;
-  switch (status) {
-    case 401:
-      return "Your session expired. Please sign in again.";
-    case 503:
-      return "Arena wallet provisioning is down. Try again shortly.";
-    default:
-      return "Couldn't mint your gladiator. Try again.";
-  }
 }

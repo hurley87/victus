@@ -177,7 +177,7 @@ In addition to (or alongside) the ERC-20 `$GLORY` airdrop, issue monthly **tiere
 - **Gold** (rank 1) — Champion of the Arena
 - **Silver** (ranks 2–3) — Consul of the Arena
 - **Bronze** (ranks 4–10) — Gladiator of the Arena
-Badges carry metadata (month, rank, points, realized PnL) and are dynamic-OG image generated. Minted to the winner's Farcaster-verified address. Deferred from MVP because the user chose ERC-20 + manual airdrop for hackathon scope; the badge adds a persistent visual status artifact that complements rather than replaces the token.
+Badges carry metadata (month, rank, points, realized PnL) and are dynamic-OG image generated. Issued to the winner's Farcaster-verified address. Deferred from MVP because the user chose ERC-20 + manual airdrop for hackathon scope; the badge adds a persistent visual status artifact that complements rather than replaces the token.
 #### Optional USDC top-3 bonus pool
 Small monthly USDC pot (e.g. 25 USDC split 15/6/4 across top 3) on top of the GLORY airdrop, to add real-stakes texture. Funded from a treasury wallet initially; sponsor-funded or protocol-fee-funded at scale.
 #### Automated onchain distribution

@@ -108,7 +108,7 @@ function StandingsRow({
 }) {
   const medal = RANK_MEDALS[row.rank];
   const isTopThree = row.rank <= 3;
-  const gladiatorLabel = row.gladiator_name ?? (row.username ? `@${row.username}` : `fid ${row.fid}`);
+  const playerLabel = row.username ? `@${row.username}` : `fid ${row.fid}`;
   const pnl = row.realized_pnl_usdc;
   const pnlPositive = pnl >= 0;
 
@@ -138,13 +138,8 @@ function StandingsRow({
       {/* User */}
       <div className="min-w-0">
         <span className="block truncate text-sm font-medium text-white">
-          {gladiatorLabel}
+          {playerLabel}
         </span>
-        {row.username && row.gladiator_name && (
-          <span className="block text-[11px] text-zinc-500 truncate">
-            @{row.username}
-          </span>
-        )}
       </div>
 
       {/* Score */}

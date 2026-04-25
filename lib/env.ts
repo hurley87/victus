@@ -20,7 +20,7 @@ export const env = createEnv({
     KV_REST_API_TOKEN: z.string().min(1),
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
     // Privy server-wallet API credentials. Optional at build so the app
-    // can start without them; the mint endpoint throws a clean 500 at
+    // can start without them; the wallet provisioning endpoint throws a clean 500 at
     // runtime when either is missing. See README § Privy setup.
     PRIVY_APP_ID: z.string().min(1).optional(),
     PRIVY_APP_SECRET: z.string().min(1).optional(),
@@ -39,7 +39,7 @@ export const env = createEnv({
       .default("true")
       .transform((v) => v === "true" || v === "1"),
     // Base-mainnet EOA that receives fee-on-swap transfers. Required at
-    // runtime by the execution pipeline (#8) but not by mint itself; kept
+    // runtime by the execution pipeline (#8) but not by wallet provisioning; kept
     // optional here so environments that haven't wired it yet still boot.
     OPERATOR_TREASURY_ADDRESS: z
       .string()

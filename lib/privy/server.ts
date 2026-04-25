@@ -85,7 +85,7 @@ type CreateWalletResponse = {
  * Provision a new Privy server wallet for the arena.
  *
  * Idempotency note: Privy itself does NOT de-duplicate wallet creation.
- * A replay will create a second wallet. The caller (gladiator mint) is
+ * A replay will create a second wallet. The caller (arena wallet provisioning) is
  * responsible for guarding against replays by checking `arena_wallets`
  * for an existing row BEFORE invoking this function.
  */

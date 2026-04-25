@@ -7,7 +7,7 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 
 export type StatusViewContext = {
   fid: number;
-  /** Title line for the Snap header — gladiator name, @username, or fid fallback. */
+  /** Title line for the Snap header — @username, display name, or fid fallback. */
   displayHandle: string;
   rank: number | null;
   points: number;
@@ -67,8 +67,9 @@ export async function loadStatusViewContext(
   }
 
   const handle =
-    portfolio.gladiator_name?.trim() ||
-    (portfolio.username ? `@${portfolio.username}` : `fid ${fid}`);
+    (portfolio.username ? `@${portfolio.username}` : null) ||
+    portfolio.display_name?.trim() ||
+    `fid ${fid}`;
 
   return {
     fid,

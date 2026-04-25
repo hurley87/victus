@@ -29,12 +29,7 @@ async function main() {
   console.log("— Supabase state —");
   const { data: wallet } = await supabaseAdmin
     .from("arena_wallets")
-    .select("wallet_address, privy_wallet_id")
-    .eq("user_id", HURLS_USER_ID)
-    .maybeSingle();
-  const { data: gladiator } = await supabaseAdmin
-    .from("gladiators")
-    .select("name, status")
+    .select("wallet_address, privy_wallet_id, funded_at")
     .eq("user_id", HURLS_USER_ID)
     .maybeSingle();
   const { data: fc } = await supabaseAdmin
@@ -43,7 +38,7 @@ async function main() {
     .eq("user_id", HURLS_USER_ID)
     .maybeSingle();
 
-  console.log({ wallet, gladiator, fc_username: fc?.username, verifications: fc?.verifications });
+  console.log({ wallet, fc_username: fc?.username, verifications: fc?.verifications });
 
   if (wallet?.wallet_address?.toLowerCase() !== EXPECTED_ARENA) {
     throw new Error(`Arena address mismatch: ${wallet?.wallet_address}`);
@@ -51,8 +46,8 @@ async function main() {
   if (wallet?.privy_wallet_id !== EXPECTED_PRIVY_ID) {
     throw new Error(`Privy wallet id mismatch: ${wallet?.privy_wallet_id}`);
   }
-  if (gladiator?.status !== "alive") {
-    throw new Error(`Gladiator not alive: ${gladiator?.status}`);
+  if (!wallet?.funded_at) {
+    throw new Error("Arena wallet is not funded");
   }
 
   console.log("\n— On-chain balance (via public Base RPC) —");

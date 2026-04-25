@@ -145,10 +145,10 @@ Pre-configured Wagmi setup with:
 
 ## Commodus: Arena wallets & Privy setup
 
-The Arena page (`/arena`) handles the gladiator mint ritual. A successful
-mint lazily provisions a custodial **Privy server wallet** on Base that
-Commodus signs from on the user's behalf (TEE-custodied, non-extractable).
-See `docs/mvp.md` § Gladiator Mint for the full flow.
+The Arena page (`/arena`) handles wallet-first onboarding. The first funding
+CTA lazily provisions a custodial **Privy server wallet** on Base that Commodus
+signs from on the user's behalf (TEE-custodied, non-extractable). See
+`docs/mvp.md` § Wallet Funding Gate for the full flow.
 
 ### Required env vars
 
@@ -194,12 +194,12 @@ There is no cron and no dedicated recheck endpoint. The in-Mini-App
 deposit button waits for the tx receipt client-side and nudges the
 Arena page to refetch `/api/arena/me`; `getArenaProfile` reads the
 arena wallet's live USDC balance and, if it clears the
-`min_mint_deposit_usdc` threshold ($5), flips `gladiators.status` from
-`pending_funding` to `alive` inline. The page keeps polling
+`min_funding_deposit_usdc` threshold ($5), sets `arena_wallets.funded_at`
+inline. The page keeps polling
 `/api/arena/me` every 5s while `needs_funding` is true, so if the
 server's RPC trails the client's preconf RPC (typically 2–30s), the
-next poll catches up. For the rare support case, operators can flip
-`gladiators.status` directly in Supabase.
+next poll catches up. For the rare support case, operators can set
+`arena_wallets.funded_at` directly in Supabase.
 
 ## Project Structure
 

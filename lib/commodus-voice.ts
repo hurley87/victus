@@ -10,7 +10,7 @@ const CHAIN_REJECTED_SWAP =
   "The trade failed onchain. Even Rome has bad plumbing. Try again or size it differently.";
 
 export const NO_WALLET_ONBOARDING_REPLY =
-  "Commodus is still undefeated. Enter the Mini App, mint your arena wallet, and prove you can beat him instead of yelling from the cheap seats.";
+  "Open the Mini App to fund your wallet, make trades in the arena, and beat Commodus to earn rewards.";
 
 export type ExecutionFailureDetails = {
   /** Included when the failure maps to a size cap so the challenger sees the live cap. */
@@ -30,8 +30,8 @@ export const EXECUTION_FAILURE_VOICE: Record<string, string> = {
     "Not enough balance for that order. Size it down or fund the arena wallet.",
   daily_rate_limit:
     "Your daily trades are spent. The arena is closed to you until the next reset.",
-  needs_gladiator_mint:
-    "You need an arena wallet first. Enter the Mini App, mint it, then come back with conviction.",
+  needs_wallet_funding:
+    "You need to fund your wallet first. Open the Mini App, fund it, then come back with conviction.",
   non_whitelisted_token:
     "That symbol is not in the arena. Pick one from the live list.",
   price_impact:
@@ -82,16 +82,16 @@ export type Outcome = OutcomeSuccess | OutcomeFailure;
 
 export type CommodusVoiceContext = {
   /**
-   * Display name from `gladiators.name`, e.g. "Maximus". Prefixed on intent
-   * and success outcomes when non-empty.
+   * Farcaster handle/display label. Prefixed on intent and success outcomes
+   * when non-empty.
    */
-  gladiatorName: string;
+  playerLabel: string;
 };
 
-function prefixGladiator(name: string, body: string): string {
-  const n = name.trim();
-  if (!n) return body;
-  return `${n}. ${body}`;
+function prefixPlayer(label: string, body: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return body;
+  return `${trimmed}. ${body}`;
 }
 
 /**
@@ -106,13 +106,13 @@ export function buildIntentReply(
     const body =
       `Order accepted. Commodus is moving ${intent.amount_value.toString()} USDC ` +
       `into ${intent.symbol}. The arena gets to watch now.`;
-    return prefixGladiator(ctx.gladiatorName, body);
+    return prefixPlayer(ctx.playerLabel, body);
   }
 
   const body =
     `Order accepted. Commodus is selling ${intent.amount_value.toString()}% of ` +
     `${intent.symbol}. The arena gets to watch now.`;
-  return prefixGladiator(ctx.gladiatorName, body);
+  return prefixPlayer(ctx.playerLabel, body);
 }
 
 export function buildOutcomeReply(
@@ -143,14 +143,14 @@ export function buildOutcomeReply(
       `Executed. Sold ${qty} ${outcome.symbol} for ${notional} USDC gross.${pnlPart} ` +
       "The scoreboard noticed. " +
       `https://basescan.org/tx/${outcome.txHash}`;
-    return prefixGladiator(ctx.gladiatorName, body);
+    return prefixPlayer(ctx.playerLabel, body);
   }
 
   const body =
     `Executed. Bought ${qty} ${outcome.symbol} for ${notional} USDC. ` +
     "The scoreboard noticed. " +
     `https://basescan.org/tx/${outcome.txHash}`;
-  return prefixGladiator(ctx.gladiatorName, body);
+  return prefixPlayer(ctx.playerLabel, body);
 }
 
 export type PolicyRejectionLimits = {
@@ -166,7 +166,7 @@ export function policyRejectionMessage(
   limits?: PolicyRejectionLimits,
 ): string {
   switch (reason) {
-    case "needs_gladiator_mint":
+    case "needs_wallet_funding":
       return NO_WALLET_ONBOARDING_REPLY;
     case "asset_not_whitelisted":
       return "That symbol is not in the arena. Pick one from the live list.";
@@ -196,7 +196,7 @@ export function policyRejectionMessage(
 
 /** @deprecated Prefer {@link policyRejectionMessage} — kept for tests pinning static keys. */
 export const POLICY_REJECTION_COPY: Record<PolicyRejectionReason, string> = {
-  needs_gladiator_mint: policyRejectionMessage("needs_gladiator_mint"),
+  needs_wallet_funding: policyRejectionMessage("needs_wallet_funding"),
   asset_not_whitelisted: policyRejectionMessage("asset_not_whitelisted"),
   max_trades_per_day: policyRejectionMessage("max_trades_per_day"),
   max_trade_usdc: policyRejectionMessage("max_trade_usdc", { maxTradeUsdc: 0 }),

@@ -12,8 +12,6 @@ import type {
 } from "./build-standings-snap";
 
 function displayName(entry: LeaderboardEntry): string {
-  const name = entry.gladiator_name?.trim();
-  if (name) return name;
   return entry.username ? `@${entry.username}` : `fid ${entry.fid}`;
 }
 

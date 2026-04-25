@@ -10,8 +10,8 @@ Walk a first-time user from zero to a scored trade and a leaderboard glance, val
 
 1. **Open Mini App** — Launch the Farcaster Mini App URL deployed to production.
 2. **Sign in** — Complete authentication with the test Farcaster account.
-3. **Mint gladiator** — From Arena, mint; confirm a gladiator name and arena wallet appear.
-4. **Fund** — Send USDC on Base to the shown arena address until the gladiator is alive (≥ minimum mint deposit per live rules).
+3. **Fund wallet** — From Arena, tap Fund wallet and confirm an arena wallet appears.
+4. **Deposit** — Send USDC on Base to the shown arena address until the wallet is funded (≥ minimum funding deposit per live rules).
 5. **Buy** — Cast `@commodus buy N usdc of SYMBOL` using tickers from the Rules page / Arena whitelist; expect an intent reply then a success outcome on chain (target ≤ ~15s cast → final outcome when infra is healthy).
 6. **Sell** — Cast `@commodus sell P% of SYMBOL` for a held position; expect outcome reply with fill summary.
 7. **Status** — Cast `@commodus status` (ack behavior per current workflow; full portfolio reply is tracked separately).
