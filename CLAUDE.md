@@ -105,3 +105,8 @@ Schema documentation is in `docs/supabase.md`. Migrations live in `supabase/`. A
 - `docs/mvp.md` — Product PRD: mint flow, game loop, command parsing, leaderboard rules
 - `docs/supabase.md` — Full DB schema and RLS posture
 - `docs/future.md` — Post-MVP roadmap (weekly eliminations, leverage, etc.)
+- `docs/commodus-trading-strategy.md` — Human-approved strategy for **Commodus Autotrader** (candidate scoring, HOLD vs trade, Neynar for context only). **Not** an extra policy layer: the app still enforces the same whitelist, trade restrictions, execution, accounting, and leaderboard as for normal players; the doc only describes how Commodus picks among already-allowed actions.
+
+### Commodus Autotrader (decision engine)
+
+When building or changing the autotrader **decision engine**, follow `docs/commodus-trading-strategy.md`. Do not introduce Commodus-only trade restrictions or bypasses; align scoring and narrative rules with that doc. **Update the doc** whenever scoring weights, component definitions, or strategy assumptions change in code.
