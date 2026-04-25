@@ -49,6 +49,23 @@ function snapJfsCompactBody(inputs: Record<string, string>): string {
   return `${header}.${payload}.${signature}`;
 }
 
+/** JFS as JSON object (some clients POST this instead of the compact string). */
+function snapJfsJsonEnvelopeBody(inputs: Record<string, string>): string {
+  const inner = {
+    fid: 12345,
+    inputs,
+    timestamp: 1_710_864_000,
+    audience: "https://example.com",
+    user: { fid: 12345 },
+    surface: { type: "standalone" },
+  };
+  return JSON.stringify({
+    header: Buffer.from(JSON.stringify({ typ: "test" })).toString("base64url"),
+    payload: Buffer.from(JSON.stringify(inner)).toString("base64url"),
+    signature: Buffer.from("not-a-real-sig").toString("base64url"),
+  });
+}
+
 function snapRequest(
   url: string,
   init?: { method?: string; body?: string; headers?: Record<string, string> },
@@ -249,6 +266,29 @@ describe("POST /api/snaps/trade-command", () => {
     );
     expect(body.ui.elements.compose?.on?.press?.params?.text).toBe(
       "@commo buy 1 usdc of aero",
+    );
+  });
+
+  it("uses amount and token from a JFS JSON-envelope POST body", async () => {
+    const req = snapRequest(
+      "https://example.com/api/snaps/trade-command?fid=123",
+      {
+        method: "POST",
+        body: snapJfsJsonEnvelopeBody({
+          action: "Buy",
+          symbol: "DEGEN",
+          amount: "1",
+        }),
+      },
+    );
+    const res = await POST(req);
+    const body = (await res.json()) as SnapJsonBody;
+
+    expect(body.ui.elements.preview?.props?.content).toBe(
+      "@commo buy 1 usdc of degen",
+    );
+    expect(body.ui.elements.compose?.on?.press?.params?.text).toBe(
+      "@commo buy 1 usdc of degen",
     );
   });
 

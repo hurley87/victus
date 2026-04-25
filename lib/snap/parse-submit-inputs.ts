@@ -1,6 +1,8 @@
 /**
- * Snap submit bodies are either bare JSON `{ "inputs": { … } }` (tests) or a JFS
- * compact string whose middle segment is base64url JSON with the same `inputs`.
+ * Snap submit bodies:
+ * - Bare JSON `{ "inputs": { … } }` (tests / tooling)
+ * - JFS compact: `header.payload.signature` (base64url segments; payload JSON holds `inputs`)
+ * - JFS JSON envelope: `{ "header", "payload", "signature" }` with the same base64url payload
  *
  * @see https://docs.farcaster.xyz/snap/auth#jfs-payload-shape
  */
@@ -13,25 +15,40 @@ function inputsFromPayload(data: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function inputsFromBase64UrlPayload(segment: string): Record<string, unknown> | null {
+  try {
+    const json = Buffer.from(segment, "base64url").toString("utf8");
+    return inputsFromPayload(JSON.parse(json));
+  } catch {
+    return null;
+  }
+}
+
 export function parseSnapSubmitInputsFromBody(raw: string): Record<string, unknown> {
   const text = raw.trim();
   if (!text) return {};
 
   if (text.startsWith("{")) {
     try {
-      return inputsFromPayload(JSON.parse(text)) ?? {};
+      const obj = JSON.parse(text) as Record<string, unknown>;
+      const direct = inputsFromPayload(obj);
+      if (direct != null) return direct;
+
+      if (typeof obj.payload === "string") {
+        const fromEnvelope = inputsFromBase64UrlPayload(obj.payload);
+        if (fromEnvelope != null) return fromEnvelope;
+      }
     } catch {
       return {};
     }
+    return {};
   }
 
   const parts = text.split(".");
-  if (parts.length !== 3 || !parts[1]) return {};
-
-  try {
-    const json = Buffer.from(parts[1], "base64url").toString("utf8");
-    return inputsFromPayload(JSON.parse(json)) ?? {};
-  } catch {
-    return {};
+  if (parts.length === 3 && parts[1]) {
+    const fromCompact = inputsFromBase64UrlPayload(parts[1]);
+    if (fromCompact != null) return fromCompact;
   }
+
+  return {};
 }
