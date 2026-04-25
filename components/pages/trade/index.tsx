@@ -10,6 +10,7 @@ import { useFarcaster } from "@/contexts/farcaster-context";
 import { useApiQuery } from "@/hooks/use-api-query";
 import type { ArenaRules, WhitelistEntry } from "@/lib/arena/types";
 import { COMMAND_BOT_FID, COMMAND_BOT_HANDLE } from "@/lib/commodus/bot";
+import { cn } from "@/lib/utils";
 
 const DEFAULT_BUY_PRESETS = [1, 3, 5, 10];
 const SELL_PRESETS = [25, 50, 100];
@@ -55,6 +56,30 @@ function buyPresets(maxTradeUsdc: number): number[] {
 
 function formatNumberInput(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function buyAmountErrorMessage(
+  parsed: number,
+  maxUsdc: number,
+): string | null {
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return "Enter a buy amount above 0 USDC.";
+  }
+  if (parsed > maxUsdc) {
+    return `Max buy is ${maxUsdc} USDC.`;
+  }
+  return null;
+}
+
+function sellPercentErrorMessage(parsed: number): string | null {
+  if (
+    !Number.isFinite(parsed) ||
+    parsed <= 0 ||
+    parsed > 100
+  ) {
+    return "Sell percent must be between 1 and 100.";
+  }
+  return null;
 }
 
 export default function TradePage() {
@@ -139,18 +164,11 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
   const canComposeCast = capabilities?.includes("actions.composeCast") ?? true;
   const parsedBuyAmount = Number(buyAmount);
   const parsedSellPercent = Number(sellPercent);
-  const buyAmountError =
-    !Number.isFinite(parsedBuyAmount) || parsedBuyAmount <= 0
-      ? "Enter a buy amount above 0 USDC."
-      : parsedBuyAmount > rules.max_trade_usdc
-        ? `Max buy is ${rules.max_trade_usdc} USDC.`
-        : null;
-  const sellPercentError =
-    !Number.isFinite(parsedSellPercent) ||
-    parsedSellPercent <= 0 ||
-    parsedSellPercent > 100
-      ? "Sell percent must be between 1 and 100."
-      : null;
+  const buyAmountError = buyAmountErrorMessage(
+    parsedBuyAmount,
+    rules.max_trade_usdc,
+  );
+  const sellPercentError = sellPercentErrorMessage(parsedSellPercent);
   const command =
     mode === "buy"
       ? `buy ${buyAmount || "0"} usdc of ${selectedSymbol}`
@@ -178,150 +196,150 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
 
   return (
     <div className="text-white space-y-6 pt-4">
-        <header className="space-y-1">
-          <h1 className="font-serif text-2xl uppercase tracking-wider text-gold">
-            Trade with Commodus
-          </h1>
-          <p className="text-xs text-zinc-400">
-            Cast a command at {COMMAND_BOT_HANDLE} and Commodus executes valid
-            trades publicly.
+      <header className="space-y-1">
+        <h1 className="font-serif text-2xl uppercase tracking-wider text-gold">
+          Trade with Commodus
+        </h1>
+        <p className="text-xs text-zinc-400">
+          Cast a command at {COMMAND_BOT_HANDLE} and Commodus executes valid
+          trades publicly.
+        </p>
+      </header>
+
+      <CommandComposer
+        mode={mode}
+        setMode={setMode}
+        tokens={tradableTokens}
+        selectedSymbol={selectedSymbol}
+        setSelectedSymbol={setSelectedSymbol}
+        buyAmount={buyAmount}
+        setBuyAmount={setBuyAmount}
+        buyAmountPresets={buyAmountPresets}
+        sellPercent={sellPercent}
+        setSellPercent={setSellPercent}
+        command={command}
+        commandError={commandError}
+        disabled={isComposeDisabled}
+        isPending={pendingCommand === command}
+        onCompose={composeCommand}
+        maxTradeUsdc={rules.max_trade_usdc}
+      />
+
+      {!canComposeCast ? (
+        <p className="text-xs text-pnl-negative">
+          This Farcaster client cannot open the cast composer.
+        </p>
+      ) : null}
+
+      {composeError ? (
+        <p className="text-xs text-pnl-negative">{composeError}</p>
+      ) : null}
+
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
+          Quick Casts
+        </h2>
+
+        <div className="space-y-2">
+          <p className="text-[11px] uppercase tracking-wider text-zinc-500">
+            Buy
           </p>
-        </header>
+          <div className="space-y-1.5">
+            {buys.map((cmd) => (
+              <CommandButton
+                key={cmd}
+                command={cmd}
+                disabled={isAnyComposeDisabled}
+                isPending={pendingCommand === cmd}
+                onCompose={composeCommand}
+              />
+            ))}
+          </div>
+        </div>
 
-        <CommandComposer
-          mode={mode}
-          setMode={setMode}
-          tokens={tradableTokens}
-          selectedSymbol={selectedSymbol}
-          setSelectedSymbol={setSelectedSymbol}
-          buyAmount={buyAmount}
-          setBuyAmount={setBuyAmount}
-          buyAmountPresets={buyAmountPresets}
-          sellPercent={sellPercent}
-          setSellPercent={setSellPercent}
-          command={command}
-          commandError={commandError}
-          disabled={isComposeDisabled}
-          isPending={pendingCommand === command}
-          onCompose={composeCommand}
-          maxTradeUsdc={rules.max_trade_usdc}
-        />
-
-        {!canComposeCast ? (
-          <p className="text-xs text-pnl-negative">
-            This Farcaster client cannot open the cast composer.
+        <div className="space-y-2">
+          <p className="text-[11px] uppercase tracking-wider text-zinc-500">
+            Sell
           </p>
-        ) : null}
+          <div className="space-y-1.5">
+            {sells.map((cmd) => (
+              <CommandButton
+                key={cmd}
+                command={cmd}
+                disabled={isAnyComposeDisabled}
+                isPending={pendingCommand === cmd}
+                onCompose={composeCommand}
+              />
+            ))}
+          </div>
+        </div>
 
-        {composeError ? (
-          <p className="text-xs text-pnl-negative">{composeError}</p>
-        ) : null}
+      </section>
 
-        <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
-            Quick Casts
-          </h2>
+      <ScoringTable />
 
-          <div className="space-y-2">
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
+          Economics and Custody
+        </h2>
+
+        <div className="space-y-3">
+          <div className="space-y-1">
             <p className="text-[11px] uppercase tracking-wider text-zinc-500">
-              Buy
+              Fees and gas
             </p>
-            <div className="space-y-1.5">
-              {buys.map((cmd) => (
-                <CommandButton
-                  key={cmd}
-                  command={cmd}
-                  disabled={isAnyComposeDisabled}
-                  isPending={pendingCommand === cmd}
-                  onCompose={composeCommand}
-                />
-              ))}
-            </div>
+            <p className="text-sm text-zinc-300">
+              {feePct}% swap fee, minimum ${rules.swap_fee_min_usdc.toFixed(2)}{" "}
+              USDC. Gas is sponsored — no ETH required in your arena wallet.
+            </p>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1">
             <p className="text-[11px] uppercase tracking-wider text-zinc-500">
-              Sell
+              Custody
             </p>
-            <div className="space-y-1.5">
-              {sells.map((cmd) => (
-                <CommandButton
-                  key={cmd}
-                  command={cmd}
-                  disabled={isAnyComposeDisabled}
-                  isPending={pendingCommand === cmd}
-                  onCompose={composeCommand}
-                />
-              ))}
-            </div>
+            <p className="text-sm text-zinc-300">
+              Your arena wallet is custodied via Privy. Commodus signs trades
+              server-side on your behalf — no per-trade wallet approval
+              required.
+            </p>
           </div>
 
-        </section>
-
-        <ScoringTable />
-
-        <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
-            Economics and Custody
-          </h2>
-
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <p className="text-[11px] uppercase tracking-wider text-zinc-500">
-                Fees and gas
-              </p>
-              <p className="text-sm text-zinc-300">
-                {feePct}% swap fee, minimum ${rules.swap_fee_min_usdc.toFixed(2)}{" "}
-                USDC. Gas is sponsored — no ETH required in your arena wallet.
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <p className="text-[11px] uppercase tracking-wider text-zinc-500">
-                Custody
-              </p>
-              <p className="text-sm text-zinc-300">
-                Your arena wallet is custodied via Privy. Commodus signs trades
-                server-side on your behalf — no per-trade wallet approval
-                required.
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <p className="text-[11px] uppercase tracking-wider text-zinc-500">
-                Withdrawals
-              </p>
-              <p className="text-sm text-zinc-300">
-                Withdrawals are processed by the operator. Contact the operator
-                if you need your balance returned.
-              </p>
-            </div>
+          <div className="space-y-1">
+            <p className="text-[11px] uppercase tracking-wider text-zinc-500">
+              Withdrawals
+            </p>
+            <p className="text-sm text-zinc-300">
+              Withdrawals are processed by the operator. Contact the operator
+              if you need your balance returned.
+            </p>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
-            Trade Restrictions
-          </h2>
-          <div className="grid grid-cols-2 gap-2">
-            <LimitCell
-              label="Daily Cap"
-              value={`${rules.max_trades_per_day} trades`}
-            />
-            <LimitCell
-              label="Trade Size"
-              value={`$${rules.max_trade_usdc}`}
-            />
-            <LimitCell
-              label="Wallet Cap"
-              value={`$${rules.wallet_cap_usdc}`}
-            />
-            <LimitCell
-              label="Min Deposit"
-              value={`$${rules.min_funding_deposit_usdc.toFixed(2)}`}
-            />
-          </div>
-        </section>
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">
+          Trade Restrictions
+        </h2>
+        <div className="grid grid-cols-2 gap-2">
+          <LimitCell
+            label="Daily Cap"
+            value={`${rules.max_trades_per_day} trades`}
+          />
+          <LimitCell
+            label="Trade Size"
+            value={`$${rules.max_trade_usdc}`}
+          />
+          <LimitCell
+            label="Wallet Cap"
+            value={`$${rules.wallet_cap_usdc}`}
+          />
+          <LimitCell
+            label="Min Deposit"
+            value={`$${rules.min_funding_deposit_usdc.toFixed(2)}`}
+          />
+        </div>
+      </section>
     </div>
   );
 }
@@ -394,12 +412,12 @@ function CommandComposer({
                 type="button"
                 key={token.symbol}
                 onClick={() => setSelectedSymbol(symbol)}
-                className={[
+                className={cn(
                   "min-h-14 rounded-lg border px-3 py-2 text-left transition",
                   isActive
                     ? "border-gold bg-gold text-imperial-bg shadow-[0_0_22px_rgba(216,184,106,0.22)]"
                     : "border-imperial-border bg-black/20 text-zinc-200 hover:border-gold/60",
-                ].join(" ")}
+                )}
               >
                 <span className="block font-mono text-base font-semibold uppercase">
                   {token.symbol}
@@ -543,12 +561,12 @@ function ModeButton({
     <button
       type="button"
       onClick={onClick}
-      className={[
+      className={cn(
         "min-h-14 rounded-md px-3 py-2 text-left transition",
         isActive
           ? "bg-gold text-imperial-bg"
           : "text-zinc-300 hover:bg-white/5 hover:text-white",
-      ].join(" ")}
+      )}
       aria-pressed={isActive}
     >
       <span className="block text-sm font-semibold">{label}</span>
@@ -570,12 +588,12 @@ function PresetButton({
     <button
       type="button"
       onClick={onClick}
-      className={[
+      className={cn(
         "min-h-11 rounded-lg border px-2 font-mono text-sm font-semibold transition",
         isActive
           ? "border-gold bg-gold text-imperial-bg"
           : "border-imperial-border bg-black/20 text-zinc-200 hover:border-gold/60 hover:text-gold",
-      ].join(" ")}
+      )}
       aria-pressed={isActive}
     >
       {label}

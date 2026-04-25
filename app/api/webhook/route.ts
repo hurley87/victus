@@ -76,7 +76,10 @@ export async function POST(request: Request) {
 
   switch (event.event) {
     case "frame_added": {
-      log.info("frame_added", { fid, hasNotificationDetails: Boolean(event.notificationDetails) });
+      log.info("frame_added", {
+        fid,
+        hasNotificationDetails: Boolean(event.notificationDetails),
+      });
       if (event.notificationDetails) {
         await setUserNotificationDetails(fid, event.notificationDetails);
         await sendFrameNotification({

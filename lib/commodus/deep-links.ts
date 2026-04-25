@@ -2,7 +2,7 @@ import { env } from "@/lib/env";
 
 export type MiniAppTab = "wallet" | "trade" | "standings";
 
-function appBaseUrl(): string {
+export function appBaseUrl(): string {
   return env.NEXT_PUBLIC_URL.replace(/\/$/, "");
 }
 

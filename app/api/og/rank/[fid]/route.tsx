@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-import { env } from "@/lib/env";
+import { appBaseUrl } from "@/lib/commodus/deep-links";
 import { getCurrentMonthLeaderboard } from "@/lib/leaderboard/service";
 import { loadGoogleFont, loadImage } from "@/lib/og-utils";
 
@@ -40,17 +40,20 @@ export async function GET(
     }
     const commodus = entries.find((e) => e.is_commodus);
 
-    const appUrl = env.NEXT_PUBLIC_URL.replace(/\/$/, "");
+    const appUrl = appBaseUrl();
     const logoBuf = await loadImage(`${appUrl}/images/icon.png`);
     const logoSrc = `data:image/png;base64,${Buffer.from(logoBuf).toString("base64")}`;
 
     const playerLabel = player.username ? `@${player.username}` : `fid ${player.fid}`;
     const headerLine = `${playerLabel} · #${player.rank} in the arena`;
-    const benchmarkLine = commodus
-      ? player.points > commodus.points
-        ? `Ahead of Commodus (${commodus.points} pts)`
-        : `${commodus.points - player.points + 1} pts to pass Commodus`
-      : "Beat Commodus";
+    let benchmarkLine: string;
+    if (!commodus) {
+      benchmarkLine = "Beat Commodus";
+    } else if (player.points > commodus.points) {
+      benchmarkLine = `Ahead of Commodus (${commodus.points} pts)`;
+    } else {
+      benchmarkLine = `${commodus.points - player.points + 1} pts to pass Commodus`;
+    }
     const fontText = `VICTUS ${headerLine} ${benchmarkLine} pts ptsmonthly PnL ${formatUsd(player.realized_pnl_usdc)}`;
     const fontData = await loadGoogleFont("Press+Start+2P", fontText);
 
@@ -83,6 +86,7 @@ export async function GET(
             />
             <div
               style={{
+                display: "flex",
                 fontSize: 16,
                 color: GOLD,
                 letterSpacing: 2,
@@ -100,10 +104,21 @@ export async function GET(
               gap: 14,
             }}
           >
-            <div style={{ fontSize: 12, color: GOLD_MUTED, letterSpacing: 1 }}>
+            <div
+              style={{
+                display: "flex",
+                fontSize: 12,
+                color: GOLD_MUTED,
+                letterSpacing: 1,
+              }}
+            >
               ARENA RANK
             </div>
-            <div style={{ fontSize: 22, color: "white" }}>{headerLine}</div>
+            <div
+              style={{ display: "flex", fontSize: 22, color: "white" }}
+            >
+              {headerLine}
+            </div>
           </div>
 
           <div
@@ -126,10 +141,21 @@ export async function GET(
                 flex: 1,
               }}
             >
-              <div style={{ fontSize: 10, color: TEXT_DIM, letterSpacing: 1 }}>
+              <div
+                style={{
+                  display: "flex",
+                  fontSize: 10,
+                  color: TEXT_DIM,
+                  letterSpacing: 1,
+                }}
+              >
                 POINTS
               </div>
-              <div style={{ fontSize: 44, color: GOLD }}>{player.points}</div>
+              <div
+                style={{ display: "flex", fontSize: 44, color: GOLD }}
+              >
+                {player.points}
+              </div>
             </div>
             <div
               style={{
@@ -139,11 +165,19 @@ export async function GET(
                 alignItems: "flex-end",
               }}
             >
-              <div style={{ fontSize: 10, color: TEXT_DIM, letterSpacing: 1 }}>
+              <div
+                style={{
+                  display: "flex",
+                  fontSize: 10,
+                  color: TEXT_DIM,
+                  letterSpacing: 1,
+                }}
+              >
                 MONTHLY PNL
               </div>
               <div
                 style={{
+                  display: "flex",
                   fontSize: 22,
                   color: pnlPositive ? PNL_POSITIVE : PNL_NEGATIVE,
                 }}
@@ -155,6 +189,7 @@ export async function GET(
 
           <div
             style={{
+              display: "flex",
               marginTop: "auto",
               fontSize: 12,
               color: GOLD,

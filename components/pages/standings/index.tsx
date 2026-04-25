@@ -43,7 +43,7 @@ function useShareCast() {
 
 export default function StandingsPage() {
   const { user } = useUser();
-  const viewerFid = user?.data != null ? Number(user.data.fid) : -1;
+  const viewerFid = user?.data ? Number(user.data.fid) : -1;
   const sharing = useShareCast();
 
   const { data, isLoading, error, refetch } =
