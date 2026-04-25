@@ -1,16 +1,24 @@
 "use client";
 
-import { useState } from "react";
-import { sdk } from "@farcaster/miniapp-sdk";
 import { ScoringTable } from "@/components/shared/ui/scoring-table";
 import { Button } from "@/components/shared/ui/button";
-import { useFarcaster } from "@/contexts/farcaster-context";
+import { ShareComposeGlyph } from "@/components/shared/ui/share-compose-glyph";
 import { useUser } from "@/contexts/user-context";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { miniAppTabDeepLink, rankCardImageUrl } from "@/lib/commodus/deep-links";
-import type { CurrentLeaderboardResult, LeaderboardEntry } from "@/lib/leaderboard/service";
+import { useShareCast, type ShareController } from "@/hooks/use-share-cast";
+import {
+  bossCardImageUrl,
+  miniAppTabDeepLink,
+  rankCardImageUrl,
+} from "@/lib/commodus/deep-links";
+import type {
+  CurrentLeaderboardResult,
+  LeaderboardEntry,
+  RecentActivityEntry,
+  RecentActivityResult,
+} from "@/lib/leaderboard/service";
 import { cn, formatUsd } from "@/lib/utils";
-import { Crown, Share2, Swords } from "lucide-react";
+import { Crown, Swords } from "lucide-react";
 
 const RANK_MEDALS: Record<number, string> = {
   1: "🏆",
@@ -18,27 +26,11 @@ const RANK_MEDALS: Record<number, string> = {
   3: "🥉",
 };
 
-function useShareCast() {
-  const { capabilities } = useFarcaster();
-  const canCompose = capabilities?.includes("actions.composeCast") ?? true;
-  const [pending, setPending] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function share(key: string, text: string, embedUrl?: string) {
-    setPending(key);
-    setError(null);
-    try {
-      const embeds = embedUrl ? ([embedUrl] as [string]) : undefined;
-      await sdk.actions.composeCast({ text, embeds });
-    } catch (err) {
-      console.error("Failed to open Farcaster cast composer", err);
-      setError("Could not open the Farcaster cast composer.");
-    } finally {
-      setPending(null);
-    }
-  }
-
-  return { canCompose, pending, error, share };
+function farcasterUserLabel(
+  username: string | null | undefined,
+  fid: number,
+): string {
+  return username ? `@${username}` : `fid ${fid}`;
 }
 
 export default function StandingsPage() {
@@ -53,6 +45,12 @@ export default function StandingsPage() {
       isProtected: true,
       retry: false,
     });
+  const { data: activity } = useApiQuery<RecentActivityResult>({
+    queryKey: ["leaderboard-recent-activity"],
+    url: "/api/leaderboard/recent-activity",
+    isProtected: true,
+    retry: false,
+  });
 
   if (isLoading) {
     return (
@@ -78,6 +76,11 @@ export default function StandingsPage() {
   const commodusEntry = data.entries.find((row) => row.is_commodus);
   const playerEntries = data.entries.filter((row) => !row.is_commodus);
   const viewerEntry = data.entries.find((row) => row.fid === viewerFid);
+  const viewerPlayerIndex = viewerEntry
+    ? playerEntries.findIndex((row) => row.user_id === viewerEntry.user_id)
+    : -1;
+  const nextPlayerEntry =
+    viewerPlayerIndex > 0 ? playerEntries[viewerPlayerIndex - 1] : undefined;
 
   return (
     <div className="text-white space-y-6 pt-4">
@@ -102,10 +105,20 @@ export default function StandingsPage() {
         />
       )}
 
-      {viewerEntry && <ViewerShareCard viewer={viewerEntry} sharing={sharing} />}
+      {viewerEntry && (
+        <ViewerShareCard
+          viewer={viewerEntry}
+          nextPlayer={nextPlayerEntry}
+          sharing={sharing}
+        />
+      )}
 
       {sharing.error && (
         <p className="text-xs text-pnl-negative">{sharing.error}</p>
+      )}
+
+      {activity && activity.recent.length > 0 && (
+        <RecentActivityCard activity={activity} />
       )}
 
       <div className="rounded-xl border border-imperial-border overflow-hidden bg-imperial-surface">
@@ -144,8 +157,6 @@ export default function StandingsPage() {
   );
 }
 
-type ShareController = ReturnType<typeof useShareCast>;
-
 function SignedUsdPnl({
   amount,
   className,
@@ -173,26 +184,7 @@ function RankCell({ rank }: { rank: number }) {
   if (medal) {
     return <span className="text-base leading-none">{medal}</span>;
   }
-  const isTopThree = rank <= 3;
-  return (
-    <span
-      className={cn(
-        "font-mono text-sm",
-        isTopThree ? "font-semibold text-gold" : "text-zinc-400",
-      )}
-    >
-      {rank}
-    </span>
-  );
-}
-
-function ShareComposeGlyph({ isPending }: { isPending: boolean }) {
-  if (isPending) {
-    return (
-      <span className="size-4 animate-spin rounded-full border-2 border-gold border-t-transparent" />
-    );
-  }
-  return <Share2 className="size-4" aria-hidden="true" />;
+  return <span className="font-mono text-sm text-zinc-400">{rank}</span>;
 }
 
 function CommodusBossCard({
@@ -214,11 +206,19 @@ function CommodusBossCard({
   } else {
     statusText = `You need ${commodus.points - viewer.points + 1} more pts to pass him`;
   }
-  const shareKey = "commodus-boss";
   const challengeLink = miniAppTabDeepLink("trade", { mode: "buy", amount: 5 });
-  const shareText = `Commodus sits at ${commodus.points} pts (#${commodus.rank}) in the arena. Think you can pass him?\n\n${challengeLink}`;
-  const shareEmbed = viewer ? rankCardImageUrl(viewer.fid) : undefined;
-  const showShare = !viewerAhead && sharing.canCompose;
+  const showShare = sharing.canCompose && viewer != null;
+  const shareKey = viewerAhead ? "commodus-defeated" : "commodus-boss";
+  let shareText: string;
+  let shareEmbed: string | undefined;
+  if (viewer && viewerAhead) {
+    shareText = `I have beaten Commodus in the Victus arena (${viewer.points} vs ${commodus.points} pts).\n\n${miniAppTabDeepLink("standings")}`;
+    shareEmbed = bossCardImageUrl(viewer.fid);
+  } else {
+    shareText = `Commodus sits at ${commodus.points} pts (#${commodus.rank}) in the arena. Think you can pass him?\n\n${challengeLink}`;
+    shareEmbed = viewer ? rankCardImageUrl(viewer.fid) : undefined;
+  }
+  const shareLabel = viewerAhead ? "Share the kill" : "Challenge a friend";
 
   return (
     <section className="overflow-hidden rounded-xl border border-gold/40 bg-[linear-gradient(135deg,rgba(200,168,78,0.18),rgba(20,20,20,0.96)_44%,rgba(0,0,0,0.92))] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.34),0_0_32px_rgba(200,168,78,0.12)]">
@@ -281,7 +281,7 @@ function CommodusBossCard({
           onClick={() => void sharing.share(shareKey, shareText, shareEmbed)}
         >
           <ShareComposeGlyph isPending={sharing.pending === shareKey} />
-          Challenge a friend
+          {shareLabel}
         </Button>
       )}
     </section>
@@ -290,15 +290,20 @@ function CommodusBossCard({
 
 function ViewerShareCard({
   viewer,
+  nextPlayer,
   sharing,
 }: {
   viewer: LeaderboardEntry;
+  nextPlayer: LeaderboardEntry | undefined;
   sharing: ShareController;
 }) {
-  if (!sharing.canCompose) return null;
   const shareKey = `viewer-${viewer.user_id}`;
   const shareText = `I'm #${viewer.rank} in the Victus arena with ${viewer.points} pts.\n\n${miniAppTabDeepLink("standings")}`;
   const shareEmbed = rankCardImageUrl(viewer.fid);
+  const nextLabel = nextPlayer
+    ? farcasterUserLabel(nextPlayer.username, nextPlayer.fid)
+    : null;
+  const gapToNext = nextPlayer ? nextPlayer.points - viewer.points + 1 : 0;
 
   return (
     <section className="rounded-xl border border-imperial-border bg-imperial-surface p-3">
@@ -310,17 +315,24 @@ function ViewerShareCard({
           <p className="truncate text-sm text-zinc-200">
             #{viewer.rank} · {viewer.points} pts
           </p>
+          {nextPlayer && nextLabel && (
+            <p className="truncate text-xs text-zinc-400">
+              {gapToNext} pts to pass {nextLabel}
+            </p>
+          )}
         </div>
-        <Button
-          type="button"
-          variant="imperial-outline"
-          className="min-h-11 shrink-0 gap-2 rounded-lg border-gold/40 text-sm text-gold hover:bg-gold/10"
-          disabled={sharing.pending !== null}
-          onClick={() => void sharing.share(shareKey, shareText, shareEmbed)}
-        >
-          <ShareComposeGlyph isPending={sharing.pending === shareKey} />
-          Share rank
-        </Button>
+        {sharing.canCompose && (
+          <Button
+            type="button"
+            variant="imperial-outline"
+            className="min-h-11 shrink-0 gap-2 rounded-lg border-gold/40 text-sm text-gold hover:bg-gold/10"
+            disabled={sharing.pending !== null}
+            onClick={() => void sharing.share(shareKey, shareText, shareEmbed)}
+          >
+            <ShareComposeGlyph isPending={sharing.pending === shareKey} />
+            Share rank
+          </Button>
+        )}
       </div>
     </section>
   );
@@ -333,9 +345,7 @@ function StandingsRow({
   row: LeaderboardEntry;
   isViewer: boolean;
 }) {
-  const playerLabel = row.username
-    ? `@${row.username}`
-    : `fid ${row.fid}`;
+  const playerLabel = farcasterUserLabel(row.username, row.fid);
   const pnl = row.realized_pnl_usdc;
 
   return (
@@ -365,4 +375,68 @@ function StandingsRow({
       </div>
     </div>
   );
+}
+
+function RecentActivityCard({ activity }: { activity: RecentActivityResult }) {
+  return (
+    <section className="rounded-xl border border-imperial-border bg-imperial-surface p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-gold-muted">
+          Recent activity
+        </h2>
+        {activity.active_today > 0 && (
+          <span className="rounded-md border border-gold/30 bg-gold/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gold">
+            {activity.active_today} active today
+          </span>
+        )}
+      </div>
+      <ul className="space-y-1.5">
+        {activity.recent.map((entry) => (
+          <RecentActivityRow key={entry.execution_id} entry={entry} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RecentActivityRow({ entry }: { entry: RecentActivityEntry }) {
+  const playerLabel = farcasterUserLabel(entry.username, entry.fid);
+  const symbol = entry.symbol ? `$${entry.symbol.toUpperCase()}` : "";
+  const ago = relativeTimeShort(entry.confirmed_at);
+  const points = entry.points;
+  return (
+    <li className="flex items-center justify-between gap-2 text-xs">
+      <div className="min-w-0 truncate text-zinc-200">
+        <span className="font-medium">{playerLabel}</span>
+        <span className="text-zinc-500"> · {entry.action} </span>
+        <span className="font-mono">{symbol}</span>
+      </div>
+      <div className="shrink-0 flex items-center gap-2">
+        {points !== 0 && (
+          <span
+            className={cn(
+              "font-mono",
+              points > 0 ? "text-pnl-positive" : "text-zinc-400",
+            )}
+          >
+            {points > 0 ? `+${points}` : points} pts
+          </span>
+        )}
+        <span className="text-zinc-500">{ago}</span>
+      </div>
+    </li>
+  );
+}
+
+function relativeTimeShort(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const diffSec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  return `${diffDay}d ago`;
 }

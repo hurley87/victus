@@ -61,6 +61,34 @@ export function rankCardImageUrl(fid: number): string {
 }
 
 /**
+ * Public HTTPS URL for the dynamic trade OG card for a given execution id.
+ * Used as a Farcaster cast embed when sharing a scored trade.
+ */
+export function tradeCardImageUrl(executionId: string): string {
+  const id = executionId.trim();
+  if (!id) {
+    throw new Error("tradeCardImageUrl: executionId is required");
+  }
+  return `${appBaseUrl()}/api/og/trade/${encodeURIComponent(id)}`;
+}
+
+/**
+ * Public HTTPS URL for the dynamic boss-beaten OG card for a given Farcaster
+ * FID. Used as the embed when a viewer who has passed Commodus shares the kill.
+ */
+export function bossCardImageUrl(fid: number): string {
+  assertValidFid(fid, "bossCardImageUrl");
+  return `${appBaseUrl()}/api/og/boss/${fid}`;
+}
+
+/**
+ * Public HTTPS URL for the standings-snapshot OG card (top 5 + Commodus).
+ */
+export function standingsCardImageUrl(): string {
+  return `${appBaseUrl()}/api/og/standings`;
+}
+
+/**
  * HTTPS URL that opens the Mini App wallet tab for onboarding.
  */
 export function walletDeepLink(): string {

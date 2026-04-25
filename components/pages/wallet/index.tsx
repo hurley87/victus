@@ -12,9 +12,15 @@ import type {
 import type { PortfolioResult, PortfolioHolding, PortfolioTrade } from "@/lib/portfolio/service";
 import { cn, formatUsd, formatWalletAddress, copyToClipboard } from "@/lib/utils";
 import { Button } from "@/components/shared/ui/button";
+import { ShareComposeGlyph } from "@/components/shared/ui/share-compose-glyph";
 import { DepositButton } from "@/components/pages/arena/deposit-button";
 import { WithdrawButton } from "@/components/pages/arena/withdraw-button";
 import { mapProvisionError } from "@/components/pages/arena/provision-error";
+import { useShareCast } from "@/hooks/use-share-cast";
+import {
+  miniAppTabDeepLink,
+  tradeCardImageUrl,
+} from "@/lib/commodus/deep-links";
 
 const ARENA_QUERY_KEY = ["arena-me"] as const;
 
@@ -447,6 +453,7 @@ function HoldingRow({ holding }: { holding: PortfolioHolding }) {
 }
 
 function TradeRow({ trade }: { trade: PortfolioTrade }) {
+  const sharing = useShareCast();
   const isBuy = trade.action === "buy";
   const actionLabel = isBuy
     ? `Buy ${trade.symbol}`
@@ -467,6 +474,22 @@ function TradeRow({ trade }: { trade: PortfolioTrade }) {
         minute: "2-digit",
       })
     : "—";
+
+  const symbolUpper = trade.symbol ? trade.symbol.toUpperCase() : "";
+  const shareKey = `trade-${trade.id}`;
+  const pnlText =
+    trade.action === "sell" && trade.realized_pnl_usdc != null
+      ? ` (${formatUsd(trade.realized_pnl_usdc)} PnL)`
+      : "";
+  const shareText = `Just ${isBuy ? "bought" : "sold"} $${symbolUpper} in the Victus arena${pnlText}.\n\n${miniAppTabDeepLink(
+    "trade",
+    {
+      token: trade.symbol ? trade.symbol.toLowerCase() : undefined,
+      mode: trade.action,
+    },
+  )}`;
+  const shareEmbed = tradeCardImageUrl(trade.id);
+  const canShare = sharing.canCompose && trade.confirmed_at != null;
 
   return (
     <li className="rounded-lg bg-imperial-surface border border-imperial-border p-3">
@@ -501,6 +524,22 @@ function TradeRow({ trade }: { trade: PortfolioTrade }) {
           </p>
         </div>
       </div>
+      {canShare && (
+        <div className="mt-2 flex justify-end">
+          <Button
+            type="button"
+            variant="imperial-outline"
+            className="min-h-9 gap-2 rounded-md border-gold/40 px-2.5 text-xs text-gold hover:bg-gold/10"
+            disabled={sharing.pending !== null}
+            onClick={() =>
+              void sharing.share(shareKey, shareText, shareEmbed)
+            }
+          >
+            <ShareComposeGlyph isPending={sharing.pending === shareKey} />
+            Share trade
+          </Button>
+        </div>
+      )}
     </li>
   );
 }

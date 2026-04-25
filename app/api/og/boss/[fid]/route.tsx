@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-import { appBaseUrl } from "@/lib/commodus/deep-links";
+import { env } from "@/lib/env";
 import { getCurrentMonthLeaderboard } from "@/lib/leaderboard/service";
 import { loadGoogleFont, loadImage } from "@/lib/og-utils";
 
@@ -13,14 +13,6 @@ const GOLD_MUTED = "#8a7434";
 const BG_DARK = "#0a0a0a";
 const BG_PANEL = "#141414";
 const TEXT_DIM = "#9ca3af";
-const PNL_POSITIVE = "#5ee07a";
-const PNL_NEGATIVE = "#ef6a6a";
-
-function formatUsd(value: number): string {
-  const sign = value >= 0 ? "+" : "-";
-  const abs = Math.abs(value);
-  return `${sign}$${abs.toFixed(abs >= 100 ? 0 : 2)}`;
-}
 
 export async function GET(
   _request: Request,
@@ -35,30 +27,25 @@ export async function GET(
 
     const { entries } = await getCurrentMonthLeaderboard();
     const player = entries.find((e) => e.fid === fid && !e.is_commodus);
-    if (!player) {
-      return new Response("not on board", { status: 404 });
-    }
     const commodus = entries.find((e) => e.is_commodus);
+    if (!player || !commodus) {
+      return new Response("not eligible", { status: 404 });
+    }
+    if (player.points <= commodus.points) {
+      return new Response("not ahead of commodus", { status: 404 });
+    }
 
-    const appUrl = appBaseUrl();
+    const appUrl = env.NEXT_PUBLIC_URL.replace(/\/$/, "");
     const logoBuf = await loadImage(`${appUrl}/images/icon.png`);
     const logoSrc = `data:image/png;base64,${Buffer.from(logoBuf).toString("base64")}`;
 
-    const pnl = player.realized_pnl_usdc;
     const playerLabel = player.username ? `@${player.username}` : `fid ${player.fid}`;
-    const headerLine = `${playerLabel} · #${player.rank} in the arena`;
-    let benchmarkLine: string;
-    if (!commodus) {
-      benchmarkLine = "Beat Commodus";
-    } else if (player.points > commodus.points) {
-      benchmarkLine = `Ahead of Commodus (${commodus.points} pts)`;
-    } else {
-      benchmarkLine = `${commodus.points - player.points + 1} pts to pass Commodus`;
-    }
-    const fontText = `VICTUS ${headerLine} ${benchmarkLine} pts ptsmonthly PnL ${formatUsd(pnl)}`;
-    const fontData = await loadGoogleFont("Press+Start+2P", fontText);
+    const headline = `${playerLabel} has beaten Commodus`;
+    const lead = player.points - commodus.points;
+    const leadLine = `${lead} pt${lead === 1 ? "" : "s"} ahead of the emperor`;
 
-    const pnlPositive = pnl >= 0;
+    const fontText = `VICTUS ${headline} ${leadLine} POINTS RANK ${player.points} ${player.rank}`;
+    const fontData = await loadGoogleFont("Press+Start+2P", fontText);
 
     return new ImageResponse(
       (
@@ -69,7 +56,7 @@ export async function GET(
             display: "flex",
             flexDirection: "column",
             backgroundColor: BG_DARK,
-            backgroundImage: `linear-gradient(135deg, rgba(200,168,78,0.18), rgba(20,20,20,0.96) 44%, rgba(0,0,0,0.98))`,
+            backgroundImage: `linear-gradient(135deg, rgba(200,168,78,0.28), rgba(20,20,20,0.96) 44%, rgba(0,0,0,0.98))`,
             padding: "32px 36px",
             fontFamily: "PressStart2P",
             color: "white",
@@ -84,14 +71,7 @@ export async function GET(
               alt=""
               style={{ borderRadius: 8 }}
             />
-            <div
-              style={{
-                display: "flex",
-                fontSize: 16,
-                color: GOLD,
-                letterSpacing: 2,
-              }}
-            >
+            <div style={{ fontSize: 16, color: GOLD, letterSpacing: 2 }}>
               VICTUS
             </div>
           </div>
@@ -104,21 +84,10 @@ export async function GET(
               gap: 14,
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                fontSize: 12,
-                color: GOLD_MUTED,
-                letterSpacing: 1,
-              }}
-            >
-              ARENA RANK
+            <div style={{ fontSize: 12, color: GOLD_MUTED, letterSpacing: 1 }}>
+              EMPEROR DEFEATED
             </div>
-            <div
-              style={{ display: "flex", fontSize: 22, color: "white" }}
-            >
-              {headerLine}
-            </div>
+            <div style={{ fontSize: 22, color: "white" }}>{headline}</div>
           </div>
 
           <div
@@ -141,21 +110,10 @@ export async function GET(
                 flex: 1,
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: 10,
-                  color: TEXT_DIM,
-                  letterSpacing: 1,
-                }}
-              >
+              <div style={{ fontSize: 10, color: TEXT_DIM, letterSpacing: 1 }}>
                 POINTS
               </div>
-              <div
-                style={{ display: "flex", fontSize: 44, color: GOLD }}
-              >
-                {player.points}
-              </div>
+              <div style={{ fontSize: 44, color: GOLD }}>{player.points}</div>
             </div>
             <div
               style={{
@@ -165,54 +123,34 @@ export async function GET(
                 alignItems: "flex-end",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: 10,
-                  color: TEXT_DIM,
-                  letterSpacing: 1,
-                }}
-              >
-                MONTHLY PNL
+              <div style={{ fontSize: 10, color: TEXT_DIM, letterSpacing: 1 }}>
+                RANK
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  fontSize: 22,
-                  color: pnlPositive ? PNL_POSITIVE : PNL_NEGATIVE,
-                }}
-              >
-                {formatUsd(pnl)}
+              <div style={{ fontSize: 22, color: "white" }}>
+                #{player.rank}
               </div>
             </div>
           </div>
 
           <div
             style={{
-              display: "flex",
               marginTop: "auto",
               fontSize: 12,
               color: GOLD,
               letterSpacing: 1,
             }}
           >
-            {benchmarkLine}
+            {leadLine}
           </div>
         </div>
       ),
       {
         ...SIZE,
-        fonts: [
-          {
-            name: "PressStart2P",
-            data: fontData,
-            style: "normal",
-          },
-        ],
+        fonts: [{ name: "PressStart2P", data: fontData, style: "normal" }],
       },
     );
   } catch (err) {
-    console.error("rank og card failed", err);
-    return new Response("failed to generate rank card", { status: 500 });
+    console.error("boss og card failed", err);
+    return new Response("failed to generate boss card", { status: 500 });
   }
 }
