@@ -19,6 +19,7 @@ At the end of each month, the top 10 players are recognized on a frozen leaderbo
 Most trading products are private and utility-first.
 
 Commodus makes trading:
+
 - **public**
 - **game-like**
 - **social**
@@ -43,6 +44,7 @@ Ship a working Farcaster Mini App that proves three things:
 3. a leaderboard plus monthly rewards is enough to create engagement
 
 The MVP should prioritize:
+
 - clear onboarding
 - simple execution flow
 - credibility
@@ -77,17 +79,22 @@ These are captured in `docs/future.md`.
 ## Core User Experience
 
 ### 1. Discover
+
 A user sees a cast from or about Commodus and opens the Mini App.
 
 ### 2. Enter the Arena
+
 The user signs in with Farcaster (Quick Auth) and reads a simple explanation of the game:
+
 - trade in public
 - only approved assets
 - leaderboard is based on points
 - top 10 are highlighted monthly (prizes at operator discretion)
 
 ### 3. Fund Your Wallet
+
 The first call to action is wallet funding:
+
 1. Commodus lazily provisions a per-user **Privy server wallet** on Base — the arena wallet. Private key material is TEE-custodied by Privy and never extractable. The user does not import a seed phrase, does not install anything, and does not manage the key material.
 2. The Mini App surfaces the arena address with a **Deposit ≥ $5 USDC** CTA (copy / QR).
 3. Once cumulative deposits reach ≥ $5 USDC on Base, `arena_wallets.funded_at` is set and trading unlocks.
@@ -95,7 +102,9 @@ The first call to action is wallet funding:
 Users are the gladiators; there is no separate name picker, player-character record, or on-chain NFT in MVP. The user's arena wallet exists only after they tap Fund wallet, so passive sign-ins do not provision wallets.
 
 ### 4. Review Arena Rules
+
 The user reads what Commodus can and cannot do, including:
+
 - only approved tradable assets (plus USDC as quote; live list from `asset_whitelist`)
 - max trades per day
 - max size per trade (`max_trade_usdc`)
@@ -104,13 +113,17 @@ The user reads what Commodus can and cannot do, including:
 - Commodus executes swaps autonomously from the arena wallet; the user does not sign per trade
 
 ### 5. First Trade
+
 The user posts a cast such as:
+
 - `@commodus buy 25 usdc of aero`
 - `@commodus sell 50% of aero`
 - `@commodus status`
 
 ### 6. Commodus Executes
+
 The backend:
+
 - ingests the cast via Neynar webhook
 - enqueues it to a Vercel Queue
 - runs a durable Vercel Workflow that parses, validates, quotes, deducts the fee, and **signs + submits the swap via Privy's server-wallet API** from the arena wallet, then records the execution and publishes an **intent reply cast** followed by an **outcome reply cast** naming the realized fill
@@ -118,7 +131,9 @@ The backend:
 The user sees a public cast thread: decree → intent acknowledgement → outcome. No signing dialog, no Mini App navigation mid-trade. If any step fails (insufficient balance, policy rejection, revert on-chain), Commodus replies with a templated line naming the reason; the trade is not scored.
 
 ### 7. Track Performance
+
 The user opens the Mini App to see:
+
 - arena wallet balance (live, from Base)
 - rank
 - points
@@ -128,6 +143,7 @@ The user opens the Mini App to see:
 - monthly standings
 
 ### 8. Monthly recognition
+
 At the end of each UTC month, the leaderboard for that UTC month is frozen and the top 10 are named. **MVP does not promise a specific token or onchain reward** — any monthly prize is operator-defined and fulfilled outside the app (see § Monthly rewards).
 
 ---
@@ -135,14 +151,18 @@ At the end of each UTC month, the leaderboard for that UTC month is frozen and t
 ## Target User
 
 ### Primary
+
 Crypto-native Farcaster users who:
+
 - enjoy competition
 - understand tokens and wallets
 - are comfortable trading on Base
 - like public status games
 
 ### Secondary
+
 Users who may not be active traders but like:
+
 - social games
 - public challenges
 - leaderboard dynamics
@@ -155,6 +175,7 @@ Users who may not be active traders but like:
 ## In Scope
 
 ### Mini App
+
 - Farcaster sign-in (Quick Auth)
 - onboarding flow
 - **fund-your-wallet flow** — lazy Privy wallet provisioning + $5 USDC deposit gate
@@ -166,12 +187,14 @@ Users who may not be active traders but like:
 - show trade history
 
 ### Custodial Execution (Privy server wallets)
+
 - per-user Privy server wallet created **lazily when the user taps Fund wallet** (not at sign-in); wallet id stored on `arena_wallets.privy_wallet_id`. Users who sign in but never fund cost Commodus nothing.
 - Commodus holds authorization to sign from the wallet via Privy's server-wallet API; private key material is TEE-custodied (AWS Nitro Enclave — reassembled in memory only, never persisted outside the enclave, not extractable by Privy, AWS, or a compromised Privy stack)
 - **Gas sponsored by Privy.** Each swap is submitted with `sponsor: true`; Privy pays gas from a sponsorship balance that the operator tops up. That balance is refilled by the fee-on-swap collected at execution time (see Execution Rules).
 - swap execution runs inside a durable Vercel Workflow step that calls Privy's signing API and receives the tx hash synchronously in the step's return value
 
 ### Public Trading
+
 - users trade via public Farcaster casts at `@commodus`
 - Commodus replies publicly with templated copy
 - `buy`, `sell`, and `status` commands only
@@ -180,6 +203,7 @@ Users who may not be active traders but like:
 - validation, quoting, and policy checks before execution; execution runs server-side without user interaction
 
 ### Backend
+
 - ingest Farcaster casts via Neynar mention webhook
 - enqueue to Vercel Queue
 - process via Vercel Workflow (parse → validate → quote → execute → record → reply)
@@ -187,6 +211,7 @@ Users who may not be active traders but like:
 - idempotent processing at webhook, queue, workflow, and chain layers
 
 ### Rewards
+
 - monthly leaderboard snapshot
 - top 10 users are surfaced for operator follow-up
 - any payout is fully manual (admin CSV export + fulfillment outside the app)
@@ -215,11 +240,13 @@ Users who may not be active traders but like:
 ## Product Requirements
 
 ## Identity
+
 - users must use their existing Farcaster account
 - no new Farcaster account creation
 - Farcaster identity is the canonical social identity in the app
 
 ## Wallets
+
 - each user has **one** arena wallet, provisioned when they tap Fund wallet (not at sign-in — see § Wallet Funding Gate)
 - the arena wallet is a **Privy server wallet** on Base; `arena_wallets.privy_wallet_id` is the canonical Privy identifier and `arena_wallets.wallet_address` is its Base EOA
 - private key material is TEE-custodied by Privy (AWS Nitro Enclave); the application server has authorization to sign but cannot export the key
@@ -234,21 +261,24 @@ Users who may not be active traders but like:
 Users are the gladiators. The product does not create a separate character, name, NFT, or player-character record for MVP.
 
 ### Funding gate
+
 - `min_funding_deposit_usdc = 5` — the user's arena wallet must hold **≥ $5 USDC** before trading unlocks.
 - Trading is gated on `arena_wallets.funded_at`. A user with an unfunded wallet can see the arena address and live deposit balance but cannot cast a trade command.
 
 ### Why this gate exists
+
 - **Abuse protection.** Commodus pays gas sponsorship only on wallets that have already funded $5 USDC. A bot that signs in and pokes around costs $0. A bot that funds $5 has already contributed more than it can consume in gas.
 - **Clear onboarding.** The first action is concrete: fund your wallet, make trades in the arena, and beat Commodus to earn rewards.
 - **Float economics.** The $5 minimum × N users = custodied USDC float. At MVP scale this is legally negligible (see § Compliance Posture) but opens a post-MVP yield surface.
 
 ### Funding flow
+
 1. User signs in with Farcaster (Quick Auth). No arena wallet yet.
 2. User opens the Mini App, sees a "Fund wallet" CTA.
 3. User taps the CTA; backend calls `POST /api/arena/wallet`:
-   - provisions a Privy server wallet via the server-wallet API
-   - inserts `arena_wallets` (`privy_wallet_id`, `wallet_address`)
-   - returns the arena address to the client
+  - provisions a Privy server wallet via the server-wallet API
+  - inserts `arena_wallets` (`privy_wallet_id`, `wallet_address`)
+  - returns the arena address to the client
 4. UI shows the arena address + deposit control: "Send ≥ $5 USDC on Base to fund your wallet."
 5. The Mini App verifies the funding transaction and the profile self-heal reads live Base USDC balance; once cumulative deposits reach ≥ $5 USDC, `arena_wallets.funded_at` is set.
 6. UI flips into trading-enabled mode; user can cast their first decree.
@@ -256,6 +286,7 @@ Users are the gladiators. The product does not create a separate character, name
 ## Trade Commands
 
 ### Supported command types
+
 - `buy`
 - `sell`
 - `status`
@@ -275,6 +306,7 @@ SYMBOL     := member of asset_whitelist (case-insensitive)
 `AMOUNT` and `PERCENT` are **authoritative** — they are the exact sizes Commodus executes against on the user's behalf. `AMOUNT` is denominated in USDC (buy side). `PERCENT` is a share of the user's current on-chain holding of `SYMBOL` inside the arena wallet (sell side), resolved at execution time by reading the arena wallet's token balance.
 
 ### Rules
+
 - **single command per cast** — multi-command casts rejected
 - **case-insensitive** on keywords and symbols
 - **emojis and unicode whitespace stripped** before matching
@@ -283,6 +315,7 @@ SYMBOL     := member of asset_whitelist (case-insensitive)
 - the parsed result is validated through a Zod schema before reaching the policy engine
 
 ### Examples
+
 - `@commodus buy 25 usdc of aero`
 - `@commodus buy 10 usdc of virtual`
 - `@commodus sell 50% of aero`
@@ -291,16 +324,19 @@ SYMBOL     := member of asset_whitelist (case-insensitive)
 ## Asset Rules
 
 MVP supports:
+
 - **Base mainnet only**
 - **spot trading only**
 - **whitelist driven by `asset_whitelist`** (USDC as quote + **three** tradable Base tokens in the current seed; **WETH is retired** — not offered for new trades)
 
-| Symbol | Role | Notes |
-|---|---|---|
-| USDC | Quote | Required; all PnL denominated in USDC |
-| AERO | Tradable | Base-native volatility |
-| DEGEN | Tradable | Farcaster-culture token |
-| VIRTUAL | Tradable | Agent/AI theme alignment |
+
+| Symbol  | Role     | Notes                                 |
+| ------- | -------- | ------------------------------------- |
+| USDC    | Quote    | Required; all PnL denominated in USDC |
+| AERO    | Tradable | Base-native volatility                |
+| DEGEN   | Tradable | Farcaster-culture token               |
+| VIRTUAL | Tradable | Agent/AI theme alignment              |
+
 
 - Symbols outside the active whitelist are rejected with a templated Commodus line
 - USDC is the sole quote asset — no symbol-to-symbol pairs
@@ -311,16 +347,18 @@ MVP supports:
 
 Global defaults for MVP. **Not user-editable.**
 
-| Parameter | Value | Enforced at |
-|---|---|---|
-| `min_funding_deposit_usdc` | 5 | wallet-funding check (`arena_wallets.funded_at`) |
-| `max_trade_usdc` | 10 | pre-submit (quote step) |
-| `max_trades_per_day` | 10 | pre-submit (intent step) |
-| `wallet_cap_usdc` | 50 | pre-submit on buys (arena wallet USDC + notional value of held positions) |
-| `max_slippage_bps` | 100 (1%) | submit time (passed into the swap router's minOut calc) |
-| `max_price_impact_bps` | 300 (3%) | score time (realized fill vs. reference 0x quote) |
-| `swap_fee_bps` | 50 (0.5%) | execution (deducted from USDC leg; credited to operator treasury) |
-| `swap_fee_min_usdc` | 0.05 | execution (floor on fee so dust trades still contribute) |
+
+| Parameter                  | Value     | Enforced at                                                               |
+| -------------------------- | --------- | ------------------------------------------------------------------------- |
+| `min_funding_deposit_usdc` | 5         | wallet-funding check (`arena_wallets.funded_at`)                          |
+| `max_trade_usdc`           | 10        | pre-submit (quote step)                                                   |
+| `max_trades_per_day`       | 10        | pre-submit (intent step)                                                  |
+| `wallet_cap_usdc`          | 50        | pre-submit on buys (arena wallet USDC + notional value of held positions) |
+| `max_slippage_bps`         | 100 (1%)  | submit time (passed into the swap router's minOut calc)                   |
+| `max_price_impact_bps`     | 300 (3%)  | score time (realized fill vs. reference 0x quote)                         |
+| `swap_fee_bps`             | 50 (0.5%) | execution (deducted from USDC leg; credited to operator treasury)         |
+| `swap_fee_min_usdc`        | 0.05      | execution (floor on fee so dust trades still contribute)                  |
+
 
 - Intents exceeding a pre-submit rule are rejected with a templated Commodus line and no trade is submitted
 - Executions that exceed a score-time rule are recorded with `status='failed'` and a structured `failure_reason`; the outcome reply names the reason
@@ -357,45 +395,54 @@ The leaderboard is game-like, but its accounting is deterministic.
 
 ### Scoring per executed cast
 
-| Condition | Points |
-|---|---|
-| Trade executed (buy or sell) | +1 |
-| Sell with realized PnL ≥ **$0.25** ("profitable close") | +10 |
-| Sell with realized return % ≥ **10%** | +10 bonus |
-| Sell with realized return % ≥ **25%** | +25 bonus |
+
+| Condition                                               | Points    |
+| ------------------------------------------------------- | --------- |
+| Trade executed (buy or sell)                            | +1        |
+| Sell with realized PnL ≥ **$0.25** ("profitable close") | +10       |
+| Sell with realized return % ≥ **10%**                   | +10 bonus |
+| Sell with realized return % ≥ **25%**                   | +25 bonus |
+
 
 - The **$0.25** floor ensures the user had to move the market in their favor by a meaningful amount after fees. Prevents round-trip farming.
 - Failed executions score zero and do not consume a daily scoring slot.
 - Base `+1` still awarded on non-profitable sells (above the profitable-close floor → no bonuses apply).
 
 ### Daily cap
+
 - At most **5 scoring casts per day per user**.
 - "Day" = UTC calendar day; counters reset at **00:00 UTC**.
 - Cast #6+ still *executes* (the user still trades) but contributes **0 points**.
 
 ### Monthly scoring period
+
 - Scoring period = calendar UTC month, `[YYYY-MM-01 00:00 UTC, YYYY-(MM+1)-01 00:00 UTC)`.
 - Leaderboard **resets monthly**.
 - All-time stats retained in a separate `user_stats` table for future profile pages, **not shown in MVP UI**.
 
 ### Tiebreakers (applied in order)
+
 1. Total points
 2. Monthly realized PnL in **USDC** (absolute dollars)
 3. Earlier timestamp of the last scoring cast (stable order)
 
 ### Edge cases
+
 - **Unrealized positions at month-end**: score nothing. To score, you must close. Documented prominently on the Rules page.
 - **Partial sells**: fully supported; score the sell cast once on the quantity-weighted realized PnL and return %.
 - **Sell with no holding**: rejected at policy, never reaches scoring.
 - **Failed on-chain execution (revert)**: `status='failed'`, zero points, slot not consumed.
 
 ### Why this design
+
 Rewards:
+
 - participation
 - profitable trading
 - bigger wins
 
 Discourages:
+
 - spam trading (daily cap)
 - round-trip farming ($0.25 floor, fees included in cost basis)
 - leaderboard cheesing via deposits (PnL denominator is absolute dollars, not percentage)
@@ -407,16 +454,18 @@ Discourages:
 MVP optimizes for **leaderboard clarity and a clean custodial trading loop**, not for a named reward token. Month-end handling:
 
 ### What “rewards” mean in MVP
+
 - Top 10 finishers are **frozen in `leaderboard_snapshots`** and surfaced in `/admin/rewards/:epoch`.
 - Any prize (USDC, merch, shout-outs, etc.) is **operator-defined** and **fulfilled off-app**. The product copy and Rules page **do not** promise a specific token.
 
 ### Operator workflow (suggested)
+
 1. **00:00 UTC, day 1 of each month** — a Vercel cron job:
-   - inserts a `reward_epochs` row with `status='snapshot_ready'`
-   - freezes `leaderboard_snapshots` for the closed month (top 10 locked)
+  - inserts a `reward_epochs` row with `status='snapshot_ready'`
+  - freezes `leaderboard_snapshots` for the closed month (top 10 locked)
 2. Operator opens `/admin/rewards/:epoch`:
-   - table of top 10 with FID, username, rank, points, realized PnL, resolved recipient address
-   - **"Download CSV"** — exports payout rows (e.g. `address, reward_amount`) as the operator configures
+  - table of top 10 with FID, username, rank, points, realized PnL, resolved recipient address
+  - **"Download CSV"** — exports payout rows (e.g. `address, reward_amount`) as the operator configures
 3. Operator fulfills prizes out-of-band (bank transfer, USDC send, manual process — **not specified in MVP**)
 4. Operator records proof in admin UI if desired → `reward_epochs.status='distributed'` + optional tx hash metadata
 5. Commodus may publish a monthly recap cast naming the top 10
@@ -438,6 +487,7 @@ Recorded in `reward_epochs` for audit. The arena wallet address is explicitly ex
 Commodus should feel imperial and theatrical, but never unclear.
 
 ### Tone
+
 - Roman
 - concise
 - authoritative
@@ -445,6 +495,7 @@ Commodus should feel imperial and theatrical, but never unclear.
 - readable
 
 ### Reply policy (MVP)
+
 - **Templated** — never LLM-generated. Voice is deterministic. (LLM-generated copy deferred to future.)
 - **One reply per parent cast.** No self-threading.
 - **Reply-failure ≠ trade-failure.** If the cast publish fails, the trade is still executed and recorded. The reply is retried via the workflow.
@@ -452,23 +503,28 @@ Commodus should feel imperial and theatrical, but never unclear.
 ### Template examples
 
 **Successful trade** (prefixed with Farcaster handle/display label)
+
 - "@maximus. Order accepted. 25 USDC deployed into AERO."
 - "@maximus. The decree is carried out. Sold half your AERO for 13.40 USDC. +2.40 realized."
 - "@maximus. Commodus has entered the market on your behalf."
 
 **Status reply (public, with deep link)**
+
 - "Rank 17. 42 points. Portfolio 38.12 USDC. View the full ledger: {deep_link}"
 
 **Grammar rejection**
+
 - "Valid commands: `buy N usdc of SYMBOL`, `sell N% of SYMBOL`, `status`."
 
 **Policy rejection**
+
 - "Order denied. Asset not approved for this arena."
 - "The arena grants only ten decrees per day. Return at the next dawn."
 - "Commodus refuses. This trade violates the laws of the arena."
 - "Open the Mini App to fund your wallet, make trades in the arena, and beat Commodus to earn rewards."
 
 **Market-condition rejection**
+
 - "The arena does not deal in such violent movements. Order denied."
 
 ---
@@ -476,6 +532,7 @@ Commodus should feel imperial and theatrical, but never unclear.
 ## Technical Architecture
 
 ### Stack
+
 - **Next.js App Router** (16.x) + React 19
 - **builders-garden/farcaster-miniapp-starter** as the base (already in place)
 - **Supabase** — Postgres for all game state; `supabase-js` client, no ORM in MVP
@@ -485,7 +542,7 @@ Commodus should feel imperial and theatrical, but never unclear.
 - **Vercel Workflow** (beta) — durable multi-step trade pipeline
 - **Neynar** — cast webhooks, `@commodus` reply publishing (managed signer already provisioned)
 - **Privy server wallets** — the execution surface. Each user gets a per-user Privy wallet on Base, provisioned at arena-join time. Commodus signs and submits swap transactions from this wallet via Privy's server-wallet API. Private key material is HSM-custodied by Privy; the application server holds authorization but cannot export.
-- **`@farcaster/miniapp-sdk`** — retained **only** for sign-in (Quick Auth) and Mini App context (safe-area insets, `isInMiniApp`, capabilities). Not on the trade-execution path.
+- `**@farcaster/miniapp-sdk`** — retained **only** for sign-in (Quick Auth) and Mini App context (safe-area insets, `isInMiniApp`, capabilities). Not on the trade-execution path.
 - **0x Swap API** — used at execution time (quote + `transaction` calldata that Privy submits) and at score time (reference quote for price-impact sanity check).
 - **Vercel AI SDK** (`ai`, `@ai-sdk/workflow`) — `generateObject` for MVP command parsing; graduates to `WorkflowAgent` post-MVP when Commodus gains autonomous tools. Models routed via **Vercel AI Gateway**.
 - **viem / wagmi** — chain interaction (already in deps)
@@ -516,6 +573,7 @@ The execution surface was the biggest architectural call for MVP. Three viable o
 **MetaMask Snaps (eliminated).** Different product from Farcaster Snaps despite the name collision. Requires MetaMask-install plus per-Snap approval; most Farcaster traffic signs with the client's embedded wallet. Not a viable surface.
 
 **When this decision gets revisited.** Two triggers:
+
 1. **Regulatory pressure** — if the custody posture creates money-transmitter exposure we cannot carry, pivot to mini-app-per-trade on the path documented in Known MVP Compromises. The schema migration that restored custody (`<timestamp>_restore_custodial_execution.sql`) is reversible symmetrically.
 2. **Protocol advance** — if Farcaster or the AA stack ships a first-party delegated-signer API with the scoping semantics we need (per-token allowlist, daily-notional cap, expiry), that's strictly better than custody. Re-evaluate.
 
@@ -598,6 +656,7 @@ Vercel Workflow process-trade-command
 ```
 
 Idempotency strategy summary:
+
 - **Webhook layer:** Redis `SETNX` + Postgres unique constraint on `cast_hash`.
 - **Queue layer:** Vercel Queue idempotency key = `cast_hash`.
 - **Workflow layer:** every step is pure or idempotent check-then-act; reply publishing is guarded by a unique `(cast_hash, reply_kind)` row so intent and outcome replies publish exactly once each.
@@ -609,6 +668,7 @@ Idempotency strategy summary:
 ### Fallback plan if Vercel Queues/Workflow beta churn
 
 If either beta product becomes unreliable during the hackathon, drop to:
+
 - **Upstash QStash** as the queue
 - A hand-rolled state machine in Supabase (`cast_commands.status` column drives transitions)
 - Step functions become simple serverless functions that mutate the row
@@ -620,6 +680,7 @@ The interfaces are compatible; the primitives are swappable. **Documented, not b
 The MVP uses the **Vercel AI SDK** (`ai` package) because it runs on the same primitives as the rest of the trade pipeline — Vercel Workflow, Fluid compute, AI Gateway — with zero rewrite when Commodus graduates from "parser" to "autonomous entity."
 
 **MVP approach — structured output, not a tool loop:**
+
 - Parsing is a single `generateObject` call bound to `TradeIntentSchema` (Zod), wrapped in a `'use step'` workflow step for durability + retries.
 - A deterministic regex pre-filter handles the happy-path grammar cheaply; the LLM is invoked only on regex miss, which keeps cost and latency predictable.
 - The same `TradeIntentSchema` is reused by the policy engine and by tests — one source of truth.
@@ -627,12 +688,14 @@ The MVP uses the **Vercel AI SDK** (`ai` package) because it runs on the same pr
 
 **Post-MVP — graduate to `WorkflowAgent` (`@ai-sdk/workflow`):**
 When Commodus grows a real tool surface, each of these becomes a durable workflow step (`'use step'`) attached to a single `WorkflowAgent`. Migration is additive; the MVP `TradeIntentSchema` and workflow structure stay intact.
+
 - `publish_commentary_cast(text)` — scheduled market commentary for marketing
 - `query_market_state(symbol)` — for Commodus's own benchmark wallet (Phase 2)
 - `decide_benchmark_trade()` — autonomous trading by Commodus (multi-step tool loop, gated by `needsApproval` where appropriate)
 - `reply_to_non_command_cast(cast_hash)` — in-character responses to replies
 
 **Why Vercel AI SDK over OpenAI Agents SDK:**
+
 - Native fit with Vercel Workflow (`'use step'` tools, suspension survives process restarts).
 - Model-agnostic via AI Gateway — swap `openai/gpt-5-mini` for parsing with `anthropic/claude-sonnet-4-6` for reasoning without code changes.
 - `generateObject` is the right primitive for the MVP task; no agent loop needed until there's a tool surface to loop over.
@@ -644,11 +707,13 @@ When Commodus grows a real tool surface, each of these becomes a durable workflo
 Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`updated_at` implied where applicable.
 
 ### `users`
+
 - id
 - created_at
 - updated_at
 
 ### `farcaster_accounts`
+
 - id
 - user_id
 - fid (unique)
@@ -658,6 +723,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - verifications (jsonb array)
 
 ### `arena_wallets`
+
 - id
 - user_id (unique — one per user in MVP)
 - wallet_address (unique — Base EOA of the Privy server wallet)
@@ -667,6 +733,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - created_at (set at wallet provisioning time, not at sign-in)
 
 ### `wallet_policies`
+
 - id
 - wallet_id (unique)
 - max_trade_usdc
@@ -678,6 +745,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - created_at
 
 ### `asset_whitelist`
+
 - id
 - symbol (unique)
 - name
@@ -688,6 +756,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - active
 
 ### `cast_commands`
+
 - id
 - fid
 - cast_hash (**unique**)
@@ -701,6 +770,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - created_at
 
 ### `trade_intents`
+
 - id
 - cast_command_id
 - wallet_id
@@ -712,6 +782,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - created_at
 
 ### `trade_executions`
+
 - id
 - trade_intent_id
 - execution_id (**unique** — deterministic from `cast_hash`; the reserve-before-submit idempotency key)
@@ -728,6 +799,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - confirmed_at
 
 ### `lots`
+
 - id
 - wallet_id
 - asset_symbol
@@ -739,6 +811,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - closed_at (nullable)
 
 ### `lot_closures`
+
 - id
 - lot_id
 - closing_execution_id
@@ -749,6 +822,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - closed_at
 
 ### `positions` *(materialized summary; derivable from lots)*
+
 - id
 - wallet_id
 - asset_symbol (unique per wallet)
@@ -757,6 +831,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - updated_at
 
 ### `scoring_events`
+
 - id
 - user_id
 - cast_command_id
@@ -768,6 +843,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - created_at
 
 ### `leaderboard_snapshots`
+
 - id
 - user_id
 - month (YYYY-MM, unique with user_id)
@@ -777,6 +853,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - captured_at (null until frozen at month-end)
 
 ### `user_stats` *(all-time, not shown in MVP UI)*
+
 - user_id (unique)
 - total_points
 - total_realized_pnl_usdc
@@ -784,6 +861,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - updated_at
 
 ### `reward_epochs`
+
 - id
 - month (unique)
 - status ('pending_snapshot' | 'snapshot_ready' | 'distributed' | 'partial')
@@ -798,36 +876,44 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 ## API / Backend Requirements
 
 ### Auth / App
+
 - `POST /api/auth/siwf` — Farcaster Quick Auth callback (Mini App session)
 - session handling
 
 ### Arena / Wallet
+
 - `POST /api/arena/wallet` — creates a Privy server wallet for the authenticated user if one does not already exist, inserts `arena_wallets` + `wallet_policies`, and returns the arena address. Idempotent per user — a replay returns the existing records.
 - `GET /api/arena/me` — wallet funding state, arena address, live balance (USDC + held positions), rules snapshot, and sample command. Returns a `needs_funding` flag while `arena_wallets.funded_at` is null.
 - **(internal)** funding self-heal — the Mini App verifies the funding transaction and the profile reader sets `arena_wallets.funded_at` when cumulative USDC deposits to the arena wallet reach `min_funding_deposit_usdc`.
 
 ### Farcaster ingestion
+
 - `POST /api/webhooks/neynar` — verify signature, dedupe, enqueue
 
 ### Trading
+
 - internal workflow steps: parser, policy validator, quoter (0x), Privy signer/submitter, tx verifier, swap-log decoder, score-time enforcer, execution recorder, scorer, intent/outcome reply publishers
 - no user-facing trading endpoint in MVP; the workflow is the trading surface
 
 ### Reconciliation
+
 - `POST /api/admin/executions/reconcile` — trigger reconciler for stuck `submitted`/`pending` executions (admin only, also invoked by cron)
 
 ### Leaderboard (read-side)
+
 - `GET /api/leaderboard/current` — current month standings
 - `GET /api/leaderboard/me` — user's rank + stats
 - `GET /api/leaderboard/trades/recent` — recent public executions
 - `GET /api/users/:fid/portfolio` — holdings + recent trades
 
 ### Rewards
+
 - `GET /api/admin/rewards/:epoch` — top 10 + CSV export (admin only)
 - `POST /api/admin/rewards/:epoch/distributed` — mark distributed + record tx hashes
 
 ### Cron
-- `0 0 1 * *` — monthly leaderboard snapshot job
+
+- `0 0 1 * `* — monthly leaderboard snapshot job
 - `*/5 * * * *` — reconciler sweep for `trade_executions` stuck in `pending`/`submitted` > 15 min
 
 ---
@@ -835,6 +921,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 ## Functional Requirements
 
 ### Onboarding
+
 - user can sign in with Farcaster (no wallet provisioned yet)
 - user can tap Fund wallet → system lazily provisions a Privy arena wallet → user deposits ≥ $5 USDC → system sets `arena_wallets.funded_at`
 - user can see their arena address + live balance
@@ -843,6 +930,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - user cannot issue a trade command until their arena wallet is funded
 
 ### Trade Execution
+
 - user can issue a supported public trade command
 - system parses valid commands via agent + Zod schema
 - system rejects invalid commands with templated Commodus reply
@@ -857,12 +945,14 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - each cast produces at most one intent reply, one outcome reply, and one `trade_executions` row (idempotent at webhook, queue, workflow, reserve, and chain layers)
 
 ### Leaderboard
+
 - leaderboard updates from stored executions and closed trades
 - FIFO lot accounting is authoritative
 - points and rank are visible in app
 - user's portfolio, cost basis, and recent trades are visible in app
 
 ### Rewards
+
 - system determines monthly winners automatically at month rollover
 - system exposes CSV export of winners
 - operator fulfills any prize out-of-band (not prescribed in MVP)
@@ -873,7 +963,9 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 ## UX Requirements
 
 ### Arena page (home)
+
 Must show (funded wallet):
+
 - the user's arena address (copyable) with a prominent "Deposit USDC" call-to-action
 - live arena wallet balance (USDC + each held position's quantity and notional value)
 - approved assets
@@ -882,30 +974,38 @@ Must show (funded wallet):
 - daily trade slots remaining
 
 Must show (no arena wallet yet):
+
 - **"Fund wallet"** CTA
 - copy: "Fund your wallet, make trades in the arena, and beat Commodus to earn rewards."
 
 Must show (wallet provisioned, pre-funding):
+
 - "Wallet needs funding" banner
 - arena address (copyable) with QR
 - live funding progress ("$3.14 / $5.00 USDC deposited")
 - trading UI disabled until the wallet is funded
 
 ### Portfolio page
+
 Must show:
+
 - holdings (symbol, quantity, avg cost, current value)
 - total portfolio value in USDC
 - realized PnL (month + all-time)
 - recent trades (ten most recent)
 
 ### Leaderboard page
+
 Must show:
+
 - rank, username, points, realized PnL (USDC), last trade time
 - user's own row highlighted
 - current month label
 
 ### Rules page
+
 Must show:
+
 - the wallet funding flow ($5 USDC minimum, one-time)
 - exact command grammar (amount/percent are authoritative sizes, enforced server-side)
 - full whitelist
@@ -918,6 +1018,7 @@ Must show:
 - custody posture: Commodus custodies the arena wallet via Privy (TEE-executed in AWS Nitro Enclave, keys non-extractable); user deposits USDC and Commodus trades on their behalf; withdraw is out of scope for MVP (contact operator)
 
 ### Admin pages (operator only, allowlisted FID)
+
 - `/admin/rewards/:epoch` — leaderboard snapshot + CSV export + mark-distributed
 
 ---
@@ -963,22 +1064,24 @@ This is documented here because the compliance surface is the single biggest pos
 
 These are conscious tradeoffs for hackathon velocity. Each has a planned resolution.
 
-| Compromise | Reason | Resolution |
-|---|---|---|
-| **Custodial Privy server wallets** are the execution surface | Required for the autonomous-agent product thesis; only mechanism that gives deterministic tx hashes + fee-on-swap + yield-on-idle revenue | Re-evaluate if (a) regulatory pressure mandates non-custody, in which case pivot to Mini App SDK `swapToken` per trade (`feat/miniapp-per-trade` escape hatch), or (b) Farcaster / AA ecosystem ships first-party delegated signers with usable scoping semantics. |
-| **No separate player character in MVP** | Users are already identified by Farcaster; removing the extra object makes onboarding clearer and faster | Revisit only if a later season needs cosmetic identity, tournament lineage, or collectibles. |
-| **Lazy wallet provisioning at first fund CTA (not at sign-in)** | Sign-in without funding costs Commodus $0; Privy sponsorship is only exposed on wallets that have cleared the $5 funding gate | No resolution needed; this is the correct steady-state policy. |
-| **No user-initiated withdraw in MVP** | Withdraw flow is operationally the most failure-sensitive path (partial fills, network races, support load); deferring lets MVP ship | Withdraw-by-request via operator; add a self-serve `POST /api/arena/withdraw` with rate-limiting and amount-cap once Phase 5 settles. |
-| **Money-transmitter / custody regulatory exposure accepted at MVP scale** | $50 wallet cap + $10 per-trade cap + no fiat rails keeps exposure small; legal-review cost exceeds risk-adjusted enforcement cost at this scale | Legal review before any of: aggregate custodied balance >$10k, fiat rails, marketing outside crypto-native audience. See § Compliance Posture. |
-| **Privy gas sponsorship funded by fee-on-swap** | Users shouldn't need to hold ETH for a USDC-in product; operator absorbs the cash-flow lag between topping up the sponsorship balance and collecting fee-on-swap revenue | Steady state at scale: sponsorship balance is self-refilling from fees. If volume outruns fee revenue, switch to a user-paid gas model (arena wallet holds ETH, gasless via paymaster, or ERC-4337 with sponsored gas metered per user). |
-| **Single Privy server-wallet per user (no multi-sig, no recovery)** | Simplest possible custody topology; Privy's TEE execution (AWS Nitro Enclaves) is the only failure mitigation | If a Privy outage or key-loss becomes a real risk, move to dual-custody or a self-hosted signer + HSM. |
-| **Vercel Queues / Workflow** both in public beta | New primitives, best-fit DX | If unreliable, fall back to Upstash QStash + Supabase state machine; no code redesign needed. |
-| **Templated reply copy only** (no LLM replies) | Deterministic voice, safer for money-moving flows | Agent grows a `publish_cast` tool post-MVP; voice is then LLM-curated with guardrails. |
-| **Manual offchain rewards** | No reward contract in MVP; operator fulfills prizes manually | Optionally automate via a distributor contract + merkle claims post-MVP. |
-| **Single-region Supabase, no DR** | Not a hackathon concern | Supabase multi-region/read replicas when traffic warrants. |
-| **Admin UI gated by single allowlisted FID** | Simple auth for one operator | Role-based access when team grows. |
-| **No rate limiting beyond policy caps** | Policy caps are sufficient at hackathon scale | Add IP/FID rate limits before public launch. |
-| **Base mainnet from day one** (no staging chain) | Real assets make the demo real | Add Base Sepolia staging environment if team grows. |
+
+| Compromise                                                                | Reason                                                                                                                                                                   | Resolution                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Custodial Privy server wallets** are the execution surface              | Required for the autonomous-agent product thesis; only mechanism that gives deterministic tx hashes + fee-on-swap + yield-on-idle revenue                                | Re-evaluate if (a) regulatory pressure mandates non-custody, in which case pivot to Mini App SDK `swapToken` per trade (`feat/miniapp-per-trade` escape hatch), or (b) Farcaster / AA ecosystem ships first-party delegated signers with usable scoping semantics. |
+| **No separate player character in MVP**                                   | Users are already identified by Farcaster; removing the extra object makes onboarding clearer and faster                                                                 | Revisit only if a later season needs cosmetic identity, tournament lineage, or collectibles.                                                                                                                                                                       |
+| **Lazy wallet provisioning at first fund CTA (not at sign-in)**           | Sign-in without funding costs Commodus $0; Privy sponsorship is only exposed on wallets that have cleared the $5 funding gate                                            | No resolution needed; this is the correct steady-state policy.                                                                                                                                                                                                     |
+| **No user-initiated withdraw in MVP**                                     | Withdraw flow is operationally the most failure-sensitive path (partial fills, network races, support load); deferring lets MVP ship                                     | Withdraw-by-request via operator; add a self-serve `POST /api/arena/withdraw` with rate-limiting and amount-cap once Phase 5 settles.                                                                                                                              |
+| **Money-transmitter / custody regulatory exposure accepted at MVP scale** | $50 wallet cap + $10 per-trade cap + no fiat rails keeps exposure small; legal-review cost exceeds risk-adjusted enforcement cost at this scale                          | Legal review before any of: aggregate custodied balance >$10k, fiat rails, marketing outside crypto-native audience. See § Compliance Posture.                                                                                                                     |
+| **Privy gas sponsorship funded by fee-on-swap**                           | Users shouldn't need to hold ETH for a USDC-in product; operator absorbs the cash-flow lag between topping up the sponsorship balance and collecting fee-on-swap revenue | Steady state at scale: sponsorship balance is self-refilling from fees. If volume outruns fee revenue, switch to a user-paid gas model (arena wallet holds ETH, gasless via paymaster, or ERC-4337 with sponsored gas metered per user).                           |
+| **Single Privy server-wallet per user (no multi-sig, no recovery)**       | Simplest possible custody topology; Privy's TEE execution (AWS Nitro Enclaves) is the only failure mitigation                                                            | If a Privy outage or key-loss becomes a real risk, move to dual-custody or a self-hosted signer + HSM.                                                                                                                                                             |
+| **Vercel Queues / Workflow** both in public beta                          | New primitives, best-fit DX                                                                                                                                              | If unreliable, fall back to Upstash QStash + Supabase state machine; no code redesign needed.                                                                                                                                                                      |
+| **Templated reply copy only** (no LLM replies)                            | Deterministic voice, safer for money-moving flows                                                                                                                        | Agent grows a `publish_cast` tool post-MVP; voice is then LLM-curated with guardrails.                                                                                                                                                                             |
+| **Manual offchain rewards**                                               | No reward contract in MVP; operator fulfills prizes manually                                                                                                             | Optionally automate via a distributor contract + merkle claims post-MVP.                                                                                                                                                                                           |
+| **Single-region Supabase, no DR**                                         | Not a hackathon concern                                                                                                                                                  | Supabase multi-region/read replicas when traffic warrants.                                                                                                                                                                                                         |
+| **Admin UI gated by single allowlisted FID**                              | Simple auth for one operator                                                                                                                                             | Role-based access when team grows.                                                                                                                                                                                                                                 |
+| **No rate limiting beyond policy caps**                                   | Policy caps are sufficient at hackathon scale                                                                                                                            | Add IP/FID rate limits before public launch.                                                                                                                                                                                                                       |
+| **Base mainnet from day one** (no staging chain)                          | Real assets make the demo real                                                                                                                                           | Add Base Sepolia staging environment if team grows.                                                                                                                                                                                                                |
+
 
 ---
 
@@ -1015,6 +1118,7 @@ Confirm field paths in the Axiom UI after the first deploy; if logs arrive as es
 ## Success Metrics
 
 ### MVP success metrics
+
 - number of users who sign in
 - number of users who tap Fund wallet (arena wallet provisioned)
 - number of wallets that reach funded status (≥ $5 USDC deposit cleared)
@@ -1031,7 +1135,9 @@ Confirm field paths in the Axiom UI after the first deploy; if logs arrive as es
 - month-1 top-10 snapshot completed (10 named finishers)
 
 ### Demo success
+
 A successful demo should show, in order:
+
 1. A first-time user signs in with Farcaster
 2. User taps "Fund wallet"; Mini App lazily provisions the Privy arena wallet and surfaces the address + a "Deposit ≥ $5 USDC" CTA
 3. User sends $10 USDC to the arena address; Mini App balance updates live, `arena_wallets.funded_at` is set, trading unlocks
@@ -1050,7 +1156,7 @@ A successful demo should show, in order:
 Order of operations for going live:
 
 1. **Infrastructure ready** — Supabase schema applied (including the non-custodial pivot and the `restore_custodial_execution` migration on top), Vercel deployment live, Neynar webhook pointed at prod URL, 0x API key in place, Privy server-wallet API key provisioned, **Privy gas-sponsorship balance funded** (seed with ~$500 to cover launch-week traffic before fee-on-swap revenue recycles), operator USDC treasury wallet configured (receives fee-on-swap transfers).
-2. **`@commodus` FID profile polished** — bio, pfp, pinned cast explaining the game.
+2. `**@commodus` FID profile polished** — bio, pfp, pinned cast explaining the game.
 3. **First `reward_epoch` row created** for the launch month.
 4. **Commodus casts the arena opening:** *"The arena opens. Fund your wallet with 5 USDC. Speak your commands: `@commodus buy N usdc of SYMBOL`. Commodus trades on your behalf."*
 5. **Public trading begins.**
@@ -1070,6 +1176,7 @@ Most prior open questions resolved during grilling. Remaining:
 ## Suggested Build Order
 
 ### Phase 1 — Foundation (built on existing starter)
+
 - apply Supabase schema + RLS policies
 - wire `supabase-js` client into the existing starter
 - confirm Farcaster Quick Auth sign-in flow works end-to-end
@@ -1077,6 +1184,7 @@ Most prior open questions resolved during grilling. Remaining:
 - add admin-FID allowlist env var
 
 ### Phase 2 — Wallet funding + arena wallet provisioning
+
 - implement `POST /api/arena/wallet` (create Privy server wallet via server-wallet API, insert `arena_wallets` + `wallet_policies`)
 - implement funding verification/self-heal that sets `arena_wallets.funded_at` on first ≥ $5 USDC cumulative deposit
 - implement `GET /api/arena/me` (wallet funding state + arena address + live balance + rules snapshot)
@@ -1084,6 +1192,7 @@ Most prior open questions resolved during grilling. Remaining:
 - Rules page with grammar + whitelist + scoring + funding flow + fee-on-swap + custody posture
 
 ### Phase 3 — Cast ingestion + custodial execution pipeline
+
 - implement `POST /api/webhooks/neynar` with HMAC verification + Redis idempotency + Supabase insert
 - stand up Vercel Queue `trade-commands`
 - stand up Vercel Workflow `process-trade-command`:
@@ -1102,6 +1211,7 @@ Most prior open questions resolved during grilling. Remaining:
 - implement `lib/execution/reconciler.ts` (carried from spike) + cron trigger for stuck executions
 
 ### Phase 4 — Scoring + UI
+
 - implement FIFO lot accounting (`lots`, `lot_closures`)
 - implement scoring event log + daily cap logic
 - Leaderboard page UI (current month)
@@ -1109,6 +1219,7 @@ Most prior open questions resolved during grilling. Remaining:
 - `status` command support (public reply + deep link)
 
 ### Phase 5 — Rewards + polish
+
 - monthly snapshot cron
 - `/admin/rewards/:epoch` UI with CSV export + mark-distributed
 - copy pass on all Commodus replies

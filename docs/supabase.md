@@ -49,21 +49,21 @@ Versioned SQL files live in `[supabase/migrations/](../supabase/migrations/)`. T
 Current migrations:
 
 
-| Version          | Name                                  | Purpose                                                                                  |
-| ---------------- | ------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `20260417094525` | `init_commodus_schema`                | Full initial schema, seed `asset_whitelist`                                              |
-| `20260417094617` | `pin_set_updated_at_search_path`      | Pin `set_updated_at` function search_path (security lint fix)                            |
-| `20260418120534` | `pivot_non_custodial_execution`       | Pivot to non-custodial execution model                                                   |
-| `20260418170000` | `restore_custodial_execution`         | Restore custodial execution model                                                        |
-| `20260419090000` | `pipeline_execution_support`          | Schema support for the durable execution pipeline                                        |
-| `20260419180606` | `remote_baseline`                     | Remote baseline reconciliation                                                           |
-| `20260419210000` | `trade_executions_realized_pnl`       | Add realized PnL columns to `trade_executions`                                           |
-| `20260419215314` | `remote_baseline`                     | Remote baseline reconciliation (post-PnL)                                                |
-| `20260419220000` | `issue_12_execution_hardening`        | Issue #12 — execution pipeline hardening                                                 |
-| `20260420143958` | `retire_weth_from_asset_whitelist`    | Retire WETH from `asset_whitelist`                                                       |
-| `20260424160000` | `add_funding_wallet_to_arena_wallets` | Add `funding_wallet` column to `arena_wallets`                                           |
-| `20260424190000` | `add_commodus_lore_posts`             | Deterministic Season 1 scheduled lore casts (`commodus_lore_posts`)                      |
-| `20260424201225` | `create_commodus_storage_bucket`      | Public `commodus` storage bucket + read-only `commodus_public_read` policy on `objects`  |
+| Version          | Name                                  | Purpose                                                                                 |
+| ---------------- | ------------------------------------- | --------------------------------------------------------------------------------------- |
+| `20260417094525` | `init_commodus_schema`                | Full initial schema, seed `asset_whitelist`                                             |
+| `20260417094617` | `pin_set_updated_at_search_path`      | Pin `set_updated_at` function search_path (security lint fix)                           |
+| `20260418120534` | `pivot_non_custodial_execution`       | Pivot to non-custodial execution model                                                  |
+| `20260418170000` | `restore_custodial_execution`         | Restore custodial execution model                                                       |
+| `20260419090000` | `pipeline_execution_support`          | Schema support for the durable execution pipeline                                       |
+| `20260419180606` | `remote_baseline`                     | Remote baseline reconciliation                                                          |
+| `20260419210000` | `trade_executions_realized_pnl`       | Add realized PnL columns to `trade_executions`                                          |
+| `20260419215314` | `remote_baseline`                     | Remote baseline reconciliation (post-PnL)                                               |
+| `20260419220000` | `issue_12_execution_hardening`        | Issue #12 — execution pipeline hardening                                                |
+| `20260420143958` | `retire_weth_from_asset_whitelist`    | Retire WETH from `asset_whitelist`                                                      |
+| `20260424160000` | `add_funding_wallet_to_arena_wallets` | Add `funding_wallet` column to `arena_wallets`                                          |
+| `20260424190000` | `add_commodus_lore_posts`             | Deterministic Season 1 scheduled lore casts (`commodus_lore_posts`)                     |
+| `20260424201225` | `create_commodus_storage_bucket`      | Public `commodus` storage bucket + read-only `commodus_public_read` policy on `objects` |
 
 
 ### Applying migrations
@@ -121,12 +121,12 @@ const { data, error } = await supabaseAdmin
 The pipeline relies on database-level uniqueness for idempotency. Do not add code paths that bypass these.
 
 
-| Layer       | Constraint                                                                       |
-| ----------- | -------------------------------------------------------------------------------- |
-| Webhook     | `cast_commands.cast_hash` UNIQUE                                                 |
+| Layer       | Constraint                                                                         |
+| ----------- | ---------------------------------------------------------------------------------- |
+| Webhook     | `cast_commands.cast_hash` UNIQUE                                                   |
 | Chain       | `trade_executions.tx_hash` UNIQUE (supplied by the user's signed tx via swapToken) |
-| Reply       | `scoring_events (cast_command_id, event_type)` UNIQUE                            |
-| Lot linkage | `lots.opening_execution_id` UNIQUE                                               |
+| Reply       | `scoring_events (cast_command_id, event_type)` UNIQUE                              |
+| Lot linkage | `lots.opening_execution_id` UNIQUE                                                 |
 
 
 When inserting from workflow steps, use `.insert(...).select()` + handle `23505` (unique violation) as "already processed, load existing row and continue."
