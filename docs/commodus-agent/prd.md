@@ -30,7 +30,7 @@ This PRD adds a reactive social layer. Commodus listens via Neynar webhooks for 
 
 A user replies to a Commodus cast: "imagine taking advice from a chatbot lol". Within ~30 seconds, Commodus replies: *"And yet here you are, in my thread, attending my school."* — in voice, single sentence. If they reply again, he continues, up to a per-thread cap. If they show up in a different thread next week, he remembers them.
 
-Operationally, the team can review every inbound event Commodus considered and why he replied or passed, via an admin view.
+Operationally, the team can review every inbound event Commodus considered and why he replied or passed via Supabase. Local replay tooling is enough for iteration unless a full admin view becomes necessary later.
 
 ## System Architecture
 
@@ -185,10 +185,11 @@ Reply shape: 1–3 sentences, first person, punchy, no hashtags unless needed, n
 | Route | Purpose |
 |-------|---------|
 | `app/api/webhooks/neynar/route.ts` (extend) | Add a sibling `start(handleSocialEngagement)` next to the existing trade workflow start. No other changes. |
-| `app/api/admin/commodus-social/route.ts` | Admin list of recent runs (auth: `ADMIN_API_TOKEN`) |
-| `app/api/admin/commodus-social/replay/route.ts` | Replay a stored event through the pipeline (debug) |
+| `app/api/admin/commodus-social/replay/route.ts` | Local operator endpoint to replay a stored event through the current pipeline (auth: `ADMIN_API_TOKEN`) |
 
 No new cron is required for the user-facing feature. An optional `app/api/cron/commodus-memory/route.ts` may be added in Phase 5 for background summarization, but it can also run inline on debounce.
+
+See [Commodus Social Replay](./replay.md) for the narrowed local-only workflow. Direct Supabase queries are sufficient for listing and inspecting recent runs; replay is the useful tool for prompt/code iteration.
 
 ## Neynar Webhook
 
@@ -210,7 +211,7 @@ The new `handleSocialEngagement` workflow:
 
 **Phase 2 — Database.** Migration adding the 5 tables + blocklist, indexes, idempotency unique constraints. **No pgvector / no embedding columns.**
 
-**Phase 3 — Workflow dry run.** Implement `rank.ts` (heuristics), `context.ts`, `generate.ts`. Wire `handleSocialEngagement` into the existing webhook with `COMMODUS_SOCIAL_DRY_RUN=true`. Save events, decisions, and generated drafts. **No posting.** Add admin list + replay routes.
+**Phase 3 — Workflow dry run.** Implement `rank.ts` (heuristics), `context.ts`, `generate.ts`. Wire `handleSocialEngagement` into the existing webhook with `COMMODUS_SOCIAL_DRY_RUN=true`. Save events, decisions, and generated drafts. **No posting.** Add the local admin replay route; use Supabase directly for list/inspection until a full admin view is justified.
 
 **Phase 4 — Live posting.** Flip dry-run off with strict per-author / per-thread caps. Watch for 48h before widening.
 
@@ -224,7 +225,7 @@ The new `handleSocialEngagement` workflow:
 2. **Embeddings**: none at MVP. Memory is plain text. Vector search deferred until corpus justifies it.
 3. **Lore source**: `lib/commodus/lore/season-1.ts` is unchanged and continues to feed autotrader narration. The social agent reads `docs/commodus-agent/lore.md` directly. No shared loader at MVP.
 4. **Async model**: Vercel Workflow (`handleSocialEngagement`), mirroring `handleCommodusCommand`. Not inline.
-5. **Phase 3 validation**: `COMMODUS_SOCIAL_DRY_RUN=true` env flag plus admin list + replay routes. No shadow channel, no manual approve-to-post route.
+5. **Phase 3 validation**: `COMMODUS_SOCIAL_DRY_RUN=true` env flag plus the local admin replay route. Direct Supabase queries cover list/inspection. No shadow channel, no manual approve-to-post route.
 
 ## Acceptance Criteria
 
@@ -233,7 +234,7 @@ The new `handleSocialEngagement` workflow:
 - Neynar webhook captures replies and mentions of `COMMODUS_FID` (quote casts not handled), persists them, and runs them through the decision pipeline via `handleSocialEngagement`.
 - With `DRY_RUN=true`, every qualifying event produces one `commodus_social_runs` row including ignores, with `prompt_snapshot` and `model_output` populated, and no cast is posted.
 - Disabling dry-run causes Commodus to post within caps: ≤2 per author / rolling 24h (no reply-back reset), ≤3 per thread excluding originating cast; idempotency prevents duplicates on Neynar retry.
-- Admin route lists the last N runs with action, reason, draft, posted hash. Replay route re-runs prompts on stored events.
+- Supabase is sufficient for listing recent runs; the local admin replay route re-runs prompts on stored events and writes a new manual run row without mutating the original.
 - A blocklisted FID never receives a Commodus reply, even on direct mention.
 - Manual run on a stored event produces an in-voice 1–3 sentence reply with no banned content and no "as an AI" tells.
 - Thread memory exists for any thread where Commodus posted ≥2 times; user memory exists for any FID Commodus has replied to ≥2 times.

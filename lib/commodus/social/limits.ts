@@ -61,10 +61,8 @@ export async function loadAuthorRelationship(
   if (error) throw new Error(`commodus_user_memory read failed: ${error.message}`);
 
   const raw = data?.relationship;
-  let relationship: "ally" | "rival" | "unknown" | "muted" = "unknown";
-  if (raw === "ally" || raw === "rival" || raw === "muted") {
-    relationship = raw;
-  }
+  const relationship: "ally" | "rival" | "unknown" | "muted" =
+    raw === "ally" || raw === "rival" || raw === "muted" ? raw : "unknown";
 
   return {
     relationship,
@@ -107,6 +105,7 @@ async function countThreadReplies(threadHash: string): Promise<number> {
   const { count, error } = await supabaseAdmin
     .from("commodus_social_runs")
     .select("id", { count: "exact", head: true })
+    .eq("run_type", "webhook")
     .eq("action", "reply")
     .in("selected_cast_hash", castHashes);
 
@@ -129,6 +128,7 @@ async function countAuthorReplies24h(fid: number, now: Date): Promise<number> {
   const { count, error } = await supabaseAdmin
     .from("commodus_social_runs")
     .select("id", { count: "exact", head: true })
+    .eq("run_type", "webhook")
     .eq("action", "reply")
     .in("selected_cast_hash", castHashes);
 
