@@ -10,7 +10,7 @@ import { getAllowanceHolderQuote } from "@/lib/zerox/quote";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import {
-  getActiveSeason,
+  getLeaderboardSeason,
   getSeasonTokens,
   serializeSeason,
   type Season,
@@ -34,6 +34,10 @@ export type SeasonLeaderboardEntry = {
   has_qualifying_trade: boolean;
   status: string;
   is_commodus: boolean;
+  performance_points: number;
+  survival_bonus: number;
+  commodus_bonus: number;
+  final_score: number;
 };
 
 export type SeasonLeaderboardResult = {
@@ -90,7 +94,7 @@ export const SEASON_PRICE_CACHE_TTL_SECONDS = 60;
 export async function getSeasonLeaderboard(
   client: SupabaseAdmin = supabaseAdmin,
 ): Promise<SeasonLeaderboardResult> {
-  const season = await getActiveSeason(client);
+  const season = await getLeaderboardSeason(client);
   if (!season) {
     return {
       season: null,
@@ -132,18 +136,15 @@ export async function getSeasonLeaderboard(
     getSeasonTokens(season.id, client),
   ]);
 
-  const walletById = new Map(wallets.map((wallet) => [wallet.id, wallet]));
-  const takerAddress =
-    entryRows
-      .map((entry) => walletById.get(entry.wallet_id)?.wallet_address)
-      .find((address): address is string => Boolean(address)) ?? null;
-  const prices = takerAddress
-    ? await getCachedSeasonTokenPrices({
-        season,
-        tokens,
-        taker: takerAddress,
-      })
-    : new Map<string, number>();
+  const prices =
+    season.status === "settled"
+      ? getSettledSeasonTokenPrices(tokens)
+      : await getLiveSeasonTokenPrices({
+          season,
+          entries: entryRows,
+          wallets,
+          tokens,
+        });
 
   return buildSeasonLeaderboard({
     season,
@@ -199,6 +200,10 @@ export function buildSeasonLeaderboard(args: {
       has_qualifying_trade: entry.has_qualifying_trade,
       status: entry.status,
       is_commodus: args.commodusFid != null && fid === args.commodusFid,
+      performance_points: 0,
+      survival_bonus: 0,
+      commodus_bonus: 0,
+      final_score: 0,
       created_at: entry.created_at,
     };
   });
@@ -213,6 +218,9 @@ export function buildSeasonLeaderboard(args: {
   eligible.forEach((row, index) => {
     row.rank = index + 1;
   });
+  if (args.season.status === "settled") {
+    applyFinalScores(eligible);
+  }
 
   return {
     season: serializeSeason(args.season),
@@ -249,6 +257,65 @@ export async function getCachedSeasonTokenPrices(args: {
   );
 
   return prices;
+}
+
+function getSettledSeasonTokenPrices(tokens: SeasonToken[]): Map<string, number> {
+  return new Map(
+    tokens.map((token) => [
+      priceKey(token.token_address),
+      token.closing_price_usdc == null ? 0 : Number(token.closing_price_usdc),
+    ]),
+  );
+}
+
+async function getLiveSeasonTokenPrices(args: {
+  season: Season;
+  entries: SeasonEntryRow[];
+  wallets: ArenaWalletRow[];
+  tokens: SeasonToken[];
+}): Promise<Map<string, number>> {
+  const walletById = new Map(args.wallets.map((wallet) => [wallet.id, wallet]));
+  const takerAddress =
+    args.entries
+      .map((entry) => walletById.get(entry.wallet_id)?.wallet_address)
+      .find((address): address is string => Boolean(address)) ?? null;
+
+  if (!takerAddress) return new Map<string, number>();
+  return getCachedSeasonTokenPrices({
+    season: args.season,
+    tokens: args.tokens,
+    taker: takerAddress,
+  });
+}
+
+export function applyFinalScores(
+  eligible: Array<SeasonLeaderboardEntry & { created_at?: string }>,
+): void {
+  const commodus = eligible.find((row) => row.is_commodus) ?? null;
+  const commodusValue = commodus?.portfolio_value_usdc ?? null;
+
+  eligible.forEach((row) => {
+    const performancePoints = performancePointsForRank(row.rank);
+    const survivalBonus = 5;
+    const beatsCommodus =
+      !row.is_commodus &&
+      commodusValue != null &&
+      row.portfolio_value_usdc > commodusValue;
+    const commodusBonus = beatsCommodus ? 5 : 0;
+
+    row.performance_points = performancePoints;
+    row.survival_bonus = survivalBonus;
+    row.commodus_bonus = commodusBonus;
+    row.final_score = Math.min(
+      100,
+      performancePoints + survivalBonus + commodusBonus,
+    );
+  });
+}
+
+function performancePointsForRank(rank: number | null): number {
+  if (rank == null) return 0;
+  return Math.max(0, 100 - rank * 10);
 }
 
 async function quoteSeasonTokenInUsdc(args: {

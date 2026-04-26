@@ -17,22 +17,26 @@ export type SeasonEntry =
 export type SeasonSummary = {
   id: string;
   name: string;
+  status: string;
   starting_balance_usdc: number;
   max_trades: number;
   min_trade_size_usdc: number;
   starts_at: string;
   ends_at: string;
+  settled_at: string | null;
 };
 
 export function serializeSeason(season: Season): SeasonSummary {
   return {
     id: season.id,
     name: season.name,
+    status: season.status,
     starting_balance_usdc: Number(season.starting_balance_usdc),
     max_trades: season.max_trades,
     min_trade_size_usdc: Number(season.min_trade_size_usdc),
     starts_at: season.starts_at,
     ends_at: season.ends_at,
+    settled_at: season.settled_at,
   };
 }
 
@@ -47,6 +51,26 @@ export async function getActiveSeason(
 
   if (error) {
     throw new Error(`seasons: getActiveSeason ${error.message}`);
+  }
+  return data ?? null;
+}
+
+export async function getLeaderboardSeason(
+  client: SupabaseAdmin = supabaseAdmin,
+): Promise<Season | null> {
+  const active = await getActiveSeason(client);
+  if (active) return active;
+
+  const { data, error } = await client
+    .from("seasons")
+    .select("*")
+    .eq("status", "settled")
+    .order("ends_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`seasons: getLeaderboardSeason ${error.message}`);
   }
   return data ?? null;
 }

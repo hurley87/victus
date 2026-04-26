@@ -18,13 +18,14 @@ function leaderboardPlayerLabel(
   username: string | null,
   fid: number,
 ): string {
-  if (isCommodus) {
-    return "Commodus (Emperor)";
-  }
-  if (username) {
-    return `@${username}`;
-  }
+  if (isCommodus) return "Commodus (Emperor)";
+  if (username) return `@${username}`;
   return `fid ${fid}`;
+}
+
+function seasonLeaderboardSubtitle(status: string | undefined): string {
+  if (status === "settled") return "Final results";
+  return "Arena Balance, not Wallet Balance";
 }
 
 export default function LeaderboardPage() {
@@ -103,7 +104,8 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
           <div>
             <h1 className="text-2xl font-semibold">Leaderboard</h1>
             <p className="text-sm text-muted-foreground">
-              {data.season?.name ?? "No active season"} · Arena Balance, not Wallet Balance
+              {data.season?.name ?? "No active season"} ·{" "}
+              {seasonLeaderboardSubtitle(data.season?.status)}
             </p>
           </div>
           <Link
@@ -175,10 +177,8 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
                               </span>
                             )}
                           </div>
-                          {row.username && !isCommodus && (
-                            <span className="text-[11px] text-black/50">
-                              @{row.username}
-                            </span>
+                          {data.season?.status === "settled" && (
+                            <FinalScoreChips row={row} />
                           )}
                         </div>
                       </td>
@@ -225,7 +225,9 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
                   {formatUsd(row.portfolio_value_usdc)}
                 </span>
                 <span className="text-right font-mono">
-                  {formatPercent(row.performance_return)}
+                  {data.season?.status === "settled"
+                    ? `${row.final_score} pts`
+                    : formatPercent(row.performance_return)}
                 </span>
               </div>
             ))}
@@ -240,6 +242,48 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
         </Link>
       </div>
     </div>
+  );
+}
+
+function FinalScoreChips({
+  row,
+}: {
+  row: SeasonLeaderboardResult["entries"][number];
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 pt-1">
+      <ScoreChip label="Score" value={`${row.final_score}`} strong />
+      <ScoreChip label="Rank" value={`${row.performance_points}`} />
+      {row.survival_bonus > 0 && (
+        <ScoreChip label="Survive" value={`+${row.survival_bonus}`} />
+      )}
+      {row.commodus_bonus > 0 && (
+        <ScoreChip label="Beat Commodus" value={`+${row.commodus_bonus}`} />
+      )}
+    </div>
+  );
+}
+
+function ScoreChip({
+  label,
+  value,
+  strong,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "rounded border px-1.5 py-0.5 text-[10px] leading-none",
+        strong
+          ? "border-black/20 bg-black text-white"
+          : "border-black/10 bg-white text-black/60",
+      )}
+    >
+      {label} {value}
+    </span>
   );
 }
 

@@ -12,6 +12,10 @@
     {
       "path": "/api/cron/commodus-autotrade",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/settle-season",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

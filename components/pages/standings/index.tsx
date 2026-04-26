@@ -263,10 +263,12 @@ function CommodusBossCard({
   const challengeLink = miniAppTabDeepLink("trade", { mode: "buy", amount: 5 });
   const showShare = sharing.canCompose && viewer != null;
   const shareKey = viewerAhead ? "commodus-defeated" : "commodus-boss";
-  const shareText =
-    viewerAhead && viewer
-      ? `I have beaten Commodus in the Victus arena (${formatUsd(viewer.portfolio_value_usdc)} vs ${formatUsd(commodus.portfolio_value_usdc)}).\n\n${miniAppTabDeepLink("standings")}`
-      : `Commodus sits at ${formatUsd(commodus.portfolio_value_usdc)} (#${commodus.rank}) in the arena. Think you can pass him?\n\n${challengeLink}`;
+  let shareText: string;
+  if (viewerAhead && viewer) {
+    shareText = `I have beaten Commodus in the Victus arena (${formatUsd(viewer.portfolio_value_usdc)} vs ${formatUsd(commodus.portfolio_value_usdc)}).\n\n${miniAppTabDeepLink("standings")}`;
+  } else {
+    shareText = `Commodus sits at ${formatUsd(commodus.portfolio_value_usdc)} (#${commodus.rank}) in the arena. Think you can pass him?\n\n${challengeLink}`;
+  }
   const shareLabel = viewerAhead ? "Share the kill" : "Challenge a friend";
 
   return (
@@ -294,7 +296,7 @@ function CommodusBossCard({
         </div>
 
         <div className="shrink-0 text-right">
-        <div className="font-mono text-3xl font-semibold leading-none text-gold">
+          <div className="font-mono text-3xl font-semibold leading-none text-gold">
             {formatUsd(commodus.portfolio_value_usdc)}
           </div>
           <div className="text-[10px] uppercase tracking-wider text-zinc-500">

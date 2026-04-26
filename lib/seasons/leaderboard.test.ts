@@ -124,6 +124,7 @@ describe("buildSeasonLeaderboard", () => {
       "user-unqualified",
     ]);
     expect(result.ineligible.every((row) => row.rank === null)).toBe(true);
+    expect(result.ineligible.every((row) => row.final_score === 0)).toBe(true);
   });
 
   it("marks the Commodus row from COMMODUS_FID-equivalent input", () => {
@@ -142,6 +143,63 @@ describe("buildSeasonLeaderboard", () => {
       fid: 999,
       is_commodus: true,
     });
+  });
+
+  it("computes final score from rank, survival, and Commodus bonuses", () => {
+    const result = buildSeasonLeaderboard({
+      season: { ...season, status: "settled", settled_at: "2026-05-03T00:00:00.000Z" },
+      commodusFid: 999,
+      accounts,
+      prices: new Map([
+        ["0x00000000000000000000000000000000000000a1", 1],
+      ]),
+      entries: [
+        entry("entry-winner", "user-alpha", { cash: 15, trades: 1 }),
+        entry("entry-mid", "user-bravo", { cash: 11, trades: 2 }),
+        entry("entry-commodus", "user-commodus", { cash: 10, trades: 1 }),
+        entry("entry-unqualified", "user-unqualified", {
+          cash: 99,
+          trades: 0,
+          hasQualifyingTrade: false,
+        }),
+      ],
+      positions: [],
+    });
+
+    expect(result.entries.map((row) => ({
+      user_id: row.user_id,
+      rank: row.rank,
+      performance_points: row.performance_points,
+      survival_bonus: row.survival_bonus,
+      commodus_bonus: row.commodus_bonus,
+      final_score: row.final_score,
+    }))).toEqual([
+      {
+        user_id: "user-alpha",
+        rank: 1,
+        performance_points: 90,
+        survival_bonus: 5,
+        commodus_bonus: 5,
+        final_score: 100,
+      },
+      {
+        user_id: "user-bravo",
+        rank: 2,
+        performance_points: 80,
+        survival_bonus: 5,
+        commodus_bonus: 5,
+        final_score: 90,
+      },
+      {
+        user_id: "user-commodus",
+        rank: 3,
+        performance_points: 70,
+        survival_bonus: 5,
+        commodus_bonus: 0,
+        final_score: 75,
+      },
+    ]);
+    expect(result.ineligible[0]?.final_score).toBe(0);
   });
 });
 
