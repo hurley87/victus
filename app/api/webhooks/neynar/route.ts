@@ -9,6 +9,7 @@ import {
   type CommandContext,
   handleCommodusCommand,
 } from "@/lib/workflows/commodus-command";
+import { deriveIdemKey } from "@/lib/workflows/commodus-social-idem";
 import {
   handleSocialEngagement,
   type SocialEngagementContext,
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
   await start(handleCommodusCommand, [ctx]);
 
   const socialCtx: SocialEngagementContext = {
+    runId: deriveIdemKey(hash, "webhook"),
     triggerHash: hash,
     runType: "webhook",
     cast: event.data,

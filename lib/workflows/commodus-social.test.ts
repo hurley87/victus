@@ -20,12 +20,25 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
+import { deriveIdemKey } from "./commodus-social-idem";
 import {
   classifySocialCast,
-  deriveIdemKey,
   handleSocialEngagement,
   type SocialCastEvent,
+  type SocialEngagementContext,
 } from "./commodus-social";
+
+function buildSocialCtx(
+  cast: SocialCastEvent,
+  runType: SocialEngagementContext["runType"] = "webhook",
+): SocialEngagementContext {
+  return {
+    runId: deriveIdemKey(cast.hash, runType),
+    triggerHash: cast.hash,
+    runType,
+    cast,
+  };
+}
 
 const COMMODUS_FID = 999;
 
@@ -114,11 +127,7 @@ describe("handleSocialEngagement", () => {
 
   it("persists cast and lands an ignore run for a reply to Commodus", async () => {
     const cast = buildCast();
-    const result = await handleSocialEngagement({
-      triggerHash: cast.hash,
-      runType: "webhook",
-      cast,
-    });
+    const result = await handleSocialEngagement(buildSocialCtx(cast));
 
     expect(result).toEqual({ status: "ignored", reason: "reply_to_commodus" });
 
@@ -149,11 +158,7 @@ describe("handleSocialEngagement", () => {
       mentioned_profiles: [{ fid: 8 }],
     });
 
-    const result = await handleSocialEngagement({
-      triggerHash: cast.hash,
-      runType: "webhook",
-      cast,
-    });
+    const result = await handleSocialEngagement(buildSocialCtx(cast));
 
     expect(result).toEqual({ status: "ignored", reason: "unrelated" });
 
@@ -172,11 +177,7 @@ describe("handleSocialEngagement", () => {
       embeds: [{ cast_id: { hash: "0xquoted", fid: 1 } }],
     });
 
-    await handleSocialEngagement({
-      triggerHash: cast.hash,
-      runType: "webhook",
-      cast,
-    });
+    await handleSocialEngagement(buildSocialCtx(cast));
 
     const tables = from.mock.calls.map((args) => args[0]);
     expect(tables).toEqual(["commodus_social_runs"]);
@@ -186,16 +187,8 @@ describe("handleSocialEngagement", () => {
   it("uses idem_key based on trigger hash so retries collapse", async () => {
     const cast = buildCast();
 
-    await handleSocialEngagement({
-      triggerHash: cast.hash,
-      runType: "webhook",
-      cast,
-    });
-    await handleSocialEngagement({
-      triggerHash: cast.hash,
-      runType: "webhook",
-      cast,
-    });
+    await handleSocialEngagement(buildSocialCtx(cast));
+    await handleSocialEngagement(buildSocialCtx(cast));
 
     const idemUpserts = upsert.mock.calls.filter((c) => c[1]?.onConflict === "idem_key");
     const runRows = idemUpserts.map((call) => call[0]);

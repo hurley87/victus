@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 import { env } from "@/lib/env";
 import { log } from "@/lib/logger";
 import { supabaseAdmin } from "@/lib/supabase/server";
@@ -18,6 +16,8 @@ export interface SocialCastEvent {
 }
 
 export interface SocialEngagementContext {
+  /** Precomputed in Node ingress; workflows cannot import `node:crypto`. */
+  runId: string;
   triggerHash: string;
   runType: "webhook" | "manual";
   cast: SocialCastEvent;
@@ -51,16 +51,6 @@ export function classifySocialCast(
   return { match: false, reason: "unrelated" };
 }
 
-export function deriveIdemKey(
-  triggerHash: string,
-  runType: SocialEngagementContext["runType"],
-): string {
-  return crypto
-    .createHash("sha256")
-    .update(`${triggerHash}:${runType}`)
-    .digest("hex");
-}
-
 /**
  * Phase-1: persist matching casts and land `commodus_social_runs` with `action='ignore'`.
  * Idempotency: `idem_key` UNIQUE + `ignoreDuplicates` on upsert.
@@ -68,7 +58,7 @@ export function deriveIdemKey(
 export async function handleSocialEngagement(ctx: SocialEngagementContext) {
   "use workflow";
 
-  const runId = deriveIdemKey(ctx.triggerHash, ctx.runType);
+  const { runId } = ctx;
   const lg = log.child({ runId, castHash: ctx.triggerHash, agent: "commodus-social" });
 
   const decision = classifySocialCast(ctx.cast, env.COMMODUS_FID ?? null);
