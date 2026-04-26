@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-import { env } from "@/lib/env";
+import { appBaseUrl } from "@/lib/commodus/deep-links";
 import { loadGoogleFont, loadImage } from "@/lib/og-utils";
 import { getTradeShareCard } from "@/lib/sharing/trade-card";
 
@@ -33,8 +33,8 @@ export async function GET(
       return new Response("trade not found", { status: 404 });
     }
 
-    const appUrl = env.NEXT_PUBLIC_URL.replace(/\/$/, "");
-    const logoBuf = await loadImage(`${appUrl}/images/icon.png`);
+    const base = appBaseUrl();
+    const logoBuf = await loadImage(`${base}/images/icon.png`);
     const logoSrc = `data:image/png;base64,${Buffer.from(logoBuf).toString("base64")}`;
 
     const playerLabel = card.username ? `@${card.username}` : `fid ${card.fid}`;

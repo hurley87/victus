@@ -17,10 +17,7 @@ import { DepositButton } from "@/components/pages/arena/deposit-button";
 import { WithdrawButton } from "@/components/pages/arena/withdraw-button";
 import { mapProvisionError } from "@/components/pages/arena/provision-error";
 import { useShareCast } from "@/hooks/use-share-cast";
-import {
-  miniAppTabDeepLink,
-  tradeCardImageUrl,
-} from "@/lib/commodus/deep-links";
+import { miniAppTabDeepLink } from "@/lib/commodus/deep-links";
 
 const ARENA_QUERY_KEY = ["arena-me"] as const;
 
@@ -28,7 +25,6 @@ export default function WalletPage() {
   const { user } = useUser();
   const fid = user?.data?.fid;
 
-  // Arena data — poll while pending funding so the server self-heal surfaces quickly
   const {
     data: arena,
     isLoading: arenaLoading,
@@ -43,7 +39,6 @@ export default function WalletPage() {
       query.state.data?.needs_funding ? 5_000 : false,
   });
 
-  // Portfolio data — only fetch once an arena wallet exists
   const { data: portfolio } = useApiQuery<PortfolioResult>({
     queryKey: ["portfolio", fid],
     url: `/api/users/${fid}/portfolio`,
@@ -76,8 +71,6 @@ export default function WalletPage() {
       </div>
     );
   }
-
-  // --- Three-state wallet flow ---
 
   if (!arena.wallet) {
     return (
@@ -119,10 +112,6 @@ export default function WalletPage() {
 
   return null;
 }
-
-// ---------------------------------------------------------------------------
-// Pre-funding card
-// ---------------------------------------------------------------------------
 
 function PreFundingCard({
   minFundingDepositUsdc,
@@ -181,10 +170,6 @@ function PreFundingCard({
     </section>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Pending funding card
-// ---------------------------------------------------------------------------
 
 function PendingFundingCard({
   arenaAddress,
@@ -250,10 +235,6 @@ function PendingFundingCard({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Alive wallet view
-// ---------------------------------------------------------------------------
-
 function AliveWalletView({
   arenaAddress,
   balance,
@@ -284,126 +265,115 @@ function AliveWalletView({
 
   return (
     <div className="space-y-5 pt-4">
-
-        {/* Balance display */}
-        <div className="text-center space-y-2">
-          <p className="text-3xl font-bold text-white">
-            {formatUsd(balance.usdc)}
-          </p>
-          <div className="flex items-center justify-center gap-2 text-xs text-zinc-400">
-            <span className="font-mono text-zinc-500">USDC</span>
-            <span className="text-zinc-600">·</span>
-            <span className="font-mono">Base · {addressShort}</span>
-            <button
-              type="button"
-              onClick={() => copyToClipboard(arenaAddress, setIsCopied)}
-              aria-label="Copy arena address"
-              className="text-zinc-500 hover:text-zinc-300 transition"
-            >
-              {isCopied ? (
-                <span className="text-pnl-positive text-[11px]">Copied!</span>
-              ) : (
-                <CopyIcon />
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Action buttons */}
-        <div className="grid grid-cols-2 gap-3">
-          <Button
+      <div className="text-center space-y-2">
+        <p className="text-3xl font-bold text-white">
+          {formatUsd(balance.usdc)}
+        </p>
+        <div className="flex items-center justify-center gap-2 text-xs text-zinc-400">
+          <span className="font-mono text-zinc-500">USDC</span>
+          <span className="text-zinc-600">·</span>
+          <span className="font-mono">Base · {addressShort}</span>
+          <button
             type="button"
-            variant="imperial-outline"
-            className="w-full"
-            onClick={() => setShowDeposit((v) => !v)}
+            onClick={() => copyToClipboard(arenaAddress, setIsCopied)}
+            aria-label="Copy arena address"
+            className="text-zinc-500 hover:text-zinc-300 transition"
           >
-            Fund Wallet
-          </Button>
-          <WithdrawButton
-            balanceUsdc={balance.usdc}
-            destinationAddress={withdrawDestinationAddress}
-            onWithdrawn={onWithdrawn}
-          />
-        </div>
-
-        {/* Deposit panel — collapses in when "Fund Wallet" is active */}
-        {showDeposit && (
-          <div className="bg-imperial-surface rounded-xl border border-imperial-border p-4">
-            <p className="text-xs uppercase tracking-wider text-zinc-500 mb-3">
-              Deposit USDC
-            </p>
-            <DepositButton
-              arenaAddress={arenaAddress}
-              minDepositUsdc={minDepositUsdc}
-              onFundingConfirmed={() => {
-                setShowDeposit(false);
-                onFundingConfirmed();
-              }}
-            />
-          </div>
-        )}
-
-        {/* PnL cards */}
-        <div className="grid grid-cols-2 gap-3">
-          <PnlCard
-            label="THIS MONTH"
-            sublabel="Closed performance for the current scoring month."
-            value={portfolio?.realized_pnl_month_usdc ?? 0}
-          />
-          <PnlCard
-            label="ALL TIME"
-            sublabel="Lifetime realized result across completed sells."
-            value={portfolio?.realized_pnl_all_time_usdc ?? 0}
-          />
-        </div>
-
-        {/* Holdings */}
-        <section className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h2 className="text-[11px] uppercase tracking-wider text-zinc-500 font-semibold">
-              Holdings
-            </h2>
-            {holdings.length > 0 && (
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border border-gold/40 text-gold bg-gold/10">
-                {holdings.length} OPEN
-              </span>
+            {isCopied ? (
+              <span className="text-pnl-positive text-[11px]">Copied!</span>
+            ) : (
+              <CopyIcon />
             )}
-          </div>
+          </button>
+        </div>
+      </div>
 
-          {holdings.length === 0 ? (
-            <p className="text-sm text-zinc-500">No open positions.</p>
-          ) : (
-            <ul className="space-y-2">
-              {holdings.map((h) => (
-                <HoldingRow key={h.symbol} holding={h} />
-              ))}
-            </ul>
-          )}
-        </section>
+      <div className="grid grid-cols-2 gap-3">
+        <Button
+          type="button"
+          variant="imperial-outline"
+          className="w-full"
+          onClick={() => setShowDeposit((v) => !v)}
+        >
+          Fund Wallet
+        </Button>
+        <WithdrawButton
+          balanceUsdc={balance.usdc}
+          destinationAddress={withdrawDestinationAddress}
+          onWithdrawn={onWithdrawn}
+        />
+      </div>
 
-        {/* Recent Activity */}
-        <section className="space-y-2">
+      {showDeposit && (
+        <div className="bg-imperial-surface rounded-xl border border-imperial-border p-4">
+          <p className="text-xs uppercase tracking-wider text-zinc-500 mb-3">
+            Deposit USDC
+          </p>
+          <DepositButton
+            arenaAddress={arenaAddress}
+            minDepositUsdc={minDepositUsdc}
+            onFundingConfirmed={() => {
+              setShowDeposit(false);
+              onFundingConfirmed();
+            }}
+          />
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <PnlCard
+          label="THIS MONTH"
+          sublabel="Closed performance for the current scoring month."
+          value={portfolio?.realized_pnl_month_usdc ?? 0}
+        />
+        <PnlCard
+          label="ALL TIME"
+          sublabel="Lifetime realized result across completed sells."
+          value={portfolio?.realized_pnl_all_time_usdc ?? 0}
+        />
+      </div>
+
+      <section className="space-y-2">
+        <div className="flex items-center justify-between">
           <h2 className="text-[11px] uppercase tracking-wider text-zinc-500 font-semibold">
-            Recent Activity
+            Holdings
           </h2>
-
-          {recentTrades.length === 0 ? (
-            <p className="text-sm text-zinc-500">No trades yet.</p>
-          ) : (
-            <ul className="space-y-2">
-              {recentTrades.map((t) => (
-                <TradeRow key={t.id} trade={t} />
-              ))}
-            </ul>
+          {holdings.length > 0 && (
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full border border-gold/40 text-gold bg-gold/10">
+              {holdings.length} OPEN
+            </span>
           )}
-        </section>
+        </div>
+
+        {holdings.length === 0 ? (
+          <p className="text-sm text-zinc-500">No open positions.</p>
+        ) : (
+          <ul className="space-y-2">
+            {holdings.map((h) => (
+              <HoldingRow key={h.symbol} holding={h} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-[11px] uppercase tracking-wider text-zinc-500 font-semibold">
+          Recent Activity
+        </h2>
+
+        {recentTrades.length === 0 ? (
+          <p className="text-sm text-zinc-500">No trades yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {recentTrades.map((t) => (
+              <TradeRow key={t.id} trade={t} />
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
 
 function PnlCard({
   label,
@@ -459,12 +429,12 @@ function TradeRow({ trade }: { trade: PortfolioTrade }) {
     ? `Buy ${trade.symbol}`
     : `Sell ${trade.symbol}`;
 
-  const amountStr =
-    trade.notional_usdc != null
-      ? isBuy
-        ? `+${formatUsd(trade.notional_usdc)}`
-        : `-${formatUsd(trade.notional_usdc)}`
-      : "—";
+  let amountStr = "—";
+  if (trade.notional_usdc != null) {
+    amountStr = isBuy
+      ? `+${formatUsd(trade.notional_usdc)}`
+      : `-${formatUsd(trade.notional_usdc)}`;
+  }
 
   const dateStr = trade.confirmed_at
     ? new Date(trade.confirmed_at).toLocaleString(undefined, {
@@ -488,7 +458,6 @@ function TradeRow({ trade }: { trade: PortfolioTrade }) {
       mode: trade.action,
     },
   )}`;
-  const shareEmbed = tradeCardImageUrl(trade.id);
   const canShare = sharing.canCompose && trade.confirmed_at != null;
 
   return (
@@ -531,9 +500,7 @@ function TradeRow({ trade }: { trade: PortfolioTrade }) {
             variant="imperial-outline"
             className="min-h-9 gap-2 rounded-md border-gold/40 px-2.5 text-xs text-gold hover:bg-gold/10"
             disabled={sharing.pending !== null}
-            onClick={() =>
-              void sharing.share(shareKey, shareText, shareEmbed)
-            }
+            onClick={() => void sharing.share(shareKey, shareText)}
           >
             <ShareComposeGlyph isPending={sharing.pending === shareKey} />
             Share trade

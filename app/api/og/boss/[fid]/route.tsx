@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-import { env } from "@/lib/env";
+import { appBaseUrl } from "@/lib/commodus/deep-links";
 import { getCurrentMonthLeaderboard } from "@/lib/leaderboard/service";
 import { loadGoogleFont, loadImage } from "@/lib/og-utils";
 
@@ -35,8 +35,8 @@ export async function GET(
       return new Response("not ahead of commodus", { status: 404 });
     }
 
-    const appUrl = env.NEXT_PUBLIC_URL.replace(/\/$/, "");
-    const logoBuf = await loadImage(`${appUrl}/images/icon.png`);
+    const base = appBaseUrl();
+    const logoBuf = await loadImage(`${base}/images/icon.png`);
     const logoSrc = `data:image/png;base64,${Buffer.from(logoBuf).toString("base64")}`;
 
     const playerLabel = player.username ? `@${player.username}` : `fid ${player.fid}`;

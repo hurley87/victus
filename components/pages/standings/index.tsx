@@ -6,11 +6,7 @@ import { ShareComposeGlyph } from "@/components/shared/ui/share-compose-glyph";
 import { useUser } from "@/contexts/user-context";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useShareCast, type ShareController } from "@/hooks/use-share-cast";
-import {
-  bossCardImageUrl,
-  miniAppTabDeepLink,
-  rankCardImageUrl,
-} from "@/lib/commodus/deep-links";
+import { miniAppTabDeepLink } from "@/lib/commodus/deep-links";
 import type {
   CurrentLeaderboardResult,
   LeaderboardEntry,
@@ -209,15 +205,10 @@ function CommodusBossCard({
   const challengeLink = miniAppTabDeepLink("trade", { mode: "buy", amount: 5 });
   const showShare = sharing.canCompose && viewer != null;
   const shareKey = viewerAhead ? "commodus-defeated" : "commodus-boss";
-  let shareText: string;
-  let shareEmbed: string | undefined;
-  if (viewer && viewerAhead) {
-    shareText = `I have beaten Commodus in the Victus arena (${viewer.points} vs ${commodus.points} pts).\n\n${miniAppTabDeepLink("standings")}`;
-    shareEmbed = bossCardImageUrl(viewer.fid);
-  } else {
-    shareText = `Commodus sits at ${commodus.points} pts (#${commodus.rank}) in the arena. Think you can pass him?\n\n${challengeLink}`;
-    shareEmbed = viewer ? rankCardImageUrl(viewer.fid) : undefined;
-  }
+  const shareText =
+    viewerAhead && viewer
+      ? `I have beaten Commodus in the Victus arena (${viewer.points} vs ${commodus.points} pts).\n\n${miniAppTabDeepLink("standings")}`
+      : `Commodus sits at ${commodus.points} pts (#${commodus.rank}) in the arena. Think you can pass him?\n\n${challengeLink}`;
   const shareLabel = viewerAhead ? "Share the kill" : "Challenge a friend";
 
   return (
@@ -278,7 +269,7 @@ function CommodusBossCard({
           variant="imperial-outline"
           className="mt-3 min-h-11 w-full justify-center gap-2 rounded-lg border-gold/40 text-sm text-gold hover:bg-gold/10"
           disabled={sharing.pending !== null}
-          onClick={() => void sharing.share(shareKey, shareText, shareEmbed)}
+          onClick={() => void sharing.share(shareKey, shareText)}
         >
           <ShareComposeGlyph isPending={sharing.pending === shareKey} />
           {shareLabel}
@@ -299,7 +290,6 @@ function ViewerShareCard({
 }) {
   const shareKey = `viewer-${viewer.user_id}`;
   const shareText = `I'm #${viewer.rank} in the Victus arena with ${viewer.points} pts.\n\n${miniAppTabDeepLink("standings")}`;
-  const shareEmbed = rankCardImageUrl(viewer.fid);
   const nextLabel = nextPlayer
     ? farcasterUserLabel(nextPlayer.username, nextPlayer.fid)
     : null;
@@ -315,7 +305,7 @@ function ViewerShareCard({
           <p className="truncate text-sm text-zinc-200">
             #{viewer.rank} · {viewer.points} pts
           </p>
-          {nextPlayer && nextLabel && (
+          {nextPlayer && (
             <p className="truncate text-xs text-zinc-400">
               {gapToNext} pts to pass {nextLabel}
             </p>
@@ -327,7 +317,7 @@ function ViewerShareCard({
             variant="imperial-outline"
             className="min-h-11 shrink-0 gap-2 rounded-lg border-gold/40 text-sm text-gold hover:bg-gold/10"
             disabled={sharing.pending !== null}
-            onClick={() => void sharing.share(shareKey, shareText, shareEmbed)}
+            onClick={() => void sharing.share(shareKey, shareText)}
           >
             <ShareComposeGlyph isPending={sharing.pending === shareKey} />
             Share rank
