@@ -11,7 +11,7 @@ import type { ArenaRules, WhitelistEntry } from "@/lib/arena/types";
 import { COMMAND_BOT_FID, COMMAND_BOT_HANDLE } from "@/lib/commodus/bot";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_BUY_PRESETS = [1, 3, 5, 10];
+const DEFAULT_BUY_PRESETS = [2, 4, 6, 10];
 const SELL_PRESETS = [25, 50, 100];
 
 type TradeMode = "buy" | "sell";
@@ -30,7 +30,7 @@ function exampleBuyCommands(rules: ArenaRules): string[] {
   const b = uniq[1] ?? a;
   const c = uniq[2] ?? a;
   return [
-    `buy ${Math.min(3, cap)} usdc of ${a}`,
+    `buy ${Math.min(2, cap)} usdc of ${a}`,
     `buy ${Math.min(5, cap)} usdc of ${b}`,
     `buy ${Math.min(10, cap)} usdc of ${c}`,
   ];
@@ -145,7 +145,7 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
 
   const initialBuyAmount = formatNumberInput(
     urlAmount ??
-      buyAmountPresets[buyAmountPresets.length - 1] ??
+      buyAmountPresets[0] ??
       rules.max_trade_usdc,
   );
   const initialToken =
