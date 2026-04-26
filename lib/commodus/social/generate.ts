@@ -38,12 +38,14 @@ const AI_TELL_PATTERNS = [
 const FINANCIAL_ADVICE_PATTERN =
   /\b(you should|you must|buy|sell|long|short|ape|exit|hold)\b[^.!?]{0,80}\$?[A-Z]{2,10}\b/u;
 
+// OpenAI structured output requires every object property in JSON Schema `required`;
+// Zod `.default()` omits keys from `required` and breaks the gateway response_format.
 const DraftSchema = z.object({
   shouldReply: z.boolean(),
   reason: z.string().min(1),
-  reply: z.string().default(""),
-  tone: z.string().min(1).default("dry"),
-  riskFlags: z.array(z.string()).default([]),
+  reply: z.string().max(MAX_REPLY_CHARS),
+  tone: z.string().min(1),
+  riskFlags: z.array(z.string()),
 });
 
 const SocialGenerationSchema = z.object({
@@ -203,6 +205,7 @@ function buildPromptSnapshot(context: CommodusSocialContext): SocialPromptSnapsh
     },
     constraints: [
       "If safety rules suggest skipping, selected.shouldReply must be false and riskFlags must explain why.",
+      "Every draft and selected must include reply (use empty string when shouldReply is false).",
       "Replies must be first-person Commodus, 1-3 sentences, <= 320 chars.",
       "Do not use hashtags, AI tells, fake ancient diction, slurs, threats, explicit sexual content, or financial advice.",
       "Do not ask follow-up questions unless the question is itself the punchline.",
