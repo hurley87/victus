@@ -11,10 +11,6 @@ vi.mock("workflow/api", () => ({
   start,
 }));
 
-vi.mock("workflow", () => ({
-  sleep: vi.fn(),
-}));
-
 import {
   refreshThreadMemory,
   refreshUserMemory,
@@ -49,6 +45,16 @@ function cast(overrides: Partial<CastRow>): CastRow {
     created_at: "2026-04-26T00:00:00.000Z",
     ...overrides,
   };
+}
+
+/** Commodus-authored reply in thread `0xthread` to FID 42 unless overridden. */
+function commodusSelfReply(overrides: Partial<CastRow>): CastRow {
+  return cast({
+    author_fid: 999,
+    parent_author_fid: 42,
+    source: "self",
+    ...overrides,
+  });
 }
 
 function installSupabaseMock() {
@@ -140,13 +146,7 @@ describe("commodus social memory", () => {
   it("updates thread memory only after Commodus has posted twice in a thread", async () => {
     casts.push(
       cast({ hash: "0xinbound-1", author_fid: 42, text: "first poke" }),
-      cast({
-        hash: "0xself-1",
-        author_fid: 999,
-        parent_author_fid: 42,
-        source: "self",
-        text: "first reply",
-      }),
+      commodusSelfReply({ hash: "0xself-1", text: "first reply" }),
     );
 
     await expect(refreshThreadMemory("0xthread")).resolves.toEqual({
@@ -157,11 +157,8 @@ describe("commodus social memory", () => {
     expect(upserts).toEqual([]);
 
     casts.push(
-      cast({
+      commodusSelfReply({
         hash: "0xself-2",
-        author_fid: 999,
-        parent_author_fid: 42,
-        source: "self",
         text: "second reply",
         created_at: "2026-04-26T00:02:00.000Z",
       }),
@@ -187,18 +184,12 @@ describe("commodus social memory", () => {
     existingRelationship = "rival";
     casts.push(
       cast({ hash: "0xinbound-1", author_fid: 42, text: "you are late" }),
-      cast({
+      commodusSelfReply({
         hash: "0xself-1",
-        author_fid: 999,
-        parent_author_fid: 42,
-        source: "self",
         text: "I arrive when the chart deserves me.",
       }),
-      cast({
+      commodusSelfReply({
         hash: "0xself-2",
-        author_fid: 999,
-        parent_author_fid: 42,
-        source: "self",
         text: "You came back anyway.",
         created_at: "2026-04-26T00:03:00.000Z",
       }),
@@ -220,7 +211,7 @@ describe("commodus social memory", () => {
     expect(String(upserts[0].row.summary)).toContain("received 2 Commodus replies");
   });
 
-  it("starts a background memory workflow with a debounce delay", async () => {
+  it("starts a background memory workflow for the published cast", async () => {
     const result = await scheduleCommodusSocialMemoryRefresh({
       threadHash: "0xthread",
       fid: 42,
@@ -233,27 +224,20 @@ describe("commodus social memory", () => {
         threadHash: "0xthread",
         fid: 42,
         lastCastHash: "0xself-2",
-        delayMs: 60000,
       },
     ]);
   });
 
-  it("skips stale scheduled refreshes when a newer self-cast exists", async () => {
+  it("refreshes from the latest raw thread data when the workflow runs", async () => {
     casts.push(
       cast({ hash: "0xinbound-1", author_fid: 42 }),
-      cast({
+      commodusSelfReply({
         hash: "0xself-1",
-        author_fid: 999,
-        parent_author_fid: 42,
-        source: "self",
         text: "first reply",
         created_at: "2026-04-26T00:01:00.000Z",
       }),
-      cast({
+      commodusSelfReply({
         hash: "0xself-2",
-        author_fid: 999,
-        parent_author_fid: 42,
-        source: "self",
         text: "newer reply",
         created_at: "2026-04-26T00:02:00.000Z",
       }),
@@ -264,20 +248,15 @@ describe("commodus social memory", () => {
         threadHash: "0xthread",
         fid: 42,
         lastCastHash: "0xself-1",
-        delayMs: 1,
       }),
-    ).resolves.toEqual({
-      thread: {
-        status: "skipped",
-        key: "0xthread",
-        reason: "debounced_by_newer_cast",
-      },
-      user: {
-        status: "skipped",
-        key: "42",
-        reason: "debounced_by_newer_cast",
-      },
+    ).resolves.toMatchObject({
+      thread: { status: "updated", key: "0xthread" },
+      user: { status: "updated", key: "42" },
     });
-    expect(upserts).toEqual([]);
+    expect(upserts).toHaveLength(2);
+    expect(upserts[0]).toMatchObject({
+      table: "commodus_thread_memory",
+      row: { last_cast_hash: "0xself-2" },
+    });
   });
 });

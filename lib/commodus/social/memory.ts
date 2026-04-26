@@ -1,14 +1,15 @@
 import "server-only";
 
 import { start } from "workflow/api";
-import { sleep } from "workflow";
 
 import { supabaseAdmin } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/types";
 
-const DEFAULT_MEMORY_DEBOUNCE_DELAY_MS = 60_000;
 const THREAD_CAST_LIMIT = 100;
 const USER_CAST_LIMIT = 100;
+
+const CAST_MEMORY_SELECT =
+  "hash,thread_hash,parent_hash,parent_author_fid,author_fid,text,source,created_at" as const;
 
 type MemoryCastRow = {
   hash: string;
@@ -29,7 +30,6 @@ export type CommodusMemoryRefreshTarget = {
   threadHash: string;
   fid: number;
   lastCastHash: string;
-  delayMs?: number;
 };
 
 export type CommodusMemoryRefreshResult = {
@@ -43,20 +43,10 @@ type MemoryUpsertResult =
 
 type SupabaseError = { message: string } | null;
 
-function memoryRefreshDelayMs(delayMs?: number): number {
-  return delayMs ?? DEFAULT_MEMORY_DEBOUNCE_DELAY_MS;
-}
-
-function skippedDebounced(key: string): MemoryUpsertResult {
-  return { status: "skipped", key, reason: "debounced_by_newer_cast" };
-}
-
 export async function scheduleCommodusSocialMemoryRefresh(
   target: CommodusMemoryRefreshTarget,
 ): Promise<{ runId: string }> {
-  const run = await start(runCommodusSocialMemoryRefresh, [
-    { ...target, delayMs: memoryRefreshDelayMs(target.delayMs) },
-  ]);
+  const run = await start(runCommodusSocialMemoryRefresh, [target]);
 
   return { runId: run.runId };
 }
@@ -66,31 +56,18 @@ export async function runCommodusSocialMemoryRefresh(
 ): Promise<CommodusMemoryRefreshResult> {
   "use workflow";
 
-  await sleep(memoryRefreshDelayMs(target.delayMs));
-  return refreshCommodusSocialMemoryIfFresh(target);
+  return refreshCommodusSocialMemory(target);
 }
 
-async function refreshCommodusSocialMemoryIfFresh(
+async function refreshCommodusSocialMemory(
   target: CommodusMemoryRefreshTarget,
 ): Promise<CommodusMemoryRefreshResult> {
   "use step";
 
-  const [latestThreadSelfCastHash, latestUserSelfReplyHash] = await Promise.all([
-    loadLatestThreadSelfCastHash(target.threadHash),
-    loadLatestUserSelfReplyHash(target.fid),
+  const [thread, user] = await Promise.all([
+    refreshThreadMemory(target.threadHash),
+    refreshUserMemory(target.fid),
   ]);
-
-  const threadPromise =
-    latestThreadSelfCastHash === target.lastCastHash
-      ? refreshThreadMemory(target.threadHash)
-      : Promise.resolve(skippedDebounced(target.threadHash));
-
-  const userPromise =
-    latestUserSelfReplyHash === target.lastCastHash
-      ? refreshUserMemory(target.fid)
-      : Promise.resolve(skippedDebounced(String(target.fid)));
-
-  const [thread, user] = await Promise.all([threadPromise, userPromise]);
 
   return { thread, user };
 }
@@ -206,7 +183,7 @@ export async function rebuildCommodusSocialMemoryFromCasts(): Promise<{
 async function loadThreadCasts(threadHash: string): Promise<MemoryCastRow[]> {
   const { data, error } = await supabaseAdmin
     .from("commodus_casts")
-    .select("hash,thread_hash,parent_hash,parent_author_fid,author_fid,text,source,created_at")
+    .select(CAST_MEMORY_SELECT)
     .eq("thread_hash", threadHash)
     .order("created_at", { ascending: true })
     .limit(THREAD_CAST_LIMIT);
@@ -217,7 +194,7 @@ async function loadThreadCasts(threadHash: string): Promise<MemoryCastRow[]> {
 async function loadUserRelevantCasts(fid: number): Promise<MemoryCastRow[]> {
   const { data, error } = await supabaseAdmin
     .from("commodus_casts")
-    .select("hash,thread_hash,parent_hash,parent_author_fid,author_fid,text,source,created_at")
+    .select(CAST_MEMORY_SELECT)
     .or(`author_fid.eq.${fid},parent_author_fid.eq.${fid}`)
     .order("created_at", { ascending: true })
     .limit(USER_CAST_LIMIT);
@@ -233,32 +210,6 @@ async function loadExistingUserMemory(fid: number): Promise<UserMemoryRow | null
     .maybeSingle();
   assertOk("commodus_user_memory relationship read", error);
   return (data ?? null) as UserMemoryRow | null;
-}
-
-async function loadLatestThreadSelfCastHash(threadHash: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin
-    .from("commodus_casts")
-    .select("hash")
-    .eq("thread_hash", threadHash)
-    .eq("source", "self")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  assertOk("commodus_casts latest thread self read", error);
-  return data?.hash ?? null;
-}
-
-async function loadLatestUserSelfReplyHash(fid: number): Promise<string | null> {
-  const { data, error } = await supabaseAdmin
-    .from("commodus_casts")
-    .select("hash")
-    .eq("parent_author_fid", fid)
-    .eq("source", "self")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  assertOk("commodus_casts latest user self reply read", error);
-  return data?.hash ?? null;
 }
 
 function summarizeThread(casts: MemoryCastRow[]): string {
@@ -299,11 +250,13 @@ function compactPlainText(text: string): string {
 }
 
 function latestTimestamp(casts: MemoryCastRow[]): string | null {
-  const timestamps = casts
-    .map((cast) => cast.created_at)
-    .filter((value): value is string => Boolean(value))
-    .sort();
-  return timestamps.at(-1) ?? null;
+  let latest: string | null = null;
+  for (const row of casts) {
+    const t = row.created_at;
+    if (!t) continue;
+    if (!latest || t > latest) latest = t;
+  }
+  return latest;
 }
 
 function validFid(fid: number | null | undefined): fid is number {
