@@ -51,43 +51,34 @@ export function classifySocialCast(
   return { match: false, reason: "unrelated" };
 }
 
-/**
- * Phase-1: persist matching casts and land `commodus_social_runs` with `action='ignore'`.
- * Idempotency: `idem_key` UNIQUE + `ignoreDuplicates` on upsert.
- */
+/** Matching casts are upserted to `commodus_casts`; every path lands `commodus_social_runs` (idem_key UNIQUE + ignoreDuplicates). */
 export async function handleSocialEngagement(ctx: SocialEngagementContext) {
   "use workflow";
 
-  const { runId } = ctx;
-  const lg = log.child({ runId, castHash: ctx.triggerHash, agent: "commodus-social" });
-
-  const decision = classifySocialCast(ctx.cast, env.COMMODUS_FID ?? null);
+  const { runId, runType, triggerHash, cast } = ctx;
+  const decision = classifySocialCast(cast, env.COMMODUS_FID ?? null);
+  const runBase = { runId, runType, triggerHash };
 
   if (!decision.match) {
-    lg.info("social_filter_skip", { reason: decision.reason });
     await landRun({
-      runId,
-      runType: ctx.runType,
-      triggerHash: ctx.triggerHash,
+      ...runBase,
       reason: `filter:${decision.reason}`,
+      logEvent: "social_filter_skip",
     });
-    return { status: "ignored" as const, reason: decision.reason };
+  } else {
+    await persistInboundCast(cast, runId);
+    await landRun({
+      ...runBase,
+      selectedHash: cast.hash,
+      reason: `accepted:${decision.reason}`,
+      logEvent: "social_filter_match",
+    });
   }
 
-  await persistInboundCast(ctx.cast);
-  await landRun({
-    runId,
-    runType: ctx.runType,
-    triggerHash: ctx.triggerHash,
-    selectedHash: ctx.cast.hash,
-    reason: `accepted:${decision.reason}`,
-  });
-
-  lg.info("social_filter_match", { reason: decision.reason });
   return { status: "ignored" as const, reason: decision.reason };
 }
 
-async function persistInboundCast(cast: SocialCastEvent) {
+async function persistInboundCast(cast: SocialCastEvent, runId: string) {
   "use step";
 
   const { error } = await supabaseAdmin.from("commodus_casts").upsert(
@@ -105,6 +96,7 @@ async function persistInboundCast(cast: SocialCastEvent) {
   );
 
   assertUpsertOk("commodus_casts_upsert_failed", "commodus_casts upsert", error, {
+    runId,
     castHash: cast.hash,
   });
 }
@@ -115,6 +107,7 @@ async function landRun(params: {
   triggerHash: string;
   selectedHash?: string;
   reason: string;
+  logEvent: "social_filter_skip" | "social_filter_match";
 }) {
   "use step";
 
@@ -136,6 +129,13 @@ async function landRun(params: {
     error,
     { runId: params.runId },
   );
+
+  log.info(params.logEvent, {
+    runId: params.runId,
+    castHash: params.triggerHash,
+    reason: params.reason,
+    agent: "commodus-social",
+  });
 }
 
 type SupabaseWriteError = { message: string; code?: string } | null;

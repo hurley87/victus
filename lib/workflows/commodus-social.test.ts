@@ -131,8 +131,10 @@ describe("handleSocialEngagement", () => {
 
     expect(result).toEqual({ status: "ignored", reason: "reply_to_commodus" });
 
-    const tables = from.mock.calls.map((args) => args[0]);
-    expect(tables).toEqual(["commodus_casts", "commodus_social_runs"]);
+    expect(from.mock.calls.map(([table]) => table)).toEqual([
+      "commodus_casts",
+      "commodus_social_runs",
+    ]);
 
     const castRow = upsert.mock.calls[0][0];
     expect(castRow).toMatchObject({
@@ -162,8 +164,7 @@ describe("handleSocialEngagement", () => {
 
     expect(result).toEqual({ status: "ignored", reason: "unrelated" });
 
-    const tables = from.mock.calls.map((args) => args[0]);
-    expect(tables).toEqual(["commodus_social_runs"]);
+    expect(from.mock.calls.map(([table]) => table)).toEqual(["commodus_social_runs"]);
     expect(upsert.mock.calls[0][0]).toMatchObject({
       action: "ignore",
       reason: "filter:unrelated",
@@ -179,8 +180,7 @@ describe("handleSocialEngagement", () => {
 
     await handleSocialEngagement(buildSocialCtx(cast));
 
-    const tables = from.mock.calls.map((args) => args[0]);
-    expect(tables).toEqual(["commodus_social_runs"]);
+    expect(from.mock.calls.map(([table]) => table)).toEqual(["commodus_social_runs"]);
     expect(upsert.mock.calls[0][0]).toMatchObject({ reason: "filter:quote_cast" });
   });
 
