@@ -9,43 +9,20 @@ import {
   type CommandContext,
   handleCommodusCommand,
 } from "@/lib/workflows/commodus-command";
+import {
+  handleSocialEngagement,
+  type SocialEngagementContext,
+} from "@/lib/workflows/commodus-social";
 
 export const runtime = "nodejs";
 
-/** 60s covers Neynar's retry window; durable dedupe is the cast_hash UNIQUE. */
+/** Covers Neynar retries; durable dedupe remains `cast_commands.cast_hash` UNIQUE. */
 const CAST_DEDUPE_TTL_SECONDS = 60;
 
 /**
- * Neynar `cast.created` webhook → durable Commodus command pipeline.
- *
- * This route is the single ingress for the durable execution pipeline
- * described in PRD § Durable Execution Architecture (and issue #8). It
- * is deliberately a pure intake: the only work done synchronously is
- * authentication, rate limiting, and idempotency + landing-row
- * bookkeeping. Every downstream step — parse, policy, quote, Privy
- * submit, verify, score, reply — runs in the `process-trade-command`
- * workflow so the webhook can ACK 200 in under 100 ms.
- *
- * Defense-in-depth ordering:
- *   1. Read raw body (required for HMAC verification).
- *   2. Verify HMAC-SHA512 signature against NEYNAR_WEBHOOK_SECRET.
- *   3. Parse JSON only after signature passes.
- *   4. Rate-limit per author FID to shield downstream paid APIs.
- *   5. Fast idempotency guard via Redis SETNX cast:{hash} TTL 60s.
- *   6. Durable idempotency via cast_commands unique (cast_hash).
- *   7. Hand off to the workflow runtime and ack 200.
- *
- * Named-queue note: issue #8 calls for a named Vercel Queue
- * `trade-commands` with `idempotency_key = cast_hash`. The workflow
- * SDK v4.2.4 used here does not expose `idempotencyKey` on `start()`;
- * the Vercel Workflow runtime is itself the durable queue. Idempotency
- * is layered at the webhook (Redis SETNX + cast_commands UNIQUE),
- * workflow (`load_command` short-circuits terminal statuses), reserve
- * (`trade_executions.execution_id` UNIQUE), and chain
- * (`trade_executions.tx_hash` / `fee_tx_hash` UNIQUE) levels. If the
- * SDK exposes an `idempotencyKey` option in a later release, wire it
- * here; until then the layered guards cover the same correctness
- * surface.
+ * Neynar `cast.created`: verify HMAC, rate-limit, Redis dedupe, land `cast_commands`,
+ * then `start()` trade + social workflows. Parse/execute/reply stay in workflows so
+ * this handler returns quickly.
  */
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -68,8 +45,7 @@ export async function POST(request: Request) {
 
   const { hash, author, text, parent_hash } = event.data;
 
-  // Guard: our own replies (Neynar re-broadcasts casts we publish). Drop
-  // before we spend Redis/DB budget on them.
+  // Neynar re-delivers bot-authored casts; skip before Redis/DB work.
   if (env.COMMODUS_FID && author.fid === env.COMMODUS_FID) {
     log.info("skip:self-reply", { castHash: hash, fid: author.fid });
     return NextResponse.json({ self: true });
@@ -86,8 +62,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ duplicate: true });
   }
 
-  // Durable landing row. `upsert` + `ignoreDuplicates` makes a race with a
-  // concurrent delivery a no-op rather than a 500.
   const { error } = await supabaseAdmin
     .from("cast_commands")
     .upsert(
@@ -101,8 +75,6 @@ export async function POST(request: Request) {
     );
 
   if (error) {
-    // Don't leak webhook state to Neynar — return 500 so they retry, but log
-    // loudly. Redis dedupe key will expire in 60s, so retry can proceed.
     log.error("cast_commands_upsert_failed", {
       castHash: hash,
       fid: author.fid,
@@ -119,9 +91,14 @@ export async function POST(request: Request) {
     parentHash: parent_hash ?? null,
   };
 
-  // Fire-and-forget: the workflow runtime owns durability from here. We do
-  // NOT await any downstream work inside the webhook — 200 ASAP.
   await start(handleCommodusCommand, [ctx]);
+
+  const socialCtx: SocialEngagementContext = {
+    triggerHash: hash,
+    runType: "webhook",
+    cast: event.data,
+  };
+  await start(handleSocialEngagement, [socialCtx]);
 
   log.info("accepted", { castHash: hash, fid: author.fid });
   return NextResponse.json({ accepted: true });
@@ -140,7 +117,11 @@ interface NeynarCastCreatedEvent {
   data: {
     hash: string;
     text: string;
+    thread_hash?: string | null;
     parent_hash: string | null;
-    author: { fid: number };
+    parent_author?: { fid: number | null } | null;
+    author: { fid: number; username?: string | null };
+    mentioned_profiles?: Array<{ fid: number }> | null;
+    embeds?: Array<{ url?: string; cast_id?: { hash?: string; fid?: number } | null }> | null;
   };
 }
