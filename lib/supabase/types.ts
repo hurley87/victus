@@ -843,6 +843,162 @@ export type Database = {
           },
         ]
       }
+      season_entries: {
+        Row: {
+          cash_remaining_usdc: number
+          created_at: string
+          has_qualifying_trade: boolean
+          id: string
+          max_trades: number
+          season_id: string
+          settled_portfolio_value_usdc: number | null
+          settled_return_pct: number | null
+          starting_balance_usdc: number
+          status: string
+          trades_used: number
+          updated_at: string
+          user_id: string
+          wallet_id: string
+        }
+        Insert: {
+          cash_remaining_usdc?: number
+          created_at?: string
+          has_qualifying_trade?: boolean
+          id?: string
+          max_trades?: number
+          season_id: string
+          settled_portfolio_value_usdc?: number | null
+          settled_return_pct?: number | null
+          starting_balance_usdc?: number
+          status?: string
+          trades_used?: number
+          updated_at?: string
+          user_id: string
+          wallet_id: string
+        }
+        Update: {
+          cash_remaining_usdc?: number
+          created_at?: string
+          has_qualifying_trade?: boolean
+          id?: string
+          max_trades?: number
+          season_id?: string
+          settled_portfolio_value_usdc?: number | null
+          settled_return_pct?: number | null
+          starting_balance_usdc?: number
+          status?: string
+          trades_used?: number
+          updated_at?: string
+          user_id?: string
+          wallet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "season_entries_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "season_entries_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "season_entries_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: false
+            referencedRelation: "arena_wallets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      season_tokens: {
+        Row: {
+          chain_id: number
+          closing_price_usdc: number | null
+          created_at: string
+          decimals: number
+          id: string
+          is_active: boolean
+          season_id: string
+          token_address: string
+          token_symbol: string
+        }
+        Insert: {
+          chain_id?: number
+          closing_price_usdc?: number | null
+          created_at?: string
+          decimals: number
+          id?: string
+          is_active?: boolean
+          season_id: string
+          token_address: string
+          token_symbol: string
+        }
+        Update: {
+          chain_id?: number
+          closing_price_usdc?: number | null
+          created_at?: string
+          decimals?: number
+          id?: string
+          is_active?: boolean
+          season_id?: string
+          token_address?: string
+          token_symbol?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "season_tokens_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "seasons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seasons: {
+        Row: {
+          created_at: string
+          ends_at: string
+          id: string
+          max_trades: number
+          min_trade_size_usdc: number
+          name: string
+          settled_at: string | null
+          starting_balance_usdc: number
+          starts_at: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          ends_at: string
+          id?: string
+          max_trades?: number
+          min_trade_size_usdc?: number
+          name: string
+          settled_at?: string | null
+          starting_balance_usdc?: number
+          starts_at: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          ends_at?: string
+          id?: string
+          max_trades?: number
+          min_trade_size_usdc?: number
+          name?: string
+          settled_at?: string | null
+          starting_balance_usdc?: number
+          starts_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
       trade_executions: {
         Row: {
           confirmed_at: string | null

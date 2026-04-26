@@ -13,7 +13,12 @@ import type {
   ProvisionArenaWalletResponse,
   PositionBalance,
 } from "@/lib/arena/types";
-import { cn, copyToClipboard, formatWalletAddress } from "@/lib/utils";
+import type {
+  SeasonEnterResponse,
+} from "@/app/api/season/enter/route";
+import type { SeasonMeResponse } from "@/app/api/season/me/route";
+import { ApiError } from "@/lib/api-error";
+import { cn, copyToClipboard, formatUsd, formatWalletAddress } from "@/lib/utils";
 import { Button } from "@/components/shared/ui/button";
 import Link from "next/link";
 import { DepositButton } from "./deposit-button";
@@ -35,6 +40,7 @@ import { Website } from "../website";
  */
 
 const ARENA_QUERY_KEY = ["arena-me"] as const;
+const SEASON_QUERY_KEY = ["season-me"] as const;
 
 export default function ArenaPage() {
   const { isInBrowser } = useEnvironment();
@@ -147,19 +153,189 @@ function renderState(profile: ArenaProfile, onChange: () => void) {
   }
   if (profile.arena_address) {
     return (
-      <AliveCard
-        arenaAddress={profile.arena_address}
-        balance={profile.balance}
-        withdrawDestinationAddress={profile.withdraw_destination?.address ?? null}
-        dailySlotsRemaining={profile.daily_slots_remaining}
-        maxTradesPerDay={profile.rules.max_trades_per_day}
-        maxTradeUsdc={profile.rules.max_trade_usdc}
-        rules={profile.rules}
-        onWithdrawn={onChange}
-      />
+      <>
+        <AliveCard
+          arenaAddress={profile.arena_address}
+          balance={profile.balance}
+          withdrawDestinationAddress={profile.withdraw_destination?.address ?? null}
+          dailySlotsRemaining={profile.daily_slots_remaining}
+          maxTradesPerDay={profile.rules.max_trades_per_day}
+          maxTradeUsdc={profile.rules.max_trade_usdc}
+          rules={profile.rules}
+          onWithdrawn={onChange}
+        />
+        <SeasonSection walletUsdc={profile.balance.usdc} />
+      </>
     );
   }
   return null;
+}
+
+function SeasonSection({ walletUsdc }: { walletUsdc: number }) {
+  const { data, isLoading, refetch } = useApiQuery<SeasonMeResponse>({
+    queryKey: SEASON_QUERY_KEY,
+    url: "/api/season/me",
+    isProtected: true,
+    retry: false,
+  });
+
+  const refetchSeason = useCallback(() => {
+    void refetch();
+  }, [refetch]);
+
+  const { mutate: enterSeason, isPending, error: enterError } =
+    useApiMutation<SeasonEnterResponse, Record<string, never>>({
+      url: "/api/season/enter",
+      method: "POST",
+      body: () => ({}),
+      onSuccess: () => refetchSeason(),
+    });
+
+  if (isLoading || !data?.season) return null;
+
+  const { season, entry, tokens } = data;
+  const hasFunding = walletUsdc + 1e-9 >= season.starting_balance_usdc;
+
+  if (!entry) {
+    return (
+      <SectionCard>
+        <h2 className="text-sm font-semibold">{season.name}</h2>
+        <p className="text-xs text-black/80">
+          Every Victus week starts with the same {season.starting_balance_usdc}{" "}
+          USDC arena balance. Your wallet may hold more funds, but extra funds
+          do not increase your arena balance.
+        </p>
+        {!hasFunding && (
+          <p className="text-xs text-amber-700">
+            Fund your arena wallet with at least {season.starting_balance_usdc}{" "}
+            USDC to enter.
+          </p>
+        )}
+        {enterError && (
+          <ErrorLine
+            message={mapEnterError(enterError, season.starting_balance_usdc)}
+          />
+        )}
+        <Button
+          type="button"
+          className="w-full"
+          disabled={!hasFunding || isPending}
+          onClick={() => enterSeason({})}
+        >
+          {isPending ? "Entering…" : `Enter ${season.name}`}
+        </Button>
+      </SectionCard>
+    );
+  }
+
+  return <ArenaStatusCard season={season} entry={entry} tokens={tokens} />;
+}
+
+function ArenaStatusCard({
+  season,
+  entry,
+  tokens,
+}: {
+  season: NonNullable<SeasonMeResponse["season"]>;
+  entry: NonNullable<SeasonMeResponse["entry"]>;
+  tokens: SeasonMeResponse["tokens"];
+}) {
+  const tradesRemaining = Math.max(0, entry.max_trades - entry.trades_used);
+  const cashRemaining = Number(entry.cash_remaining_usdc);
+
+  return (
+    <SectionCard>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Arena status — {season.name}</h2>
+        <QualificationBadge qualified={entry.has_qualifying_trade} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <Stat
+          label="Starting balance"
+          value={`${formatUsd(season.starting_balance_usdc)} USDC`}
+        />
+        <Stat label="Cash remaining" value={`${formatUsd(cashRemaining)} USDC`} />
+        <Stat
+          label="Trades remaining"
+          value={`${tradesRemaining}/${entry.max_trades}`}
+        />
+        <Stat
+          label="Min trade size"
+          value={`${formatUsd(season.min_trade_size_usdc)} USDC`}
+        />
+      </div>
+
+      {tokens.length > 0 && (
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
+            Approved tokens
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {tokens.map((t) => (
+              <span
+                key={t.id}
+                className="inline-flex items-center rounded-full bg-black/5 px-2 py-0.5 text-[11px] font-mono"
+              >
+                {t.token_symbol}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <ul className="text-[11px] text-black/70 space-y-0.5">
+        <li>Only trades made through Victus count toward your score.</li>
+        <li>
+          You must make at least one {formatUsd(season.min_trade_size_usdc)} USDC
+          trade to qualify for weekly rewards.
+        </li>
+        <li>Trades are limited moves. You do not earn points for using more trades.</li>
+      </ul>
+    </SectionCard>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-black/[0.03] px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="font-mono text-sm">{value}</div>
+    </div>
+  );
+}
+
+function QualificationBadge({ qualified }: { qualified: boolean }) {
+  const label = qualified ? "Qualified" : "Not qualified";
+  const cls = qualified
+    ? "bg-green-100 text-green-800"
+    : "bg-black/5 text-black/60";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+        cls,
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+function mapEnterError(err: unknown, startingBalance: number): string {
+  const code = err instanceof ApiError ? err.message : null;
+  switch (code) {
+    case "insufficient_funding":
+      return `Fund your arena wallet with at least ${startingBalance} USDC to enter.`;
+    case "no_active_season":
+      return "No active week is open right now.";
+    case "needs_wallet_funding":
+      return "Provision and fund your arena wallet first.";
+    default:
+      return "Could not enter the week. Try again.";
+  }
 }
 
 function PreFundingCard({
