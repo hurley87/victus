@@ -134,6 +134,8 @@ describe("generateCommodusSocialReply", () => {
       system: expect.stringContaining("Voice guide"),
       prompt: expect.stringContaining("Lore packet"),
     });
+    expect(result.promptSnapshot.prompt).toContain("Often brags after small green candles.");
+    expect(result.promptSnapshot.prompt).toContain("A thread about leaderboard ego.");
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
         system: expect.stringContaining("Safety rules"),

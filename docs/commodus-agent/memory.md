@@ -125,6 +125,15 @@ from `commodus_casts` alone. If a summary becomes stale, contradicts current
 behavior, or is poisoned by a prompt-injection attempt in a user cast,
 delete the row and let the next debounce regenerate it.
 
+For a full rebuild, run:
+
+```bash
+pnpm exec tsx scripts/rebuild-commodus-memory.ts
+```
+
+The script derives eligible thread hashes and FIDs from `commodus_casts`, then
+rewrites only `commodus_thread_memory` and `commodus_user_memory`.
+
 ## Out of Scope at MVP
 
 - Vector embeddings, semantic search, pgvector.

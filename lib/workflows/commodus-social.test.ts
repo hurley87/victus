@@ -49,6 +49,11 @@ const socialPost = vi.hoisted(() => ({
     published: true,
   }),
 }));
+const socialMemory = vi.hoisted(() => ({
+  scheduleCommodusSocialMemoryRefresh: vi.fn().mockResolvedValue({
+    runId: "memory-run-1",
+  }),
+}));
 const envMock = vi.hoisted(() => ({
   COMMODUS_FID: 999,
   COMMODUS_SOCIAL_DRY_RUN: true,
@@ -75,6 +80,7 @@ vi.mock("@/lib/commodus/social/limits", () => socialLimits);
 vi.mock("@/lib/commodus/social/context", () => socialContext);
 vi.mock("@/lib/commodus/social/generate", () => socialGenerate);
 vi.mock("@/lib/commodus/social/post", () => socialPost);
+vi.mock("@/lib/commodus/social/memory", () => socialMemory);
 
 import { deriveIdemKey } from "./commodus-social-idem";
 import {
@@ -83,6 +89,8 @@ import {
   type SocialCastEvent,
   type SocialEngagementContext,
 } from "./commodus-social";
+
+const COMMODUS_FID = envMock.COMMODUS_FID as number;
 
 function buildSocialCtx(
   cast: SocialCastEvent,
@@ -95,8 +103,6 @@ function buildSocialCtx(
     cast,
   };
 }
-
-const COMMODUS_FID = 999;
 
 function upsertedTables() {
   return from.mock.calls.map(([table]) => table);
@@ -142,6 +148,9 @@ function resetSocialWorkflowMocks() {
   socialPost.publishCommodusSocialReplyOnce.mockClear().mockResolvedValue({
     postedCastHash: "0xreply",
     published: true,
+  });
+  socialMemory.scheduleCommodusSocialMemoryRefresh.mockClear().mockResolvedValue({
+    runId: "memory-run-1",
   });
 }
 
@@ -263,10 +272,18 @@ describe("handleSocialEngagement", () => {
       triggerCast: cast,
       replyText: "I heard the arena cough.",
     });
+    expect(socialMemory.scheduleCommodusSocialMemoryRefresh).toHaveBeenCalledWith({
+      threadHash: "0xroot",
+      fid: 42,
+      lastCastHash: "0xreply",
+    });
     const runUpsertOrder = upsert.mock.invocationCallOrder[1];
     const publishOrder =
       socialPost.publishCommodusSocialReplyOnce.mock.invocationCallOrder[0];
+    const memoryOrder =
+      socialMemory.scheduleCommodusSocialMemoryRefresh.mock.invocationCallOrder[0];
     expect(runUpsertOrder).toBeLessThan(publishOrder);
+    expect(publishOrder).toBeLessThan(memoryOrder);
   });
 
   it("stores LLM vetoes as ignore rows with populated prompt and model output", async () => {
