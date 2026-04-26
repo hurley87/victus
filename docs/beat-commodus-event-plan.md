@@ -51,10 +51,10 @@ Do not frame the event as financial advice. It is a public trading game and lead
 2. Make sure the wallet funding path works cleanly from a fresh user.
 3. Replace any remaining notification or template copy that says "Farcaster Mini App Template."
 4. Add or manually prepare share copy for:
-   - funded wallet
-   - first trade
-   - current rank
-   - passed Commodus
+  - funded wallet
+  - first trade
+  - current rank
+  - passed Commodus
 5. Confirm `NEXT_PUBLIC_URL` points to the live app URL and feed previews render correctly.
 
 ## Launch Casts
@@ -121,3 +121,4 @@ On Tuesday, April 28, 2026:
 
 - [Mini App Viral Growth Notes](./mini-app-viral-growth.md) covers the broader growth loop this event supports.
 - [Future roadmap](./future.md) covers longer-term leaderboard dynamics, shareable scorecards, notifications, and social competition.
+

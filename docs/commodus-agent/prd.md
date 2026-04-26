@@ -49,6 +49,7 @@ Neynar webhook ─┬─▶ start(handleCommodusCommand)   (trade path, unchange
 ```
 
 Modules (new):
+
 - `lib/commodus/social/rank.ts` — heuristics-only gate: `{ action, score, reason }` from caps, blocklist, length, keyword tragedy/harassment skip, author-memory relationship. No LLM call.
 - `lib/commodus/social/context.ts` — assemble LLM context
 - `lib/commodus/social/generate.ts` — single LLM call: produces 3 drafts and self-judges `shouldReply`. Only LLM call in the pipeline.
@@ -57,6 +58,7 @@ Modules (new):
 - `lib/commodus/social/limits.ts` — rate caps and mute/blocklist checks
 
 Reuses:
+
 - `lib/neynar/*` (existing client, cast publish path used by trade replies)
 - `lib/execution/reply-guard.ts` pattern for publish-once semantics
 - `lib/logger.ts` Pino child logger (`logger.child({ runId, source })`)
@@ -84,7 +86,8 @@ A small `commodus-memory` summarization job is the only scheduled work, and it i
 
 New Supabase migration: `supabase/migrations/<ts>_add_commodus_social_agent.sql`. Service-role only (matches existing posture in `docs/supabase.md`).
 
-**`commodus_casts`** — raw evidence (every inbound + every Commodus self-post)
+`**commodus_casts`** — raw evidence (every inbound + every Commodus self-post)
+
 - `id uuid pk`, `hash text unique`, `thread_hash text`, `parent_hash text`, `parent_author_fid bigint`
 - `author_fid bigint`, `author_username text`, `text text`, `channel_id text`, `url text`
 - `like_count int`, `recast_count int`, `reply_count int`
@@ -92,7 +95,8 @@ New Supabase migration: `supabase/migrations/<ts>_add_commodus_social_agent.sql`
 - `raw_json jsonb`, `created_at timestamptz`, `first_seen_at timestamptz default now()`
 - Indexes: `(hash)`, `(thread_hash)`, `(author_fid, first_seen_at desc)`, `(created_at desc)`
 
-**`commodus_social_runs`** — every decision
+`**commodus_social_runs**` — every decision
+
 - `id uuid pk`, `run_type text check in ('webhook','manual')`
 - `trigger_cast_hash text`, `selected_cast_hash text`
 - `action text check in ('reply','ignore','save_only','error')`
@@ -101,21 +105,25 @@ New Supabase migration: `supabase/migrations/<ts>_add_commodus_social_agent.sql`
 - `posted_cast_hash text`, `idem_key text unique`, `created_at timestamptz default now()`
 - Indexes: `(created_at desc)`, `(action, created_at desc)`, `(selected_cast_hash)`
 
-**`commodus_thread_memory`** — compressed thread summary
+`**commodus_thread_memory**` — compressed thread summary
+
 - `id uuid pk`, `thread_hash text unique`, `summary text`, `last_cast_hash text`
 - `participants jsonb`, `updated_at timestamptz`
 
-**`commodus_user_memory`** — per-FID relationship
+`**commodus_user_memory**` — per-FID relationship
+
 - `id uuid pk`, `fid bigint unique`, `username text`, `summary text`
 - `relationship text check in ('ally','rival','unknown','muted')`
 - `last_interaction_at timestamptz`
 
-**`commodus_long_term_memory`** — lore/bits/rivalries
+`**commodus_long_term_memory**` — lore/bits/rivalries
+
 - `id uuid pk`, `memory_type text check in ('lore','bit','rivalry','rule','event')`
 - `title text`, `body text`, `source text`, `importance int`
 - `created_at timestamptz default now()`
 
-**`commodus_social_blocklist`** — manual mute
+`**commodus_social_blocklist**` — manual mute
+
 - `fid bigint pk`, `reason text`, `created_at timestamptz default now()`
 
 Memory tables are plain text at MVP. Lookup is by `thread_hash` / `fid` directly — **no pgvector, no embeddings**. Vector search is deferred until corpus size justifies it. Idempotency on `commodus_social_runs.idem_key` (= `sha256(trigger_hash:run_type)`) prevents double posts on webhook retry.
@@ -126,17 +134,17 @@ Principle: **raw casts never get rewritten or merged**. Memory tables are derive
 
 1. **Receive** — Neynar `cast.created` event hits webhook. Verify signature.
 2. **Filter** — only process events where:
-   - `parent_author_fid = COMMODUS_FID` (reply to Commodus), or
-   - the cast mentions `COMMODUS_FID`.
+  - `parent_author_fid = COMMODUS_FID` (reply to Commodus), or
+  - the cast mentions `COMMODUS_FID`.
    Quote casts are **not** processed at launch. Drop everything else immediately (still log count).
 3. **Persist** — upsert into `commodus_casts` with `source='webhook'` (idempotent on `hash`).
 4. **Rank (heuristics-only)** — `rank.ts` returns `{ action, score, reason }`. **No LLM call here.** Inputs: per-author + per-thread caps, blocklist, length/low-context filters (e.g., a bare emoji), keyword-based tragedy/harassment skip list, author-memory relationship (`muted`/`rival`/`ally`/`unknown`), recency of prior Commodus reply.
 5. **Limit gate** — `limits.ts`: ≤3 Commodus reply casts per thread (excluding the originating cast); ≤2 replies per author per rolling 24h, **no reset on user reply-back**; blocklist + thread-mute check.
 6. **Context** — `context.ts` assembles: triggering cast + last 5–10 thread messages, author memory summary (if any), thread memory summary (if any), static lore packet read from `docs/commodus-agent/lore.md`, last ~10 Commodus social posts (anti-repetition; social-only, see Trade-path isolation), and the voice-guide markdown injected as a system prompt.
 7. **Generate (only LLM call in the pipeline)** — produce 3 drafts and self-judge, returning:
-   ```json
+  ```json
    { "shouldReply": true, "reason": "...", "reply": "...", "tone": "theatrical", "riskFlags": [] }
-   ```
+  ```
    The LLM may veto with `shouldReply: false`.
 8. **Safety filter** — reject on `riskFlags`, banned terms, length > 320 chars, hashtag overuse, "as an AI" tells.
 9. **Post** — `post.ts` publishes via Neynar with `parent_cast_hash`, idempotency key set, then writes `posted_cast_hash` back to the run row.
@@ -150,11 +158,13 @@ Every step writes to `commodus_social_runs`. Ignores are first-class records.
 The social agent reads voice + safety rules **directly from markdown** at runtime. `lib/commodus/lore/persona.ts` (used by the autotrader) is intentionally untouched — see Trade-path isolation. The duplication is known debt and out of scope here.
 
 System prompt is assembled from:
+
 - `docs/commodus-agent/voice.md` (canonical voice for the social agent)
 - A short distilled lore packet read from `docs/commodus-agent/lore.md`
 - `docs/commodus-agent/safety-rules.md` (hard rules)
 
 User prompt includes:
+
 - Triggering cast text + author handle + relationship label
 - Up to 10 prior thread messages (oldest → newest)
 - Author memory summary (if relationship is ally/rival)
@@ -182,10 +192,12 @@ Reply shape: 1–3 sentences, first person, punchy, no hashtags unless needed, n
 
 ## API & Routes
 
-| Route | Purpose |
-|-------|---------|
-| `app/api/webhooks/neynar/route.ts` (extend) | Add a sibling `start(handleSocialEngagement)` next to the existing trade workflow start. No other changes. |
-| `app/api/admin/commodus-social/replay/route.ts` | Local operator endpoint to replay a stored event through the current pipeline (auth: `ADMIN_API_TOKEN`) |
+
+| Route                                           | Purpose                                                                                                    |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `app/api/webhooks/neynar/route.ts` (extend)     | Add a sibling `start(handleSocialEngagement)` next to the existing trade workflow start. No other changes. |
+| `app/api/admin/commodus-social/replay/route.ts` | Local operator endpoint to replay a stored event through the current pipeline (auth: `ADMIN_API_TOKEN`)    |
+
 
 No new cron is required for the user-facing feature. An optional `app/api/cron/commodus-memory/route.ts` may be added in Phase 5 for background summarization, but it can also run inline on debounce.
 
@@ -194,12 +206,14 @@ See [Commodus Social Replay](./replay.md) for the narrowed local-only workflow. 
 ## Neynar Webhook
 
 Extend the existing `app/api/webhooks/neynar/route.ts` with a single additional `start(handleSocialEngagement, [ctx])` call sited next to the existing `start(handleCommodusCommand, [ctx])`. **No reordering** of existing logic. The new social workflow filters to:
+
 - Replies where `parent_author_fid = COMMODUS_FID`
 - Casts mentioning `@commodus` (FID match)
 
 Quote casts are not handled at launch.
 
 The new `handleSocialEngagement` workflow:
+
 1. Insert into `commodus_casts` with `source='webhook'` (idempotent on `hash`).
 2. Insert a `commodus_social_runs` landing row with `idem_key = sha256(trigger_hash:run_type)`.
 3. Run rank → context → generate → post. Vercel Workflow handles retries; idempotency on `idem_key` makes Neynar re-deliveries safe.
@@ -247,3 +261,4 @@ The new `handleSocialEngagement` workflow:
 - Local smoke: send a synthetic Neynar `cast.created` payload to the webhook; confirm `commodus_casts` + `commodus_social_runs` rows.
 - Use the admin replay route on a stored event to iterate on prompts without waiting for organic engagement.
 - Production smoke: enable live posting for 48h, review every run row before widening filters.
+

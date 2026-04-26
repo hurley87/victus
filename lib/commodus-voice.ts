@@ -105,13 +105,13 @@ export function buildIntentReply(
   if (intent.action === "buy") {
     const body =
       `Order accepted. Commodus is moving ${intent.amount_value.toString()} USDC ` +
-      `into ${intent.symbol}. The arena gets to watch now.`;
+      `into ${intent.symbol}.`;
     return prefixPlayer(ctx.playerLabel, body);
   }
 
   const body =
     `Order accepted. Commodus is selling ${intent.amount_value.toString()}% of ` +
-    `${intent.symbol}. The arena gets to watch now.`;
+    `${intent.symbol}.`;
   return prefixPlayer(ctx.playerLabel, body);
 }
 
@@ -141,14 +141,12 @@ export function buildOutcomeReply(
   if (outcome.action === "sell") {
     const body =
       `Executed. Sold ${qty} ${outcome.symbol} for ${notional} USDC gross.${pnlPart} ` +
-      "The scoreboard noticed. " +
       `https://basescan.org/tx/${outcome.txHash}`;
     return prefixPlayer(ctx.playerLabel, body);
   }
 
   const body =
     `Executed. Bought ${qty} ${outcome.symbol} for ${notional} USDC. ` +
-    "The scoreboard noticed. " +
     `https://basescan.org/tx/${outcome.txHash}`;
   return prefixPlayer(ctx.playerLabel, body);
 }

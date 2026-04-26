@@ -9,14 +9,14 @@ Keep the launch window conservative for the first 48 hours:
 
 - Do not widen ranking filters, safety filters, or caps during the watch period.
 - Keep the production caps at `MAX_AUTHOR_REPLIES_24H = 2` and
-  `MAX_THREAD_REPLIES = 3`.
+`MAX_THREAD_REPLIES = 3`.
 - Treat `commodus_social_blocklist` as an immediate hard stop, even for direct
-  mentions.
+mentions.
 - Review `commodus_social_runs.posted_cast_hash` against `commodus_casts`
-  rows with `source = 'self'` to confirm every live reply has a matching audit
-  row.
+rows with `source = 'self'` to confirm every live reply has a matching audit
+row.
 - Check webhook redeliveries by `commodus_social_runs.idem_key`; repeated
-  deliveries must resolve to one posted cast hash.
+deliveries must resolve to one posted cast hash.
 
 ## Review queries
 
@@ -56,4 +56,5 @@ After the first 48 hours, do not tune caps or filters unless the review shows:
 - No blocklisted FID received a reply.
 - Webhook redeliveries did not produce duplicate live casts.
 - The replies stayed within the voice and safety rules in
-  [safety-rules.md](./safety-rules.md) and [voice.md](./voice.md).
+[safety-rules.md](./safety-rules.md) and [voice.md](./voice.md).
+
