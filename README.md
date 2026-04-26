@@ -233,3 +233,11 @@ next poll catches up. For the rare support case, operators can set
 - [Next.js Documentation](https://nextjs.org/docs)
 - [Tailwind CSS Documentation](https://tailwindcss.com/docs)
 - [Neynar](https://neynar.com)
+
+## 💰 Bounty Contribution
+
+- **Task:** Victus Games: season-aware buy execution
+- **Reward:** $100
+- **Source:** GitHub-Paid
+- **Date:** 2026-04-27
+
