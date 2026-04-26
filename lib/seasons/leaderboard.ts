@@ -1,12 +1,10 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { formatUnits, parseUnits } from "viem";
 
-import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { env } from "@/lib/env";
+import { fetchDefillamaSpotPricesUsd } from "@/lib/pricing/defillama-spot";
 import { redis } from "@/lib/redis";
-import { getAllowanceHolderQuote } from "@/lib/zerox/quote";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import {
@@ -87,11 +85,6 @@ type FarcasterAccountRow = Pick<
   "user_id" | "fid" | "username"
 >;
 
-type ArenaWalletRow = Pick<
-  Database["public"]["Tables"]["arena_wallets"]["Row"],
-  "id" | "wallet_address"
->;
-
 type RecentSeasonTradeRow = Pick<
   Database["public"]["Tables"]["season_trades"]["Row"],
   | "trade_execution_id"
@@ -156,23 +149,15 @@ export async function getSeasonLeaderboard(
   const entryRows = (entries ?? []) as SeasonEntryRow[];
   const positionRows = (positions ?? []) as SeasonPositionRow[];
   const userIds = [...new Set(entryRows.map((entry) => entry.user_id))];
-  const walletIds = [...new Set(entryRows.map((entry) => entry.wallet_id))];
-
-  const [accounts, wallets, tokens] = await Promise.all([
+  const [accounts, tokens] = await Promise.all([
     loadFarcasterAccounts(userIds, client),
-    loadArenaWallets(walletIds, client),
     getSeasonTokens(season.id, client),
   ]);
 
   const prices =
     season.status === "settled"
       ? getSettledSeasonTokenPrices(tokens)
-      : await getLiveSeasonTokenPrices({
-          season,
-          entries: entryRows,
-          wallets,
-          tokens,
-        });
+      : await getCachedSeasonTokenPrices({ season, tokens });
 
   return buildSeasonLeaderboard({
     season,
@@ -352,25 +337,49 @@ export function buildSeasonLeaderboard(args: {
 export async function getCachedSeasonTokenPrices(args: {
   season: Pick<Season, "id">;
   tokens: SeasonToken[];
-  taker: string;
+  taker?: string;
   cache?: PriceCache;
   quotePrice?: QuotePriceProvider;
 }): Promise<Map<string, number>> {
   const cache = args.cache ?? redis;
-  const quotePrice = args.quotePrice ?? quoteSeasonTokenInUsdc;
-  const prices = new Map<string, number>();
+  const { prices, misses } = await readSeasonTokenPricesFromCache({
+    seasonId: args.season.id,
+    tokens: args.tokens,
+    cache,
+  });
+
+  if (misses.length === 0) {
+    return prices;
+  }
+
+  const quotePrice = args.quotePrice;
+  if (quotePrice) {
+    const taker = args.taker;
+    if (!taker) {
+      throw new Error("getCachedSeasonTokenPrices: taker is required when quotePrice is set");
+    }
+    await Promise.all(
+      misses.map(async (token) => {
+        const addrKey = priceKey(token.token_address);
+        const key = seasonTokenPriceCacheKey(args.season.id, addrKey);
+        const price = await quotePrice({ token, taker });
+        prices.set(addrKey, price);
+        await cache.set(key, String(price), { ex: SEASON_PRICE_CACHE_TTL_SECONDS });
+      }),
+    );
+    return prices;
+  }
+
+  const spot = await fetchDefillamaSpotPricesUsd(
+    misses.map((t) => t.token_address),
+  );
 
   await Promise.all(
-    args.tokens.map(async (token) => {
-      const key = `season:${args.season.id}:price:${priceKey(token.token_address)}`;
-      const cached = await cache.get(key);
-      if (cached != null && Number.isFinite(Number(cached))) {
-        prices.set(priceKey(token.token_address), Number(cached));
-        return;
-      }
-
-      const price = await quotePrice({ token, taker: args.taker });
-      prices.set(priceKey(token.token_address), price);
+    misses.map(async (token) => {
+      const addrKey = priceKey(token.token_address);
+      const key = seasonTokenPriceCacheKey(args.season.id, addrKey);
+      const price = spot.get(addrKey) ?? 0;
+      prices.set(addrKey, price);
       await cache.set(key, String(price), { ex: SEASON_PRICE_CACHE_TTL_SECONDS });
     }),
   );
@@ -385,26 +394,6 @@ function getSettledSeasonTokenPrices(tokens: SeasonToken[]): Map<string, number>
       token.closing_price_usdc == null ? 0 : Number(token.closing_price_usdc),
     ]),
   );
-}
-
-async function getLiveSeasonTokenPrices(args: {
-  season: Season;
-  entries: SeasonEntryRow[];
-  wallets: ArenaWalletRow[];
-  tokens: SeasonToken[];
-}): Promise<Map<string, number>> {
-  const walletById = new Map(args.wallets.map((wallet) => [wallet.id, wallet]));
-  const takerAddress =
-    args.entries
-      .map((entry) => walletById.get(entry.wallet_id)?.wallet_address)
-      .find((address): address is string => Boolean(address)) ?? null;
-
-  if (!takerAddress) return new Map<string, number>();
-  return getCachedSeasonTokenPrices({
-    season: args.season,
-    tokens: args.tokens,
-    taker: takerAddress,
-  });
 }
 
 export function applyFinalScores(
@@ -437,20 +426,6 @@ function performancePointsForRank(rank: number | null): number {
   return Math.max(0, 100 - rank * 10);
 }
 
-async function quoteSeasonTokenInUsdc(args: {
-  token: SeasonToken;
-  taker: string;
-}): Promise<number> {
-  const quote = await getAllowanceHolderQuote({
-    sellToken: args.token.token_address,
-    buyToken: USDC_BASE_ADDRESS,
-    sellAmount: parseUnits("1", args.token.decimals).toString(),
-    taker: args.taker,
-    slippageBps: 100,
-  });
-  return Number(formatUnits(BigInt(quote.buyAmount), USDC_DECIMALS));
-}
-
 async function loadFarcasterAccounts(
   userIds: string[],
   client: SupabaseAdmin,
@@ -465,22 +440,6 @@ async function loadFarcasterAccounts(
     throw new Error(`season leaderboard: farcaster_accounts ${error.message}`);
   }
   return (data ?? []) as FarcasterAccountRow[];
-}
-
-async function loadArenaWallets(
-  walletIds: string[],
-  client: SupabaseAdmin,
-): Promise<ArenaWalletRow[]> {
-  if (walletIds.length === 0) return [];
-  const { data, error } = await client
-    .from("arena_wallets")
-    .select("id, wallet_address")
-    .in("id", walletIds);
-
-  if (error) {
-    throw new Error(`season leaderboard: arena_wallets ${error.message}`);
-  }
-  return (data ?? []) as ArenaWalletRow[];
 }
 
 function compareSeasonRows(
@@ -505,4 +464,32 @@ function stripSortField(
 
 function priceKey(address: string): string {
   return address.toLowerCase();
+}
+
+function seasonTokenPriceCacheKey(seasonId: string, addrKey: string): string {
+  return `season:${seasonId}:price:${addrKey}`;
+}
+
+async function readSeasonTokenPricesFromCache(args: {
+  seasonId: string;
+  tokens: SeasonToken[];
+  cache: PriceCache;
+}): Promise<{ prices: Map<string, number>; misses: SeasonToken[] }> {
+  const prices = new Map<string, number>();
+  const misses: SeasonToken[] = [];
+
+  await Promise.all(
+    args.tokens.map(async (token) => {
+      const addrKey = priceKey(token.token_address);
+      const key = seasonTokenPriceCacheKey(args.seasonId, addrKey);
+      const cached = await args.cache.get(key);
+      if (cached != null && Number.isFinite(Number(cached))) {
+        prices.set(addrKey, Number(cached));
+        return;
+      }
+      misses.push(token);
+    }),
+  );
+
+  return { prices, misses };
 }
