@@ -68,55 +68,60 @@ export async function handleSocialEngagement(ctx: SocialEngagementContext) {
   const runBase = { runId, runType, triggerHash };
   const filterReason = `filter:${decision.reason}`;
 
-  let selectedHash: string | undefined;
-  let rank: SocialRankDecision = {
-    action: "ignore",
-    score: 0,
-    reason: filterReason,
-    riskFlags: [],
-  };
-  let reason = filterReason;
-  let logEvent: "social_filter_skip" | "social_filter_match" = "social_filter_skip";
-  let promptSnapshot: Json | undefined;
-  let modelOutput: Json | undefined;
+  if (!decision.match) {
+    const rank: SocialRankDecision = {
+      action: "ignore",
+      score: 0,
+      reason: filterReason,
+      riskFlags: [],
+    };
+    await landRun({
+      ...runBase,
+      selectedHash: undefined,
+      rank,
+      reason: filterReason,
+      logEvent: "social_filter_skip",
+    });
+    return { status: "ranked" as const, action: rank.action, reason: filterReason };
+  }
 
-  if (decision.match) {
-    await persistInboundCast(cast, runId);
-    selectedHash = cast.hash;
-    const { limitState, authorMemory } = await loadSocialGateInputs(cast);
-    const limitDecision = evaluateSocialLimits(limitState);
-    if (limitDecision.allowed) {
-      rank = rankSocialCast({
+  await persistInboundCast(cast, runId);
+  const selectedHash = cast.hash;
+  const { limitState, authorMemory } = await loadSocialGateInputs(cast);
+  const limitDecision = evaluateSocialLimits(limitState);
+
+  let rank: SocialRankDecision = limitDecision.allowed
+    ? rankSocialCast({
         cast,
         trigger: decision.reason,
         relationship: authorMemory.relationship,
         lastCommodusReplyAt: authorMemory.lastInteractionAt,
-      });
-    } else {
-      rank = {
+      })
+    : {
         action: "ignore",
         score: 0,
         reason: limitDecision.reason,
         riskFlags: limitDecision.riskFlags,
       };
-    }
-    reason = rank.reason;
-    logEvent = "social_filter_match";
-  }
 
-  if (decision.match && rank.action === "reply") {
-    const generation = await generateSocialDraft(cast);
+  let reason = rank.reason;
+  let promptSnapshot: Json | undefined;
+  let modelOutput: Json | undefined;
+  let replyText: string | null = null;
+
+  if (rank.action === "reply") {
+    const draft = await generateSocialDraft(cast);
     rank = {
       ...rank,
-      action: generation.action,
-      reason: generation.reason,
-      riskFlags: generation.riskFlags,
+      action: draft.action,
+      reason: draft.reason,
+      riskFlags: draft.riskFlags,
     };
-    reason = generation.reason;
-    promptSnapshot = generation.promptSnapshot;
-    modelOutput = generation.modelOutput;
-    if (!env.COMMODUS_SOCIAL_DRY_RUN && generation.action === "reply" && generation.reply) {
-      await publishGeneratedReply(runId, cast, generation.reply);
+    reason = draft.reason;
+    promptSnapshot = draft.promptSnapshot;
+    modelOutput = draft.modelOutput;
+    if (!env.COMMODUS_SOCIAL_DRY_RUN && draft.action === "reply" && draft.reply) {
+      replyText = draft.reply;
     }
   }
 
@@ -125,10 +130,14 @@ export async function handleSocialEngagement(ctx: SocialEngagementContext) {
     selectedHash,
     rank,
     reason,
-    logEvent,
+    logEvent: "social_filter_match",
     promptSnapshot,
     modelOutput,
   });
+
+  if (replyText) {
+    await publishGeneratedReply(runId, cast, replyText);
+  }
 
   return { status: "ranked" as const, action: rank.action, reason };
 }
@@ -171,7 +180,7 @@ async function generateSocialDraft(cast: SocialCastEvent) {
   "use step";
 
   const context = await buildCommodusSocialContext(cast);
-  return await generateCommodusSocialReply(context);
+  return generateCommodusSocialReply(context);
 }
 
 async function publishGeneratedReply(

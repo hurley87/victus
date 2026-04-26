@@ -31,15 +31,17 @@ const socialContext = vi.hoisted(() => ({
     docs: { lore: "lore", voice: "voice", safety: "safety" },
   }),
 }));
+const mockSocialGeneration = vi.hoisted(() => ({
+  action: "reply" as const,
+  reason: "generated_reply",
+  reply: "I heard the arena cough.",
+  riskFlags: [] as string[],
+  promptSnapshot: { system: "voice+safety", prompt: "context" },
+  modelOutput: { selected: { shouldReply: true, reply: "I heard the arena cough." } },
+}));
+
 const socialGenerate = vi.hoisted(() => ({
-  generateCommodusSocialReply: vi.fn().mockResolvedValue({
-    action: "reply",
-    reason: "generated_reply",
-    reply: "I heard the arena cough.",
-    riskFlags: [],
-    promptSnapshot: { system: "voice+safety", prompt: "context" },
-    modelOutput: { selected: { shouldReply: true, reply: "I heard the arena cough." } },
-  }),
+  generateCommodusSocialReply: vi.fn().mockResolvedValue(mockSocialGeneration),
 }));
 const socialPost = vi.hoisted(() => ({
   publishCommodusSocialReplyOnce: vi.fn().mockResolvedValue({
@@ -134,14 +136,9 @@ function resetSocialWorkflowMocks() {
     authorReplyCount24h: 0,
   });
   socialContext.buildCommodusSocialContext.mockClear();
-  socialGenerate.generateCommodusSocialReply.mockClear().mockResolvedValue({
-    action: "reply",
-    reason: "generated_reply",
-    reply: "I heard the arena cough.",
-    riskFlags: [],
-    promptSnapshot: { system: "voice+safety", prompt: "context" },
-    modelOutput: { selected: { shouldReply: true, reply: "I heard the arena cough." } },
-  });
+  socialGenerate.generateCommodusSocialReply
+    .mockClear()
+    .mockResolvedValue(mockSocialGeneration);
   socialPost.publishCommodusSocialReplyOnce.mockClear().mockResolvedValue({
     postedCastHash: "0xreply",
     published: true,
@@ -266,6 +263,10 @@ describe("handleSocialEngagement", () => {
       triggerCast: cast,
       replyText: "I heard the arena cough.",
     });
+    const runUpsertOrder = upsert.mock.invocationCallOrder[1];
+    const publishOrder =
+      socialPost.publishCommodusSocialReplyOnce.mock.invocationCallOrder[0];
+    expect(runUpsertOrder).toBeLessThan(publishOrder);
   });
 
   it("stores LLM vetoes as ignore rows with populated prompt and model output", async () => {
