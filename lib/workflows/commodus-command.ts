@@ -52,7 +52,7 @@ import {
   type ReservedExecution,
 } from "@/lib/execution/reserve";
 import { applyLotsAndPositionsForExecution } from "@/lib/execution/lot-persistence";
-import { applySeasonBuy } from "@/lib/seasons/apply-trade";
+import { applySeasonBuy, applySeasonSell } from "@/lib/seasons/apply-trade";
 import { scoreTradeAfterExecution } from "@/lib/scoring/score-trade";
 import {
   decodeSwapReceipt,
@@ -338,6 +338,15 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       tradeExecutionId: sellReservation.tradeExecutionId,
       intentAction: "sell",
     });
+    if (policyCtx.season) {
+      await applySeasonSellStep({
+        castHash: ctx.castHash,
+        tradeExecutionId: sellReservation.tradeExecutionId,
+        season: policyCtx.season,
+        userId: walletLookup.userId,
+        walletId: policyCtx.walletId,
+      });
+    }
 
     await scoreTradeStep({
       castHash: ctx.castHash,
@@ -1486,11 +1495,10 @@ async function scoreTradeStep(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Step: apply_season_buy
+// Step: apply_season_buy / apply_season_sell
 //
-// Books the buy into the Victus Games ledger: inserts season_trades,
-// decrements virtual cash, consumes a trade ticket, and upserts the
-// season position. Idempotent on `trade_execution_id`.
+// Books confirmed trades into the Victus Games ledger. Idempotent on
+// `trade_execution_id` before entry cash/tickets/positions mutate.
 // ---------------------------------------------------------------------------
 
 async function applySeasonBuyStep(params: {
@@ -1504,6 +1512,28 @@ async function applySeasonBuyStep(params: {
 
   return logStep(params.castHash, "apply_season_buy", async () => {
     await applySeasonBuy({
+      tradeExecutionId: params.tradeExecutionId,
+      seasonId: params.season.seasonId,
+      seasonEntryId: params.season.seasonEntryId,
+      userId: params.userId,
+      walletId: params.walletId,
+      tokenSymbol: params.season.tokenSymbol,
+      tokenAddress: params.season.tokenAddress,
+    });
+  });
+}
+
+async function applySeasonSellStep(params: {
+  castHash: string;
+  tradeExecutionId: string;
+  season: NonNullable<PolicyContext["season"]>;
+  userId: string;
+  walletId: string;
+}): Promise<void> {
+  "use step";
+
+  return logStep(params.castHash, "apply_season_sell", async () => {
+    await applySeasonSell({
       tradeExecutionId: params.tradeExecutionId,
       seasonId: params.season.seasonId,
       seasonEntryId: params.season.seasonEntryId,

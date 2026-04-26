@@ -118,13 +118,17 @@ function PortfolioContent({
     );
   }
 
-  const handle =
-    data.username != null && data.username !== ""
-      ? data.username
-      : isViewingOther
-        ? null
-        : viewerUsername;
-  const title = handle ? `@${handle}` : data.display_name || `fid ${targetFid}`;
+  let displayHandle: string | null;
+  if (data.username != null && data.username !== "") {
+    displayHandle = data.username;
+  } else if (isViewingOther) {
+    displayHandle = null;
+  } else {
+    displayHandle = viewerUsername;
+  }
+  const title = displayHandle
+    ? `@${displayHandle}`
+    : data.display_name || `fid ${targetFid}`;
 
   return (
     <div className="bg-white text-black min-h-screen flex flex-col items-center p-4">
@@ -145,7 +149,7 @@ function PortfolioContent({
           <div>
             <h1 className="text-2xl font-semibold">{title}</h1>
             <p className="text-sm text-muted-foreground">
-              @{handle ?? `fid ${targetFid}`} · Realized PnL (closed sells)
+              @{displayHandle ?? `fid ${targetFid}`} · Realized PnL (closed sells)
             </p>
           </div>
           <Link

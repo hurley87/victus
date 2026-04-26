@@ -204,7 +204,7 @@ export function policyRejectionMessage(
     case "season_insufficient_arena_balance":
       return "Not enough arena cash. Wallet funds do not increase your 10 USDC arena balance.";
     case "season_insufficient_position":
-      return "You can only sell tokens bought through Victus this week.";
+      return "You can only sell your Victus position. External wallet tokens do not count in this week.";
   }
 }
 

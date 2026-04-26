@@ -1,6 +1,6 @@
 import "server-only";
 
-import { formatUnits, type Address, getAddress } from "viem";
+import { formatUnits, type Address, getAddress, parseUnits } from "viem";
 
 import { readErc20Balance, readUsdcBalance } from "@/lib/chain/erc20";
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
@@ -71,8 +71,8 @@ export type PolicyContext = {
   assetAddress: Address;
   assetDecimals: number;
   /**
-   * Sells only — exact asset base units computed from **on-chain** balance
-   * × percent (integer 1–100), floored, used as the 0x `sellAmount`.
+   * Sells only — exact asset base units computed from the season ledger
+   * when a season is active, otherwise from on-chain balance.
    */
   sellAssetBaseUnits?: string;
   /** Populated when the trade is gated by an active Victus Games season. */
@@ -116,42 +116,38 @@ export async function validatePolicy(
     return { ok: false, reason: "no_active_season", policy };
   }
 
-  // Season-gated buys: virtual cash + 5/season tickets replace per-wallet
-  // caps, and `season_tokens` replaces `asset_whitelist`.
-  if (activeSeason && isBuy) {
-    return validateSeasonBuy({
-      params,
-      season: activeSeason,
-      policy,
-    });
+  // Season-gated trades: virtual cash + 5/season tickets replace
+  // per-wallet caps for buys, `season_tokens` replaces `asset_whitelist`,
+  // and sells are sized from `season_positions` instead of wallet balance.
+  if (activeSeason) {
+    if (isBuy) {
+      return validateSeasonBuy({ params, season: activeSeason, policy });
+    }
+    return validateSeasonSell({ params, season: activeSeason, policy });
   }
 
   const asset = await loadWhitelistedAsset(params.intent.symbol);
   if (!asset) return { ok: false, reason: "asset_not_whitelisted" };
 
-  // Season buy rules replace these caps. Sells keep the legacy checks until
-  // the sell-side season ledger lands.
-  if (!activeSeason || !isBuy) {
-    const tradesToday = await countCompletedSwapsTodayUtc(params.walletId);
-    if (tradesToday >= policy.maxTradesPerDay) {
-      return { ok: false, reason: "max_trades_per_day", policy };
-    }
+  const tradesToday = await countCompletedSwapsTodayUtc(params.walletId);
+  if (tradesToday >= policy.maxTradesPerDay) {
+    return { ok: false, reason: "max_trades_per_day", policy };
+  }
 
-    if (isBuy && params.intent.amount_value > policy.maxTradeUsdc) {
-      return { ok: false, reason: "max_trade_usdc", policy };
-    }
+  if (isBuy && params.intent.amount_value > policy.maxTradeUsdc) {
+    return { ok: false, reason: "max_trade_usdc", policy };
+  }
 
-    if (isBuy) {
-      const wallet = getAddress(params.walletAddress);
-      const live = await readUsdcBalance(wallet);
-      const heldUsdc = await sumOnChainHoldingsUsdcViaZerox({
-        walletAddress: wallet,
-        slippageBps: policy.maxSlippageBps,
-      });
-      const exposure = live + heldUsdc;
-      if (exposure > policy.walletCapUsdc) {
-        return { ok: false, reason: "wallet_cap_usdc", policy };
-      }
+  if (isBuy) {
+    const wallet = getAddress(params.walletAddress);
+    const live = await readUsdcBalance(wallet);
+    const heldUsdc = await sumOnChainHoldingsUsdcViaZerox({
+      walletAddress: wallet,
+      slippageBps: policy.maxSlippageBps,
+    });
+    const exposure = live + heldUsdc;
+    if (exposure > policy.walletCapUsdc) {
+      return { ok: false, reason: "wallet_cap_usdc", policy };
     }
   }
 
@@ -200,25 +196,9 @@ async function validateSeasonBuy(args: {
 }): Promise<PolicyResult> {
   const { params, season, policy } = args;
 
-  const entry = await getSeasonEntry({
-    seasonId: season.id,
-    userId: params.userId,
-  });
-  if (!entry) return { ok: false, reason: "no_season_entry", policy };
-  if (entry.status !== "active") {
-    return { ok: false, reason: "season_entry_inactive", policy };
-  }
-  if (entry.trades_used >= entry.max_trades) {
-    return { ok: false, reason: "season_max_trades_reached", policy };
-  }
-
-  const token = await loadSeasonToken({
-    seasonId: season.id,
-    symbol: params.intent.symbol,
-  });
-  if (!token) {
-    return { ok: false, reason: "season_token_not_approved", policy };
-  }
+  const gated = await loadSeasonTradeGate({ params, season, policy });
+  if (!gated.ok) return gated;
+  const { entry, token } = gated;
 
   const notional = params.intent.amount_value;
   const minTrade = Number(season.min_trade_size_usdc);
@@ -249,6 +229,94 @@ async function validateSeasonBuy(args: {
       policy,
     },
   };
+}
+
+async function validateSeasonSell(args: {
+  params: PolicyValidateParams;
+  season: Season;
+  policy: PolicyContext["policy"];
+}): Promise<PolicyResult> {
+  const { params, season, policy } = args;
+
+  const gated = await loadSeasonTradeGate({ params, season, policy });
+  if (!gated.ok) return gated;
+  const { entry, token } = gated;
+
+  const position = await loadSeasonPosition({
+    seasonEntryId: entry.id,
+    symbol: token.token_symbol,
+  });
+  if (!position) {
+    return { ok: false, reason: "season_insufficient_position", policy };
+  }
+
+  const positionAmount = Number(position.token_amount);
+  const tokenAmount =
+    (positionAmount * params.intent.amount_value) / 100;
+  if (
+    !(positionAmount > 0) ||
+    !(tokenAmount > 0) ||
+    tokenAmount > positionAmount + 1e-12
+  ) {
+    return { ok: false, reason: "season_insufficient_position", policy };
+  }
+
+  const sellAssetBaseUnits = parseUnits(
+    tokenAmount.toFixed(token.decimals),
+    token.decimals,
+  ).toString();
+
+  return {
+    ok: true,
+    context: {
+      walletId: params.walletId,
+      walletAddress: getAddress(params.walletAddress),
+      privyWalletId: params.privyWalletId,
+      assetAddress: getAddress(token.token_address),
+      assetDecimals: token.decimals,
+      sellAssetBaseUnits,
+      season: {
+        seasonId: season.id,
+        seasonEntryId: entry.id,
+        tokenSymbol: token.token_symbol,
+        tokenAddress: getAddress(token.token_address),
+        tokenDecimals: token.decimals,
+      },
+      policy,
+    },
+  };
+}
+
+async function loadSeasonTradeGate(args: {
+  params: PolicyValidateParams;
+  season: Season;
+  policy: PolicyContext["policy"];
+}): Promise<
+  | { ok: true; entry: SeasonEntry; token: SeasonTokenRow }
+  | Extract<PolicyResult, { ok: false }>
+> {
+  const { params, season, policy } = args;
+  const entry = await getSeasonEntry({
+    seasonId: season.id,
+    userId: params.userId,
+  });
+  if (!entry) return { ok: false, reason: "no_season_entry", policy };
+  if (entry.status !== "active") {
+    return { ok: false, reason: "season_entry_inactive", policy };
+  }
+  if (entry.trades_used >= entry.max_trades) {
+    return { ok: false, reason: "season_max_trades_reached", policy };
+  }
+
+  const token = await loadSeasonToken({
+    seasonId: season.id,
+    symbol: params.intent.symbol,
+  });
+  if (!token) {
+    return { ok: false, reason: "season_token_not_approved", policy };
+  }
+
+  return { ok: true, entry, token };
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +369,10 @@ type SeasonTokenRow = {
   decimals: number;
 };
 
+type SeasonPositionRow = {
+  token_amount: number;
+};
+
 async function loadSeasonToken(params: {
   seasonId: string;
   symbol: string;
@@ -319,6 +391,21 @@ async function loadSeasonToken(params: {
     token_address: data.token_address,
     decimals: data.decimals,
   };
+}
+
+async function loadSeasonPosition(params: {
+  seasonEntryId: string;
+  symbol: string;
+}): Promise<SeasonPositionRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("season_positions")
+    .select("token_amount")
+    .eq("season_entry_id", params.seasonEntryId)
+    .eq("token_symbol", params.symbol)
+    .maybeSingle();
+
+  if (error) throw new Error(`season_positions lookup failed: ${error.message}`);
+  return data ?? null;
 }
 
 /**

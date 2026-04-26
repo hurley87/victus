@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { getActiveSeason, getSeasonEntry } from "@/lib/seasons/service";
+import { readErc20Balance } from "@/lib/chain/erc20";
 
 import { validatePolicy } from "./policy";
 
@@ -80,7 +81,11 @@ const seasonToken = {
   is_active: true,
 };
 
-function mockSeasonBuyTables(tokenResult: unknown = { data: seasonToken, error: null }) {
+function mockSeasonTables(options: {
+  tokenResult?: unknown;
+  positionResult?: unknown;
+} = {}) {
+  const tokenResult = options.tokenResult ?? { data: seasonToken, error: null };
   (supabaseAdmin.from as unknown as Mock).mockImplementation((table: string) => {
     if (table === "arena_wallets") {
       return singleRowQuery({ data: { funded_at: "2026-04-20T00:00:00Z" }, error: null });
@@ -91,8 +96,15 @@ function mockSeasonBuyTables(tokenResult: unknown = { data: seasonToken, error: 
     if (table === "season_tokens") {
       return singleRowQuery(tokenResult);
     }
+    if (table === "season_positions") {
+      return singleRowQuery(options.positionResult ?? { data: null, error: null });
+    }
     throw new Error(`unexpected table ${table}`);
   });
+}
+
+function mockSeasonBuyTables(tokenResult: unknown = { data: seasonToken, error: null }) {
+  mockSeasonTables({ tokenResult });
 }
 
 function buyIntent(amountValue: number, symbol = "AERO") {
@@ -105,6 +117,21 @@ function buyIntent(amountValue: number, symbol = "AERO") {
       action: "buy" as const,
       symbol,
       amount_type: "usdc_in" as const,
+      amount_value: amountValue,
+    },
+  };
+}
+
+function sellIntent(amountValue: number, symbol = "AERO") {
+  return {
+    userId: "user-1",
+    walletId: "wallet-1",
+    walletAddress: "0x0000000000000000000000000000000000000001",
+    privyWalletId: "privy-wallet-1",
+    intent: {
+      action: "sell" as const,
+      symbol,
+      amount_type: "percent_out" as const,
       amount_value: amountValue,
     },
   };
@@ -243,6 +270,67 @@ describe("validatePolicy", () => {
           tokenDecimals: 18,
         },
       },
+    });
+  });
+
+  it("sizes active-season sells from season_positions instead of wallet balance", async () => {
+    mockSeasonTables({
+      positionResult: {
+        data: { token_amount: 100 },
+        error: null,
+      },
+    });
+    (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
+    (getSeasonEntry as unknown as Mock).mockResolvedValue(activeEntry);
+    (readErc20Balance as unknown as Mock).mockResolvedValue(BigInt(1_000) * BigInt(10) ** BigInt(18));
+
+    const result = await validatePolicy(sellIntent(100));
+
+    expect(result).toMatchObject({
+      ok: true,
+      context: {
+        sellAssetBaseUnits: "100000000000000000000",
+        season: {
+          seasonId: "season-1",
+          seasonEntryId: "entry-1",
+        },
+      },
+    });
+    expect(readErc20Balance).not.toHaveBeenCalled();
+  });
+
+  it("rejects active-season sells when no Victus position exists", async () => {
+    mockSeasonTables();
+    (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
+    (getSeasonEntry as unknown as Mock).mockResolvedValue(activeEntry);
+
+    const result = await validatePolicy(sellIntent(100));
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "season_insufficient_position",
+    });
+  });
+
+  it("rejects active-season sells after weekly tickets are spent", async () => {
+    mockSeasonTables({
+      positionResult: {
+        data: { token_amount: 100 },
+        error: null,
+      },
+    });
+    (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
+    (getSeasonEntry as unknown as Mock).mockResolvedValue({
+      ...activeEntry,
+      trades_used: 5,
+      max_trades: 5,
+    });
+
+    const result = await validatePolicy(sellIntent(50));
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "season_max_trades_reached",
     });
   });
 });

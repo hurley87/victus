@@ -491,13 +491,13 @@ function AliveCard({
     const a = uniq[0] ?? "symbol";
     const b = uniq[1] ?? a;
     const c = uniq[2] ?? a;
+    const thirdLine =
+      c !== a ? [`@commodus buy ${Math.min(2, cap)} usdc of ${c}`] : [];
     return [
       `@commodus buy ${Math.min(5, cap)} usdc of ${a}`,
       `@commodus sell 50% of ${b}`,
       `@commodus status`,
-      ...(c !== a
-        ? [`@commodus buy ${Math.min(2, cap)} usdc of ${c}`]
-        : []),
+      ...thirdLine,
     ];
   }, [rules.whitelist, maxTradeUsdc]);
 
