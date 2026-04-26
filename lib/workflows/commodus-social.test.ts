@@ -2,6 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const upsert = vi.hoisted(() => vi.fn().mockResolvedValue({ error: null }));
 const from = vi.hoisted(() => vi.fn().mockReturnValue({ upsert }));
+const socialLimits = vi.hoisted(() => ({
+  evaluateSocialLimits: vi.fn((): unknown => ({ allowed: true })),
+  loadAuthorRelationship: vi.fn().mockResolvedValue({
+    relationship: "unknown",
+    lastInteractionAt: null,
+  }),
+  loadSocialLimitState: vi.fn().mockResolvedValue({
+    blocklisted: false,
+    threadMuted: false,
+    threadReplyCount: 0,
+    authorReplyCount24h: 0,
+  }),
+}));
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseAdmin: { from },
@@ -19,6 +32,8 @@ vi.mock("@/lib/logger", () => ({
     error: vi.fn(),
   },
 }));
+
+vi.mock("@/lib/commodus/social/limits", () => socialLimits);
 
 import { deriveIdemKey } from "./commodus-social-idem";
 import {
@@ -131,13 +146,28 @@ describe("handleSocialEngagement", () => {
   beforeEach(() => {
     upsert.mockClear().mockResolvedValue({ error: null });
     from.mockClear().mockReturnValue({ upsert });
+    socialLimits.evaluateSocialLimits.mockReturnValue({ allowed: true });
+    socialLimits.loadAuthorRelationship.mockResolvedValue({
+      relationship: "unknown",
+      lastInteractionAt: null,
+    });
+    socialLimits.loadSocialLimitState.mockResolvedValue({
+      blocklisted: false,
+      threadMuted: false,
+      threadReplyCount: 0,
+      authorReplyCount24h: 0,
+    });
   });
 
-  it("persists cast and lands an ignore run for a reply to Commodus", async () => {
+  it("persists cast and lands a ranked run for a reply to Commodus", async () => {
     const cast = buildCast();
     const result = await handleSocialEngagement(buildSocialCtx(cast));
 
-    expect(result).toEqual({ status: "ignored", reason: "reply_to_commodus" });
+    expect(result).toEqual({
+      status: "ranked",
+      action: "reply",
+      reason: "ranked_reply",
+    });
 
     expect(upsertedTables()).toEqual(["commodus_casts", "commodus_social_runs"]);
 
@@ -149,11 +179,35 @@ describe("handleSocialEngagement", () => {
     });
 
     expect(upsertRow(1)).toMatchObject({
-      action: "ignore",
+      action: "reply",
       run_type: "webhook",
       trigger_cast_hash: cast.hash,
       selected_cast_hash: cast.hash,
-      reason: "accepted:reply_to_commodus",
+      reason: "ranked_reply",
+      risk_flags: [],
+    });
+  });
+
+  it("persists blocklisted matches as ignore with blocklist reason", async () => {
+    socialLimits.evaluateSocialLimits.mockReturnValue({
+      allowed: false,
+      reason: "blocklist",
+      riskFlags: ["blocklist"],
+    });
+
+    const cast = buildCast({ text: "@commodus direct mention from blocklisted fid" });
+    const result = await handleSocialEngagement(buildSocialCtx(cast));
+
+    expect(result).toEqual({
+      status: "ranked",
+      action: "ignore",
+      reason: "blocklist",
+    });
+    expect(upsertRow(1)).toMatchObject({
+      action: "ignore",
+      reason: "blocklist",
+      score: 0,
+      risk_flags: ["blocklist"],
     });
   });
 
@@ -165,7 +219,11 @@ describe("handleSocialEngagement", () => {
 
     const result = await handleSocialEngagement(buildSocialCtx(cast));
 
-    expect(result).toEqual({ status: "ignored", reason: "unrelated" });
+    expect(result).toEqual({
+      status: "ranked",
+      action: "ignore",
+      reason: "filter:unrelated",
+    });
 
     expect(upsertedTables()).toEqual(["commodus_social_runs"]);
     expect(upsertRow(0)).toMatchObject({
@@ -184,7 +242,10 @@ describe("handleSocialEngagement", () => {
     await handleSocialEngagement(buildSocialCtx(cast));
 
     expect(upsertedTables()).toEqual(["commodus_social_runs"]);
-    expect(upsertRow(0)).toMatchObject({ reason: "filter:quote_cast" });
+    expect(upsertRow(0)).toMatchObject({
+      action: "ignore",
+      reason: "filter:quote_cast",
+    });
   });
 
   it("uses idem_key based on trigger hash so retries collapse", async () => {

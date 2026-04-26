@@ -1,4 +1,6 @@
 import { env } from "@/lib/env";
+import { evaluateSocialLimits, loadAuthorRelationship, loadSocialLimitState } from "@/lib/commodus/social/limits";
+import { rankSocialCast, type SocialRankDecision } from "@/lib/commodus/social/rank";
 import { log } from "@/lib/logger";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/types";
@@ -62,20 +64,52 @@ export async function handleSocialEngagement(ctx: SocialEngagementContext) {
   let reason: string;
   let logEvent: "social_filter_skip" | "social_filter_match";
   let selectedHash: string | undefined;
+  let rank: SocialRankDecision = {
+    action: "ignore",
+    score: 0,
+    reason: `filter:${decision.reason}`,
+    riskFlags: [],
+  };
 
   if (decision.match) {
     await persistInboundCast(cast, runId);
     selectedHash = cast.hash;
-    reason = `accepted:${decision.reason}`;
+    const { limitState, authorMemory } = await loadSocialGateInputs(cast);
+    const limitDecision = evaluateSocialLimits(limitState);
+    rank = limitDecision.allowed
+      ? rankSocialCast({
+          cast,
+          trigger: decision.reason,
+          relationship: authorMemory.relationship,
+          lastCommodusReplyAt: authorMemory.lastInteractionAt,
+        })
+      : {
+          action: "ignore",
+          score: 0,
+          reason: limitDecision.reason,
+          riskFlags: limitDecision.riskFlags,
+        };
+    reason = rank.reason;
     logEvent = "social_filter_match";
   } else {
     reason = `filter:${decision.reason}`;
     logEvent = "social_filter_skip";
   }
 
-  await landRun({ ...runBase, selectedHash, reason, logEvent });
+  await landRun({ ...runBase, selectedHash, rank, reason, logEvent });
 
-  return { status: "ignored" as const, reason: decision.reason };
+  return { status: "ranked" as const, action: rank.action, reason };
+}
+
+async function loadSocialGateInputs(cast: SocialCastEvent) {
+  "use step";
+
+  const [limitState, authorMemory] = await Promise.all([
+    loadSocialLimitState(cast),
+    loadAuthorRelationship(cast.author.fid),
+  ]);
+
+  return { limitState, authorMemory };
 }
 
 async function persistInboundCast(cast: SocialCastEvent, runId: string) {
@@ -106,6 +140,7 @@ async function landRun(params: {
   runType: SocialEngagementContext["runType"];
   triggerHash: string;
   selectedHash?: string;
+  rank: SocialRankDecision;
   reason: string;
   logEvent: "social_filter_skip" | "social_filter_match";
 }) {
@@ -117,8 +152,10 @@ async function landRun(params: {
       run_type: params.runType,
       trigger_cast_hash: params.triggerHash,
       selected_cast_hash: params.selectedHash ?? null,
-      action: "ignore",
+      action: params.rank.action,
+      score: params.rank.score,
       reason: params.reason,
+      risk_flags: params.rank.riskFlags as Json,
     },
     { onConflict: "idem_key", ignoreDuplicates: true },
   );

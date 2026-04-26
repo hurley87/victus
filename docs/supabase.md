@@ -140,7 +140,7 @@ Six tables for the Neynar-driven social agent ([issue #35](https://github.com/hu
 | ----- | ---- |
 | `commodus_casts` | Inbound and self-post casts: `hash` UNIQUE, `thread_hash`, `parent_hash`, `parent_author_fid`, `author_fid`, `text`, `source` ∈ `webhook` / `manual` / `self`, `raw_json`, `first_seen_at`, `created_at`. Indexes: `thread_hash`; `(author_fid, first_seen_at desc)`; `(created_at desc)`. |
 | `commodus_social_runs` | One decision per row: `run_type`, `trigger_cast_hash`, `selected_cast_hash`, `action` ∈ `reply` / `ignore` / `save_only` / `error`, `score`, `reason`, `risk_flags` (jsonb), `prompt_snapshot`, `model_output`, `posted_cast_hash`, **`idem_key` UNIQUE**. Indexes: `(created_at desc)`; `(action, created_at desc)`; `selected_cast_hash`. |
-| `commodus_thread_memory` | PK `thread_hash`, `summary`, `last_cast_hash`, `participants` (jsonb). |
+| `commodus_thread_memory` | PK `thread_hash`, `summary`, `last_cast_hash`, `participants` (jsonb), `is_muted` thread-level engagement gate. |
 | `commodus_user_memory` | PK `fid`, `summary`, `relationship` ∈ `ally` / `rival` / `unknown` / `muted`, `last_interaction_at`. |
 | `commodus_long_term_memory` | `memory_type` ∈ `lore` / `bit` / `rivalry` / `rule` / `event`, `title`, `body`, `importance` (integer). |
 | `commodus_social_blocklist` | PK `fid`, `reason` — FIDs the agent must not engage. |
@@ -165,4 +165,3 @@ Env vars are validated at boot by `lib/env.ts` using `@t3-oss/env-nextjs` — mi
 
 - `rls_enabled_no_policy` (INFO, 15 tables) — **intentional**, see posture above. Do not "fix" by adding blanket policies.
 - Any other warning from `get_advisors` should be addressed in a follow-up migration.
-

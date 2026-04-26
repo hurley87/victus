@@ -413,18 +413,21 @@ export type Database = {
       }
       commodus_thread_memory: {
         Row: {
+          is_muted: boolean
           last_cast_hash: string | null
           participants: Json
           summary: string
           thread_hash: string
         }
         Insert: {
+          is_muted?: boolean
           last_cast_hash?: string | null
           participants?: Json
           summary?: string
           thread_hash: string
         }
         Update: {
+          is_muted?: boolean
           last_cast_hash?: string | null
           participants?: Json
           summary?: string

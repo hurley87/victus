@@ -42,7 +42,10 @@ import {
   validatePolicy,
   type PolicyContext,
 } from "@/lib/execution/policy";
-import { publishReplyOnce } from "@/lib/execution/reply-guard";
+import {
+  publishReplyOnce,
+  type PublishReplyOnceParams,
+} from "@/lib/execution/reply-guard";
 import { loadStatusViewContext } from "@/lib/status/load-context";
 import {
   reserveOrLoadExecution,
@@ -86,6 +89,16 @@ async function logStep<T>(castHash: string, step: string, fn: () => Promise<T>):
 function rethrowMissingSignerAsFatal(err: unknown): never {
   if (err instanceof MissingSignerError) throw new FatalError(err.message);
   throw err;
+}
+
+async function publishReplyOnceRethrowMissingSigner(
+  params: PublishReplyOnceParams,
+): Promise<void> {
+  try {
+    await publishReplyOnce(params);
+  } catch (err) {
+    rethrowMissingSignerAsFatal(err);
+  }
 }
 
 /**
@@ -310,9 +323,10 @@ export async function handleCommodusCommand(ctx: CommandContext) {
         buildOutcomeReply(
           { kind: "failure", reason: sellEnforcement.reason },
           voiceCtx,
-          sellEnforcement.reason === "oversize"
-            ? { maxTradeUsdc: policyCtx.policy.maxTradeUsdc }
-            : undefined,
+          outcomeExtrasIfOversize(
+            sellEnforcement.reason,
+            policyCtx.policy.maxTradeUsdc,
+          ),
         ),
       );
       return { status: "failed" as const, reason: sellEnforcement.reason };
@@ -482,9 +496,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       buildOutcomeReply(
         { kind: "failure", reason: enforcement.reason },
         voiceCtx,
-        enforcement.reason === "oversize"
-          ? { maxTradeUsdc: policyCtx.policy.maxTradeUsdc }
-          : undefined,
+        outcomeExtrasIfOversize(enforcement.reason, policyCtx.policy.maxTradeUsdc),
       ),
     );
     return { status: "failed" as const, reason: enforcement.reason };
@@ -601,16 +613,12 @@ async function executeStatusBranch(ctx: CommandContext): Promise<void> {
     const view = await loadStatusViewContext(ctx.authorFid);
 
     if (!view) {
-      try {
-        await publishReplyOnce({
-          castHash: ctx.castHash,
-          kind: "outcome",
-          text: REJECTION_REPLIES.no_arena_wallet,
-          embeds: [{ url: onboardingSnapUrlForFid(ctx.authorFid) }],
-        });
-      } catch (err) {
-        rethrowMissingSignerAsFatal(err);
-      }
+      await publishReplyOnceRethrowMissingSigner({
+        castHash: ctx.castHash,
+        kind: "outcome",
+        text: REJECTION_REPLIES.no_arena_wallet,
+        embeds: [{ url: onboardingSnapUrlForFid(ctx.authorFid) }],
+      });
     } else {
       const text = buildStatusReplyText({
         displayHandle: view.displayHandle,
@@ -619,16 +627,12 @@ async function executeStatusBranch(ctx: CommandContext): Promise<void> {
         portfolioUsdc: view.portfolioUsdc,
         dailySlotsRemaining: view.dailySlotsRemaining,
       });
-      try {
-        await publishReplyOnce({
-          castHash: ctx.castHash,
-          kind: "outcome",
-          text,
-          embeds: [{ url: statusSnapUrlForFid(ctx.authorFid) }],
-        });
-      } catch (err) {
-        rethrowMissingSignerAsFatal(err);
-      }
+      await publishReplyOnceRethrowMissingSigner({
+        castHash: ctx.castHash,
+        kind: "outcome",
+        text,
+        embeds: [{ url: statusSnapUrlForFid(ctx.authorFid) }],
+      });
     }
 
     await supabaseAdmin
@@ -650,6 +654,17 @@ type WalletLookup = {
   privyWalletId: string;
   playerLabel: string;
 };
+
+function arenaPlayerLabel(account: {
+  username: string | null | undefined;
+  display_name: string | null | undefined;
+}): string {
+  const username = typeof account.username === "string" ? account.username.trim() : "";
+  if (username) return `@${username}`;
+  const display =
+    typeof account.display_name === "string" ? account.display_name.trim() : "";
+  return display;
+}
 
 async function resolveArenaWallet(
   castHash: string,
@@ -681,12 +696,7 @@ async function resolveArenaWallet(
       walletId: wallet.id,
       walletAddress: wallet.wallet_address,
       privyWalletId: wallet.privy_wallet_id,
-      playerLabel:
-        typeof account.username === "string" && account.username.trim()
-          ? `@${account.username.trim()}`
-          : typeof account.display_name === "string"
-            ? account.display_name.trim()
-            : "",
+      playerLabel: arenaPlayerLabel(account),
     };
   });
 }
@@ -879,11 +889,7 @@ async function publishIntentReply(castHash: string, text: string): Promise<void>
   "use step";
 
   return logStep(castHash, "publish_intent_reply", async () => {
-    try {
-      await publishReplyOnce({ castHash, kind: "intent", text });
-    } catch (err) {
-      rethrowMissingSignerAsFatal(err);
-    }
+    await publishReplyOnceRethrowMissingSigner({ castHash, kind: "intent", text });
   });
 }
 
@@ -1481,11 +1487,7 @@ async function publishOutcomeReply(
   "use step";
 
   return logStep(castHash, "publish_outcome_reply", async () => {
-    try {
-      await publishReplyOnce({ castHash, kind: "outcome", text, embeds });
-    } catch (err) {
-      rethrowMissingSignerAsFatal(err);
-    }
+    await publishReplyOnceRethrowMissingSigner({ castHash, kind: "outcome", text, embeds });
   });
 }
 
@@ -1524,6 +1526,14 @@ async function markRejected(
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+function outcomeExtrasIfOversize(
+  reason: string,
+  maxTradeUsdc: number,
+): { maxTradeUsdc: number } | undefined {
+  if (reason === "oversize") return { maxTradeUsdc };
+  return undefined;
+}
 
 /**
  * Maps a parser rejection reason onto the templated Commodus reply +

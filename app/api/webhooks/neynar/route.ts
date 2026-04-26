@@ -93,12 +93,6 @@ export async function POST(request: Request) {
     parentHash: parent_hash ?? null,
   };
 
-  // Route to exactly one workflow. Trade-shaped casts (canonical regex
-  // or any trade-intent verb) go to the trade pipeline; everything else
-  // is treated as conversation and handed to the social agent. This
-  // prevents the trade workflow from spending an LLM call on casts like
-  // "why you like virtual?" and from racing the social workflow on the
-  // same cast hash.
   const route = routeCast(text);
   if (route === "trade") {
     await start(handleCommodusCommand, [ctx]);
