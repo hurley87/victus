@@ -64,6 +64,7 @@ Current migrations:
 | `20260424160000` | `add_funding_wallet_to_arena_wallets` | Add `funding_wallet` column to `arena_wallets`                                          |
 | `20260424190000` | `add_commodus_lore_posts`             | Deterministic Season 1 scheduled lore casts (`commodus_lore_posts`)                     |
 | `20260424201225` | `create_commodus_storage_bucket`      | Public `commodus` storage bucket + read-only `commodus_public_read` policy on `objects` |
+| `20260426030000` | `add_commodus_social_agent`           | Commodus social agent: casts ledger, `commodus_social_runs`, thread/user/long-term memory, blocklist ([issue #35](https://github.com/hurley87/victus/issues/35)) |
 
 
 ### Applying migrations
@@ -130,6 +131,21 @@ The pipeline relies on database-level uniqueness for idempotency. Do not add cod
 
 
 When inserting from workflow steps, use `.insert(...).select()` + handle `23505` (unique violation) as "already processed, load existing row and continue."
+
+## Commodus social agent
+
+Six tables for the Neynar-driven social agent ([issue #35](https://github.com/hurley87/victus/issues/35)). All use **RLS enabled with no policies** (same MVP posture as game tables): only `supabaseAdmin` reads or writes. There is **no `pgvector` extension** and no embedding columns on these tables.
+
+| Table | Role |
+| ----- | ---- |
+| `commodus_casts` | Inbound and self-post casts: `hash` UNIQUE, `thread_hash`, `parent_hash`, `parent_author_fid`, `author_fid`, `text`, `source` ∈ `webhook` / `manual` / `self`, `raw_json`, `first_seen_at`, `created_at`. Indexes: `thread_hash`; `(author_fid, first_seen_at desc)`; `(created_at desc)`. |
+| `commodus_social_runs` | One decision per row: `run_type`, `trigger_cast_hash`, `selected_cast_hash`, `action` ∈ `reply` / `ignore` / `save_only` / `error`, `score`, `reason`, `risk_flags` (jsonb), `prompt_snapshot`, `model_output`, `posted_cast_hash`, **`idem_key` UNIQUE**. Indexes: `(created_at desc)`; `(action, created_at desc)`; `selected_cast_hash`. |
+| `commodus_thread_memory` | PK `thread_hash`, `summary`, `last_cast_hash`, `participants` (jsonb). |
+| `commodus_user_memory` | PK `fid`, `summary`, `relationship` ∈ `ally` / `rival` / `unknown` / `muted`, `last_interaction_at`. |
+| `commodus_long_term_memory` | `memory_type` ∈ `lore` / `bit` / `rivalry` / `rule` / `event`, `title`, `body`, `importance` (integer). |
+| `commodus_social_blocklist` | PK `fid`, `reason` — FIDs the agent must not engage. |
+
+Idempotency for runs: insert by `idem_key` and treat unique violations like other pipeline keys (see above).
 
 ## Environment variables
 

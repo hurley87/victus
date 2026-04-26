@@ -234,6 +234,72 @@ export type Database = {
           },
         ]
       }
+      commodus_casts: {
+        Row: {
+          author_fid: number
+          created_at: string
+          first_seen_at: string
+          hash: string
+          id: string
+          parent_author_fid: number | null
+          parent_hash: string | null
+          raw_json: Json
+          source: string
+          text: string
+          thread_hash: string | null
+        }
+        Insert: {
+          author_fid: number
+          created_at?: string
+          first_seen_at?: string
+          hash: string
+          id?: string
+          parent_author_fid?: number | null
+          parent_hash?: string | null
+          raw_json?: Json
+          source: string
+          text: string
+          thread_hash?: string | null
+        }
+        Update: {
+          author_fid?: number
+          created_at?: string
+          first_seen_at?: string
+          hash?: string
+          id?: string
+          parent_author_fid?: number | null
+          parent_hash?: string | null
+          raw_json?: Json
+          source?: string
+          text?: string
+          thread_hash?: string | null
+        }
+        Relationships: []
+      }
+      commodus_long_term_memory: {
+        Row: {
+          body: string
+          id: string
+          importance: number
+          memory_type: string
+          title: string
+        }
+        Insert: {
+          body: string
+          id?: string
+          importance?: number
+          memory_type: string
+          title: string
+        }
+        Update: {
+          body?: string
+          id?: string
+          importance?: number
+          memory_type?: string
+          title?: string
+        }
+        Relationships: []
+      }
       commodus_lore_posts: {
         Row: {
           cast_hash: string | null
@@ -279,6 +345,111 @@ export type Database = {
           status?: string
           text?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      commodus_social_blocklist: {
+        Row: {
+          fid: number
+          reason: string
+        }
+        Insert: {
+          fid: number
+          reason: string
+        }
+        Update: {
+          fid?: number
+          reason?: string
+        }
+        Relationships: []
+      }
+      commodus_social_runs: {
+        Row: {
+          action: string
+          created_at: string
+          id: string
+          idem_key: string
+          model_output: Json
+          posted_cast_hash: string | null
+          prompt_snapshot: Json
+          reason: string | null
+          risk_flags: Json
+          run_type: string
+          score: number | null
+          selected_cast_hash: string | null
+          trigger_cast_hash: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          id?: string
+          idem_key: string
+          model_output?: Json
+          posted_cast_hash?: string | null
+          prompt_snapshot?: Json
+          reason?: string | null
+          risk_flags?: Json
+          run_type: string
+          score?: number | null
+          selected_cast_hash?: string | null
+          trigger_cast_hash?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          id?: string
+          idem_key?: string
+          model_output?: Json
+          posted_cast_hash?: string | null
+          prompt_snapshot?: Json
+          reason?: string | null
+          risk_flags?: Json
+          run_type?: string
+          score?: number | null
+          selected_cast_hash?: string | null
+          trigger_cast_hash?: string | null
+        }
+        Relationships: []
+      }
+      commodus_thread_memory: {
+        Row: {
+          last_cast_hash: string | null
+          participants: Json
+          summary: string
+          thread_hash: string
+        }
+        Insert: {
+          last_cast_hash?: string | null
+          participants?: Json
+          summary?: string
+          thread_hash: string
+        }
+        Update: {
+          last_cast_hash?: string | null
+          participants?: Json
+          summary?: string
+          thread_hash?: string
+        }
+        Relationships: []
+      }
+      commodus_user_memory: {
+        Row: {
+          fid: number
+          last_interaction_at: string | null
+          relationship: string
+          summary: string
+        }
+        Insert: {
+          fid: number
+          last_interaction_at?: string | null
+          relationship?: string
+          summary?: string
+        }
+        Update: {
+          fid?: number
+          last_interaction_at?: string | null
+          relationship?: string
+          summary?: string
         }
         Relationships: []
       }
