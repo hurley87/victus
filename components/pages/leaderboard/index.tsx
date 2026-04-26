@@ -5,24 +5,13 @@ import { useFarcaster } from "@/contexts/farcaster-context";
 import { useUser } from "@/contexts/user-context";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useShareCast, type ShareController } from "@/hooks/use-share-cast";
-import type { CurrentLeaderboardResult } from "@/lib/leaderboard/service";
 import type { ReferralSummary } from "@/lib/referrals/types";
+import type { SeasonLeaderboardResult } from "@/lib/seasons/leaderboard";
 import { cn, formatUsd } from "@/lib/utils";
 import Link from "next/link";
 import { Website } from "../website";
 import { Button } from "@/components/shared/ui/button";
 import { ShareComposeGlyph } from "@/components/shared/ui/share-compose-glyph";
-
-function formatLastTrade(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function leaderboardPlayerLabel(
   isCommodus: boolean,
@@ -75,9 +64,9 @@ export default function LeaderboardPage() {
 
 function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
   const sharing = useShareCast();
-  const { data, isLoading, error, refetch } = useApiQuery<CurrentLeaderboardResult>({
-    queryKey: ["leaderboard-current"],
-    url: "/api/leaderboard/current",
+  const { data, isLoading, error, refetch } = useApiQuery<SeasonLeaderboardResult>({
+    queryKey: ["leaderboard-season"],
+    url: "/api/leaderboard/season",
     isProtected: true,
     retry: false,
   });
@@ -114,7 +103,7 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
           <div>
             <h1 className="text-2xl font-semibold">Leaderboard</h1>
             <p className="text-sm text-muted-foreground">
-              {data.month} · points, then realized PnL, then earliest score time
+              {data.season?.name ?? "No active season"} · Arena Balance, not Wallet Balance
             </p>
           </div>
           <Link
@@ -137,10 +126,10 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
               <tr className="bg-black/[0.03] text-left text-[11px] uppercase tracking-wide text-black/60">
                 <th className="px-2 py-2 w-10">#</th>
                 <th className="px-2 py-2">Player</th>
-                <th className="px-2 py-2 text-right">Pts</th>
-                <th className="px-2 py-2 text-right">PnL</th>
+                <th className="px-2 py-2 text-right">Arena Balance</th>
+                <th className="px-2 py-2 text-right">Return</th>
                 <th className="px-2 py-2 text-right hidden sm:table-cell">
-                  Last trade
+                  Trades
                 </th>
               </tr>
             </thead>
@@ -148,7 +137,7 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
               {data.entries.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-3 py-6 text-center text-black/60">
-                    No scores yet this month.
+                    No qualified season entries yet.
                   </td>
                 </tr>
               ) : (
@@ -171,7 +160,7 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
                       )}
                     >
                       <td className="px-2 py-2 font-mono text-black/70">
-                        {row.rank}
+                        {row.rank ?? "—"}
                       </td>
                       <td className="px-2 py-2">
                         <div className="flex flex-col gap-0.5">
@@ -194,13 +183,13 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
                         </div>
                       </td>
                       <td className="px-2 py-2 text-right font-mono">
-                        {row.points}
+                        {formatUsd(row.portfolio_value_usdc)}
                       </td>
                       <td className="px-2 py-2 text-right font-mono">
-                        {formatUsd(row.realized_pnl_usdc)}
+                        {formatPercent(row.performance_return)}
                       </td>
                       <td className="px-2 py-2 text-right text-[11px] text-black/70 hidden sm:table-cell">
-                        {formatLastTrade(row.last_trade_at)}
+                        {row.trades_used}/{data.season?.max_trades ?? "—"}
                       </td>
                     </tr>
                   );
@@ -209,6 +198,39 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
             </tbody>
           </table>
         </div>
+
+        {data.ineligible.length > 0 && (
+          <section className="rounded-xl border border-black/10 overflow-hidden">
+            <div className="bg-black/[0.03] px-3 py-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-black/60">
+                Not qualified
+              </h2>
+              <p className="text-xs text-black/50">
+                Needs a qualifying season trade and eligible status.
+              </p>
+            </div>
+            {data.ineligible.map((row) => (
+              <div
+                key={row.user_id}
+                className={cn(
+                  "grid grid-cols-[1fr_6rem_5rem] gap-2 border-t border-black/10 px-3 py-2 text-sm",
+                  row.fid === viewerFid && "bg-purple-50",
+                  row.is_commodus && "bg-amber-50/90",
+                )}
+              >
+                <span className="truncate">
+                  {leaderboardPlayerLabel(row.is_commodus, row.username, row.fid)}
+                </span>
+                <span className="text-right font-mono">
+                  {formatUsd(row.portfolio_value_usdc)}
+                </span>
+                <span className="text-right font-mono">
+                  {formatPercent(row.performance_return)}
+                </span>
+              </div>
+            ))}
+          </section>
+        )}
 
         <Link
           href="/portfolio"
@@ -219,6 +241,11 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
       </div>
     </div>
   );
+}
+
+function formatPercent(value: number): string {
+  const percentage = value * 100;
+  return `${percentage >= 0 ? "+" : ""}${percentage.toFixed(2)}%`;
 }
 
 function ReferralCard({

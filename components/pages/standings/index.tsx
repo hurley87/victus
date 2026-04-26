@@ -8,12 +8,14 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import { useShareCast, type ShareController } from "@/hooks/use-share-cast";
 import { miniAppTabDeepLink } from "@/lib/commodus/deep-links";
 import type {
-  CurrentLeaderboardResult,
-  LeaderboardEntry,
   RecentActivityEntry,
   RecentActivityResult,
 } from "@/lib/leaderboard/service";
 import type { ReferralSummary } from "@/lib/referrals/types";
+import type {
+  SeasonLeaderboardEntry,
+  SeasonLeaderboardResult,
+} from "@/lib/seasons/leaderboard";
 import { cn, formatUsd } from "@/lib/utils";
 import { Crown, Swords, Users } from "lucide-react";
 
@@ -36,9 +38,9 @@ export default function StandingsPage() {
   const sharing = useShareCast();
 
   const { data, isLoading, error, refetch } =
-    useApiQuery<CurrentLeaderboardResult>({
-      queryKey: ["leaderboard-current"],
-      url: "/api/leaderboard/current",
+    useApiQuery<SeasonLeaderboardResult>({
+      queryKey: ["leaderboard-season"],
+      url: "/api/leaderboard/season",
       isProtected: true,
       retry: false,
     });
@@ -92,11 +94,11 @@ export default function StandingsPage() {
           Standings
         </h1>
         <p className="text-xs text-zinc-400">
-          Rankings are based on monthly scoring. The table resets each calendar
-          month in UTC.
+          Rankings use the weekly season ledger. Wallet balance is never used
+          for leaderboard math.
         </p>
         <p className="text-xs text-zinc-300">
-          Pass the emperor, then climb the player board.
+          Arena Balance is fixed season cash plus marked positions.
         </p>
       </header>
 
@@ -129,16 +131,16 @@ export default function StandingsPage() {
             User
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-wider text-gold-muted text-right">
-            Score
+            Arena
           </span>
           <span className="text-[10px] font-semibold uppercase tracking-wider text-gold-muted text-right">
-            Monthly PnL
+            Return
           </span>
         </div>
 
         {playerEntries.length === 0 ? (
           <div className="px-3 py-8 text-center text-sm text-zinc-500">
-            No player scores yet this month.
+            No qualified season entries yet.
           </div>
         ) : (
           playerEntries.map((row) => (
@@ -150,6 +152,10 @@ export default function StandingsPage() {
           ))
         )}
       </div>
+
+      {data.ineligible.length > 0 && (
+        <NotQualifiedSection rows={data.ineligible} viewerFid={viewerFid} />
+      )}
 
       {referrals && <ReferralCard referrals={referrals} sharing={sharing} />}
 
@@ -225,28 +231,6 @@ function ReferralStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function SignedUsdPnl({
-  amount,
-  className,
-}: {
-  amount: number;
-  className?: string;
-}) {
-  const isNonNegative = amount >= 0;
-  return (
-    <span
-      className={cn(
-        "font-mono text-sm",
-        isNonNegative ? "text-pnl-positive" : "text-pnl-negative",
-        className,
-      )}
-    >
-      {isNonNegative ? "+" : ""}
-      {formatUsd(amount)}
-    </span>
-  );
-}
-
 function RankCell({ rank }: { rank: number }) {
   const medal = RANK_MEDALS[rank];
   if (medal) {
@@ -260,27 +244,29 @@ function CommodusBossCard({
   viewer,
   sharing,
 }: {
-  commodus: LeaderboardEntry;
-  viewer: LeaderboardEntry | undefined;
+  commodus: SeasonLeaderboardEntry;
+  viewer: SeasonLeaderboardEntry | undefined;
   sharing: ShareController;
 }) {
-  const pnl = commodus.realized_pnl_usdc;
-  const viewerAhead = viewer != null && viewer.points > commodus.points;
+  const viewerAhead =
+    viewer != null &&
+    viewer.portfolio_value_usdc > commodus.portfolio_value_usdc;
   let statusText: string;
   if (viewer == null) {
     statusText = "Score your first trade to start chasing him";
   } else if (viewerAhead) {
     statusText = "You are ahead of Commodus";
   } else {
-    statusText = `You need ${commodus.points - viewer.points + 1} more pts to pass him`;
+    const gap = commodus.portfolio_value_usdc - viewer.portfolio_value_usdc;
+    statusText = `${formatUsd(gap + 0.01)} more arena value to pass him`;
   }
   const challengeLink = miniAppTabDeepLink("trade", { mode: "buy", amount: 5 });
   const showShare = sharing.canCompose && viewer != null;
   const shareKey = viewerAhead ? "commodus-defeated" : "commodus-boss";
   const shareText =
     viewerAhead && viewer
-      ? `I have beaten Commodus in the Victus arena (${viewer.points} vs ${commodus.points} pts).\n\n${miniAppTabDeepLink("standings")}`
-      : `Commodus sits at ${commodus.points} pts (#${commodus.rank}) in the arena. Think you can pass him?\n\n${challengeLink}`;
+      ? `I have beaten Commodus in the Victus arena (${formatUsd(viewer.portfolio_value_usdc)} vs ${formatUsd(commodus.portfolio_value_usdc)}).\n\n${miniAppTabDeepLink("standings")}`
+      : `Commodus sits at ${formatUsd(commodus.portfolio_value_usdc)} (#${commodus.rank}) in the arena. Think you can pass him?\n\n${challengeLink}`;
   const shareLabel = viewerAhead ? "Share the kill" : "Challenge a friend";
 
   return (
@@ -308,11 +294,11 @@ function CommodusBossCard({
         </div>
 
         <div className="shrink-0 text-right">
-          <div className="font-mono text-3xl font-semibold leading-none text-gold">
-            {commodus.points}
+        <div className="font-mono text-3xl font-semibold leading-none text-gold">
+            {formatUsd(commodus.portfolio_value_usdc)}
           </div>
           <div className="text-[10px] uppercase tracking-wider text-zinc-500">
-            pts
+            Arena Balance
           </div>
         </div>
       </div>
@@ -328,9 +314,9 @@ function CommodusBossCard({
           </div>
           <div className="text-right">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              Monthly PnL
+              Return
             </p>
-            <SignedUsdPnl amount={pnl} />
+            <SignedPercent value={commodus.performance_return} />
           </div>
         </div>
       </div>
@@ -356,16 +342,18 @@ function ViewerShareCard({
   nextPlayer,
   sharing,
 }: {
-  viewer: LeaderboardEntry;
-  nextPlayer: LeaderboardEntry | undefined;
+  viewer: SeasonLeaderboardEntry;
+  nextPlayer: SeasonLeaderboardEntry | undefined;
   sharing: ShareController;
 }) {
   const shareKey = `viewer-${viewer.user_id}`;
-  const shareText = `I'm #${viewer.rank} in the Victus arena with ${viewer.points} pts.\n\n${miniAppTabDeepLink("standings")}`;
+  const shareText = `I'm #${viewer.rank} in the Victus arena with ${formatUsd(viewer.portfolio_value_usdc)}.\n\n${miniAppTabDeepLink("standings")}`;
   const nextLabel = nextPlayer
     ? farcasterUserLabel(nextPlayer.username, nextPlayer.fid)
     : null;
-  const gapToNext = nextPlayer ? nextPlayer.points - viewer.points + 1 : 0;
+  const gapToNext = nextPlayer
+    ? nextPlayer.portfolio_value_usdc - viewer.portfolio_value_usdc + 0.01
+    : 0;
 
   return (
     <section className="rounded-xl border border-imperial-border bg-imperial-surface p-3">
@@ -375,11 +363,11 @@ function ViewerShareCard({
             Your standing
           </p>
           <p className="truncate text-sm text-zinc-200">
-            #{viewer.rank} · {viewer.points} pts
+            #{viewer.rank} · {formatUsd(viewer.portfolio_value_usdc)} Arena Balance
           </p>
           {nextPlayer && (
             <p className="truncate text-xs text-zinc-400">
-              {gapToNext} pts to pass {nextLabel}
+              {formatUsd(gapToNext)} to pass {nextLabel}
             </p>
           )}
         </div>
@@ -404,11 +392,10 @@ function StandingsRow({
   row,
   isViewer,
 }: {
-  row: LeaderboardEntry;
+  row: SeasonLeaderboardEntry;
   isViewer: boolean;
 }) {
   const playerLabel = farcasterUserLabel(row.username, row.fid);
-  const pnl = row.realized_pnl_usdc;
 
   return (
     <div
@@ -418,7 +405,11 @@ function StandingsRow({
       )}
     >
       <div className="flex items-center">
-        <RankCell rank={row.rank} />
+        {row.rank == null ? (
+          <span className="font-mono text-sm text-zinc-500">—</span>
+        ) : (
+          <RankCell rank={row.rank} />
+        )}
       </div>
 
       <div className="min-w-0">
@@ -428,14 +419,79 @@ function StandingsRow({
       </div>
 
       <div className="text-right">
-        <span className="font-mono text-sm text-white">{row.points}</span>
-        <span className="text-[10px] text-zinc-500 ml-0.5">pts</span>
+        <span className="font-mono text-sm text-white">
+          {formatUsd(row.portfolio_value_usdc)}
+        </span>
       </div>
 
       <div className="text-right">
-        <SignedUsdPnl amount={pnl} />
+        <SignedPercent value={row.performance_return} />
       </div>
     </div>
+  );
+}
+
+function NotQualifiedSection({
+  rows,
+  viewerFid,
+}: {
+  rows: SeasonLeaderboardEntry[];
+  viewerFid: number;
+}) {
+  return (
+    <section className="rounded-xl border border-imperial-border bg-imperial-surface overflow-hidden">
+      <div className="border-b border-imperial-border px-3 py-2">
+        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-gold-muted">
+          Not qualified
+        </h2>
+        <p className="text-xs text-zinc-500">
+          Players need one qualifying season trade and must stay eligible.
+        </p>
+      </div>
+      {rows.map((row) => (
+        <div
+          key={row.user_id}
+          className={cn(
+            "grid grid-cols-[1fr_5rem_6rem] items-center border-b border-imperial-border px-3 py-3 last:border-b-0",
+            row.fid === viewerFid && "bg-gold/10",
+            row.is_commodus && "bg-gold/5",
+          )}
+        >
+          <div className="min-w-0">
+            <span className="block truncate text-sm font-medium text-zinc-200">
+              {farcasterUserLabel(row.username, row.fid)}
+            </span>
+            <span className="text-[11px] text-zinc-500">
+              {row.status === "disqualified"
+                ? "Disqualified"
+                : "Needs a qualifying trade"}
+            </span>
+          </div>
+          <div className="text-right font-mono text-sm text-zinc-300">
+            {formatUsd(row.portfolio_value_usdc)}
+          </div>
+          <div className="text-right">
+            <SignedPercent value={row.performance_return} />
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function SignedPercent({ value }: { value: number }) {
+  const percentage = value * 100;
+  const isNonNegative = percentage >= 0;
+  return (
+    <span
+      className={cn(
+        "font-mono text-sm",
+        isNonNegative ? "text-pnl-positive" : "text-pnl-negative",
+      )}
+    >
+      {isNonNegative ? "+" : ""}
+      {percentage.toFixed(2)}%
+    </span>
   );
 }
 
