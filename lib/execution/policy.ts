@@ -6,7 +6,7 @@ import { readErc20Balance, readUsdcBalance } from "@/lib/chain/erc20";
 import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import {
   getActiveSeason,
-  getSeasonEntry,
+  getOrCreateSeasonEntry,
   type Season,
   type SeasonEntry,
 } from "@/lib/seasons/service";
@@ -213,21 +213,7 @@ async function validateSeasonBuy(args: {
 
   return {
     ok: true,
-    context: {
-      walletId: params.walletId,
-      walletAddress: getAddress(params.walletAddress),
-      privyWalletId: params.privyWalletId,
-      assetAddress: getAddress(token.token_address),
-      assetDecimals: token.decimals,
-      season: {
-        seasonId: season.id,
-        seasonEntryId: entry.id,
-        tokenSymbol: token.token_symbol,
-        tokenAddress: getAddress(token.token_address),
-        tokenDecimals: token.decimals,
-      },
-      policy,
-    },
+    context: buildSeasonPolicyContext(params, policy, season, entry, token),
   };
 }
 
@@ -254,8 +240,8 @@ async function validateSeasonSell(args: {
   const tokenAmount =
     (positionAmount * params.intent.amount_value) / 100;
   if (
-    !(positionAmount > 0) ||
-    !(tokenAmount > 0) ||
+    positionAmount <= 0 ||
+    tokenAmount <= 0 ||
     tokenAmount > positionAmount + 1e-12
   ) {
     return { ok: false, reason: "season_insufficient_position", policy };
@@ -268,22 +254,14 @@ async function validateSeasonSell(args: {
 
   return {
     ok: true,
-    context: {
-      walletId: params.walletId,
-      walletAddress: getAddress(params.walletAddress),
-      privyWalletId: params.privyWalletId,
-      assetAddress: getAddress(token.token_address),
-      assetDecimals: token.decimals,
-      sellAssetBaseUnits,
-      season: {
-        seasonId: season.id,
-        seasonEntryId: entry.id,
-        tokenSymbol: token.token_symbol,
-        tokenAddress: getAddress(token.token_address),
-        tokenDecimals: token.decimals,
-      },
+    context: buildSeasonPolicyContext(
+      params,
       policy,
-    },
+      season,
+      entry,
+      token,
+      sellAssetBaseUnits,
+    ),
   };
 }
 
@@ -296,11 +274,11 @@ async function loadSeasonTradeGate(args: {
   | Extract<PolicyResult, { ok: false }>
 > {
   const { params, season, policy } = args;
-  const entry = await getSeasonEntry({
-    seasonId: season.id,
+  const { entry } = await getOrCreateSeasonEntry({
+    season,
     userId: params.userId,
+    walletId: params.walletId,
   });
-  if (!entry) return { ok: false, reason: "no_season_entry", policy };
   if (entry.status !== "active") {
     return { ok: false, reason: "season_entry_inactive", policy };
   }
@@ -372,6 +350,32 @@ type SeasonTokenRow = {
 type SeasonPositionRow = {
   token_amount: number;
 };
+
+function buildSeasonPolicyContext(
+  params: PolicyValidateParams,
+  policy: PolicyContext["policy"],
+  season: Season,
+  entry: SeasonEntry,
+  token: SeasonTokenRow,
+  sellAssetBaseUnits?: string,
+): PolicyContext {
+  return {
+    walletId: params.walletId,
+    walletAddress: getAddress(params.walletAddress),
+    privyWalletId: params.privyWalletId,
+    assetAddress: getAddress(token.token_address),
+    assetDecimals: token.decimals,
+    sellAssetBaseUnits,
+    season: {
+      seasonId: season.id,
+      seasonEntryId: entry.id,
+      tokenSymbol: token.token_symbol,
+      tokenAddress: getAddress(token.token_address),
+      tokenDecimals: token.decimals,
+    },
+    policy,
+  };
+}
 
 async function loadSeasonToken(params: {
   seasonId: string;

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { getActiveSeason, getSeasonEntry } from "@/lib/seasons/service";
+import { getActiveSeason, getOrCreateSeasonEntry } from "@/lib/seasons/service";
 import { readErc20Balance } from "@/lib/chain/erc20";
 
 import { validatePolicy } from "./policy";
@@ -19,7 +19,7 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/seasons/service", () => ({
   getActiveSeason: vi.fn(),
-  getSeasonEntry: vi.fn(),
+  getOrCreateSeasonEntry: vi.fn(),
 }));
 
 vi.mock("@/lib/zerox/quote", () => ({
@@ -103,10 +103,6 @@ function mockSeasonTables(options: {
   });
 }
 
-function mockSeasonBuyTables(tokenResult: unknown = { data: seasonToken, error: null }) {
-  mockSeasonTables({ tokenResult });
-}
-
 function buyIntent(amountValue: number, symbol = "AERO") {
   return {
     userId: "user-1",
@@ -141,7 +137,10 @@ describe("validatePolicy", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (getActiveSeason as unknown as Mock).mockResolvedValue(null);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue(null);
+    (getOrCreateSeasonEntry as unknown as Mock).mockResolvedValue({
+      entry: activeEntry,
+      created: false,
+    });
   });
 
   it("rejects trades until the arena wallet is funded", async () => {
@@ -171,7 +170,7 @@ describe("validatePolicy", () => {
   });
 
   it("rejects season buys when no active season exists", async () => {
-    mockSeasonBuyTables();
+    mockSeasonTables();
     (getActiveSeason as unknown as Mock).mockResolvedValue(null);
 
     const result = await validatePolicy(buyIntent(5));
@@ -179,22 +178,41 @@ describe("validatePolicy", () => {
     expect(result).toMatchObject({ ok: false, reason: "no_active_season" });
   });
 
-  it("rejects season buys when the user has not entered", async () => {
-    mockSeasonBuyTables();
+  it("auto-enters funded users before validating season buys", async () => {
+    mockSeasonTables();
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue(null);
+    (getOrCreateSeasonEntry as unknown as Mock).mockResolvedValue({
+      entry: activeEntry,
+      created: true,
+    });
 
     const result = await validatePolicy(buyIntent(5));
 
-    expect(result).toMatchObject({ ok: false, reason: "no_season_entry" });
+    expect(result).toMatchObject({
+      ok: true,
+      context: {
+        season: {
+          seasonId: "season-1",
+          seasonEntryId: "entry-1",
+        },
+      },
+    });
+    expect(getOrCreateSeasonEntry).toHaveBeenCalledWith({
+      season: activeSeason,
+      userId: "user-1",
+      walletId: "wallet-1",
+    });
   });
 
   it("rejects inactive season entries", async () => {
-    mockSeasonBuyTables();
+    mockSeasonTables();
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue({
-      ...activeEntry,
-      status: "settled",
+    (getOrCreateSeasonEntry as unknown as Mock).mockResolvedValue({
+      entry: {
+        ...activeEntry,
+        status: "settled",
+      },
+      created: false,
     });
 
     const result = await validatePolicy(buyIntent(5));
@@ -203,12 +221,15 @@ describe("validatePolicy", () => {
   });
 
   it("rejects the sixth season buy", async () => {
-    mockSeasonBuyTables();
+    mockSeasonTables();
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue({
-      ...activeEntry,
-      trades_used: 5,
-      max_trades: 5,
+    (getOrCreateSeasonEntry as unknown as Mock).mockResolvedValue({
+      entry: {
+        ...activeEntry,
+        trades_used: 5,
+        max_trades: 5,
+      },
+      created: false,
     });
 
     const result = await validatePolicy(buyIntent(5));
@@ -217,9 +238,8 @@ describe("validatePolicy", () => {
   });
 
   it("rejects tokens outside the season token list", async () => {
-    mockSeasonBuyTables({ data: null, error: null });
+    mockSeasonTables({ tokenResult: { data: null, error: null } });
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue(activeEntry);
 
     const result = await validatePolicy(buyIntent(5, "DEGEN"));
 
@@ -227,9 +247,8 @@ describe("validatePolicy", () => {
   });
 
   it("rejects season buys below the minimum trade size", async () => {
-    mockSeasonBuyTables();
+    mockSeasonTables();
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue(activeEntry);
 
     const result = await validatePolicy(buyIntent(1.99));
 
@@ -237,11 +256,14 @@ describe("validatePolicy", () => {
   });
 
   it("rejects season buys above virtual cash even when wallet policy allows it", async () => {
-    mockSeasonBuyTables();
+    mockSeasonTables();
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue({
-      ...activeEntry,
-      cash_remaining_usdc: 6,
+    (getOrCreateSeasonEntry as unknown as Mock).mockResolvedValue({
+      entry: {
+        ...activeEntry,
+        cash_remaining_usdc: 6,
+      },
+      created: false,
     });
 
     const result = await validatePolicy(buyIntent(7));
@@ -253,9 +275,8 @@ describe("validatePolicy", () => {
   });
 
   it("accepts valid season buys with season context", async () => {
-    mockSeasonBuyTables();
+    mockSeasonTables();
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue(activeEntry);
 
     const result = await validatePolicy(buyIntent(5));
 
@@ -281,7 +302,6 @@ describe("validatePolicy", () => {
       },
     });
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue(activeEntry);
     (readErc20Balance as unknown as Mock).mockResolvedValue(BigInt(1_000) * BigInt(10) ** BigInt(18));
 
     const result = await validatePolicy(sellIntent(100));
@@ -302,7 +322,6 @@ describe("validatePolicy", () => {
   it("rejects active-season sells when no Victus position exists", async () => {
     mockSeasonTables();
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue(activeEntry);
 
     const result = await validatePolicy(sellIntent(100));
 
@@ -320,10 +339,13 @@ describe("validatePolicy", () => {
       },
     });
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
-    (getSeasonEntry as unknown as Mock).mockResolvedValue({
-      ...activeEntry,
-      trades_used: 5,
-      max_trades: 5,
+    (getOrCreateSeasonEntry as unknown as Mock).mockResolvedValue({
+      entry: {
+        ...activeEntry,
+        trades_used: 5,
+        max_trades: 5,
+      },
+      created: false,
     });
 
     const result = await validatePolicy(sellIntent(50));
