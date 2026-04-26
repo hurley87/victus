@@ -113,10 +113,6 @@ export default function StandingsPage() {
         <p className="text-xs text-pnl-negative">{sharing.error}</p>
       )}
 
-      {activity && activity.recent.length > 0 && (
-        <RecentActivityCard activity={activity} />
-      )}
-
       <div className="rounded-xl border border-imperial-border overflow-hidden bg-imperial-surface">
         <div className="grid grid-cols-[2.5rem_1fr_5rem_6rem] border-b border-imperial-border px-3 py-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-gold-muted">
@@ -147,6 +143,10 @@ export default function StandingsPage() {
           ))
         )}
       </div>
+
+      {activity && activity.recent.length > 0 && (
+        <RecentActivityCard activity={activity} />
+      )}
 
       <ScoringTable />
     </div>
