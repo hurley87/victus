@@ -1,18 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const from = vi.hoisted(() => vi.fn());
-const redis = vi.hoisted(() => ({
-  set: vi.fn().mockResolvedValue("OK"),
-  get: vi.fn(),
-}));
 const start = vi.hoisted(() => vi.fn().mockResolvedValue({ runId: "memory-run-1" }));
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseAdmin: { from },
-}));
-
-vi.mock("@/lib/redis", () => ({
-  redis,
 }));
 
 vi.mock("workflow/api", () => ({
@@ -26,6 +18,7 @@ vi.mock("workflow", () => ({
 import {
   refreshThreadMemory,
   refreshUserMemory,
+  runCommodusSocialMemoryRefresh,
   scheduleCommodusSocialMemoryRefresh,
 } from "./memory";
 
@@ -63,6 +56,7 @@ function installSupabaseMock() {
     const query = {
       filters: [] as Array<{ column: string; value: unknown }>,
       orFilter: "",
+      limitCount: undefined as number | undefined,
       select() {
         return this;
       },
@@ -77,10 +71,15 @@ function installSupabaseMock() {
       order() {
         return this;
       },
-      limit() {
-        return Promise.resolve({ data: rowsFor(table, this), error: null });
+      limit(count: number) {
+        this.limitCount = count;
+        return this;
       },
       maybeSingle() {
+        if (table === "commodus_casts") {
+          const row = rowsFor(table, this)[0] ?? null;
+          return Promise.resolve({ data: row, error: null });
+        }
         if (table === "commodus_user_memory" && existingRelationship) {
           return Promise.resolve({
             data: { relationship: existingRelationship },
@@ -88,6 +87,12 @@ function installSupabaseMock() {
           });
         }
         return Promise.resolve({ data: null, error: null });
+      },
+      then(resolve: (value: { data: CastRow[]; error: null }) => void) {
+        return Promise.resolve({
+          data: rowsFor(table, this),
+          error: null,
+        }).then(resolve);
       },
       upsert(row: Record<string, unknown>, options?: unknown) {
         upserts.push({ table, row, options });
@@ -98,26 +103,28 @@ function installSupabaseMock() {
   });
 }
 
-function rowsFor(table: string, query: { filters: Array<{ column: string; value: unknown }>; orFilter: string }) {
+type QueryState = {
+  filters: Array<{ column: string; value: unknown }>;
+  orFilter: string;
+  limitCount?: number;
+};
+
+function rowsFor(table: string, query: QueryState): CastRow[] {
   if (table !== "commodus_casts") return [];
 
-  const sourceFilter = query.filters.find((filter) => filter.column === "source");
-  if (sourceFilter) {
-    return casts.filter((row) => row.source === sourceFilter.value);
-  }
-
-  const threadFilter = query.filters.find((filter) => filter.column === "thread_hash");
-  if (threadFilter) {
-    return casts.filter((row) => row.thread_hash === threadFilter.value);
-  }
+  let rows = casts.filter((row) =>
+    query.filters.every((filter) => row[filter.column as keyof CastRow] === filter.value),
+  );
 
   const fidMatch = query.orFilter.match(/author_fid\.eq\.(\d+),parent_author_fid\.eq\.(\d+)/);
   if (fidMatch) {
     const fid = Number(fidMatch[1]);
-    return casts.filter((row) => row.author_fid === fid || row.parent_author_fid === fid);
+    rows = rows.filter((row) => row.author_fid === fid || row.parent_author_fid === fid);
   }
 
-  return casts;
+  rows.sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
+  if (query.limitCount === 1) rows.reverse();
+  return typeof query.limitCount === "number" ? rows.slice(0, query.limitCount) : rows;
 }
 
 describe("commodus social memory", () => {
@@ -126,8 +133,6 @@ describe("commodus social memory", () => {
     existingRelationship = null;
     upserts.length = 0;
     from.mockReset();
-    redis.set.mockClear();
-    redis.get.mockReset();
     start.mockClear().mockResolvedValue({ runId: "memory-run-1" });
     installSupabaseMock();
   });
@@ -215,7 +220,7 @@ describe("commodus social memory", () => {
     expect(String(upserts[0].row.summary)).toContain("received 2 Commodus replies");
   });
 
-  it("stores debounce tokens and starts a background memory workflow", async () => {
+  it("starts a background memory workflow with a debounce delay", async () => {
     const result = await scheduleCommodusSocialMemoryRefresh({
       threadHash: "0xthread",
       fid: 42,
@@ -223,14 +228,6 @@ describe("commodus social memory", () => {
     });
 
     expect(result).toEqual({ runId: "memory-run-1" });
-    expect(redis.set).toHaveBeenCalledWith(
-      "commodus:memory:thread:0xthread",
-      "0xself-2",
-      { ex: 600 },
-    );
-    expect(redis.set).toHaveBeenCalledWith("commodus:memory:user:42", "0xself-2", {
-      ex: 600,
-    });
     expect(start).toHaveBeenCalledWith(expect.any(Function), [
       {
         threadHash: "0xthread",
@@ -239,5 +236,48 @@ describe("commodus social memory", () => {
         delayMs: 60000,
       },
     ]);
+  });
+
+  it("skips stale scheduled refreshes when a newer self-cast exists", async () => {
+    casts.push(
+      cast({ hash: "0xinbound-1", author_fid: 42 }),
+      cast({
+        hash: "0xself-1",
+        author_fid: 999,
+        parent_author_fid: 42,
+        source: "self",
+        text: "first reply",
+        created_at: "2026-04-26T00:01:00.000Z",
+      }),
+      cast({
+        hash: "0xself-2",
+        author_fid: 999,
+        parent_author_fid: 42,
+        source: "self",
+        text: "newer reply",
+        created_at: "2026-04-26T00:02:00.000Z",
+      }),
+    );
+
+    await expect(
+      runCommodusSocialMemoryRefresh({
+        threadHash: "0xthread",
+        fid: 42,
+        lastCastHash: "0xself-1",
+        delayMs: 1,
+      }),
+    ).resolves.toEqual({
+      thread: {
+        status: "skipped",
+        key: "0xthread",
+        reason: "debounced_by_newer_cast",
+      },
+      user: {
+        status: "skipped",
+        key: "42",
+        reason: "debounced_by_newer_cast",
+      },
+    });
+    expect(upserts).toEqual([]);
   });
 });
