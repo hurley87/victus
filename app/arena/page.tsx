@@ -1,5 +1,3 @@
-import { redirect } from "next/navigation";
+import ArenaPage from "@/components/pages/arena";
 
-export default function ArenaRedirect() {
-  redirect("/?tab=wallet");
-}
+export default ArenaPage;
