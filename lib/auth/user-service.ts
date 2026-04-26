@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase/server";
 import type { NeynarUser } from "@/lib/neynar";
+import { recordReferralSignup } from "@/lib/referrals/service";
 
 /**
  * Idempotently resolve the Supabase `user_id` for a Farcaster account.
@@ -21,6 +22,7 @@ import type { NeynarUser } from "@/lib/neynar";
 export async function resolveOrCreateFarcasterUser(
   fid: number,
   profile: NeynarUser,
+  referrerFid?: number | null,
 ): Promise<string> {
   const profileUpdate = {
     username: profile.username ?? null,
@@ -77,6 +79,15 @@ export async function resolveOrCreateFarcasterUser(
     });
 
   if (!insertErr) {
+    try {
+      await recordReferralSignup({
+        referrerFid,
+        referredFid: fid,
+        referredUserId: newUser.id,
+      });
+    } catch (err) {
+      console.error("Failed to record referral signup", err);
+    }
     return newUser.id;
   }
 

@@ -143,10 +143,12 @@ async function fetchMe(): Promise<FetchMeResult> {
 async function performSignIn(
   context: MiniAppContext,
 ): Promise<AuthenticatedUser> {
-  const referrerFid =
+  const referrerFidFromUrl = parseReferrerFidFromUrl();
+  const referrerFidFromCast =
     context.location?.type === "cast_embed"
       ? context.location.cast.author.fid
       : undefined;
+  const referrerFid = referrerFidFromUrl ?? referrerFidFromCast;
 
   const token = await sdk.quickAuth.getToken();
   if (!token) {
@@ -173,4 +175,19 @@ async function performSignIn(
     throw new Error("Sign-in response missing user");
   }
   return body.user;
+}
+
+function parseReferrerFidFromUrl(): number | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  const raw = new URLSearchParams(window.location.search).get("ref");
+  if (!raw) {
+    return undefined;
+  }
+  const fid = Number(raw);
+  if (!Number.isFinite(fid) || !Number.isInteger(fid) || fid <= 0) {
+    return undefined;
+  }
+  return fid;
 }

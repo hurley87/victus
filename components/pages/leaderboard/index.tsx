@@ -4,11 +4,14 @@ import { useEnvironment } from "@/contexts/environment-context";
 import { useFarcaster } from "@/contexts/farcaster-context";
 import { useUser } from "@/contexts/user-context";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { useShareCast, type ShareController } from "@/hooks/use-share-cast";
 import type { CurrentLeaderboardResult } from "@/lib/leaderboard/service";
+import type { ReferralSummary } from "@/lib/referrals/types";
 import { cn, formatUsd } from "@/lib/utils";
 import Link from "next/link";
 import { Website } from "../website";
 import { Button } from "@/components/shared/ui/button";
+import { ShareComposeGlyph } from "@/components/shared/ui/share-compose-glyph";
 
 function formatLastTrade(iso: string | null): string {
   if (!iso) return "—";
@@ -19,6 +22,20 @@ function formatLastTrade(iso: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function leaderboardPlayerLabel(
+  isCommodus: boolean,
+  username: string | null,
+  fid: number,
+): string {
+  if (isCommodus) {
+    return "Commodus (Emperor)";
+  }
+  if (username) {
+    return `@${username}`;
+  }
+  return `fid ${fid}`;
 }
 
 export default function LeaderboardPage() {
@@ -57,9 +74,16 @@ export default function LeaderboardPage() {
 }
 
 function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
+  const sharing = useShareCast();
   const { data, isLoading, error, refetch } = useApiQuery<CurrentLeaderboardResult>({
     queryKey: ["leaderboard-current"],
     url: "/api/leaderboard/current",
+    isProtected: true,
+    retry: false,
+  });
+  const { data: referrals } = useApiQuery<ReferralSummary>({
+    queryKey: ["referrals-me"],
+    url: "/api/referrals/me",
     isProtected: true,
     retry: false,
   });
@@ -101,6 +125,12 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
           </Link>
         </header>
 
+        {referrals && <ReferralCard referrals={referrals} sharing={sharing} />}
+
+        {sharing.error && (
+          <p className="text-xs text-red-600">{sharing.error}</p>
+        )}
+
         <div className="rounded-xl border border-black/10 overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -125,11 +155,11 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
                 data.entries.map((row) => {
                   const isViewer = row.fid === viewerFid;
                   const isCommodus = row.is_commodus;
-                  const label = isCommodus
-                    ? "Commodus (Emperor)"
-                    : row.username
-                      ? `@${row.username}`
-                      : `fid ${row.fid}`;
+                  const label = leaderboardPlayerLabel(
+                    isCommodus,
+                    row.username,
+                    row.fid,
+                  );
                   return (
                     <tr
                       key={row.user_id}
@@ -187,6 +217,59 @@ function LeaderboardContent({ viewerFid }: { viewerFid: number }) {
           View your portfolio →
         </Link>
       </div>
+    </div>
+  );
+}
+
+function ReferralCard({
+  referrals,
+  sharing,
+}: {
+  referrals: ReferralSummary;
+  sharing: ShareController;
+}) {
+  const shareKey = "leaderboard-referrals";
+  const shareText = `Join Victus. Fund your arena wallet and climb the standings.\n\n${referrals.referralUrl}`;
+
+  return (
+    <section className="rounded-xl border border-black/10 bg-black/[0.03] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold">Invite players</h2>
+          <p className="text-xs text-black/60">
+            Earn {referrals.awardPoints} pts when a referral funds.
+          </p>
+          <p className="mt-1 truncate font-mono text-[11px] text-black/50">
+            {referrals.referralUrl}
+          </p>
+        </div>
+        {sharing.canCompose && (
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-10 shrink-0 gap-2"
+            disabled={sharing.pending !== null}
+            onClick={() => void sharing.share(shareKey, shareText)}
+          >
+            <ShareComposeGlyph isPending={sharing.pending === shareKey} />
+            Share
+          </Button>
+        )}
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <ReferralStat label="Signups" value={referrals.signups} />
+        <ReferralStat label="Funded" value={referrals.funded} />
+        <ReferralStat label="Points" value={referrals.monthlyPoints} />
+      </div>
+    </section>
+  );
+}
+
+function ReferralStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-black/10 bg-white px-2 py-2">
+      <p className="text-[10px] uppercase tracking-wide text-black/50">{label}</p>
+      <p className="font-mono text-lg font-semibold">{value}</p>
     </div>
   );
 }

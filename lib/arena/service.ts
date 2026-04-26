@@ -2,6 +2,7 @@ import "server-only";
 
 import type { TradableAsset } from "@/lib/chain/balances";
 import { readArenaBalance } from "@/lib/chain/balances";
+import { awardReferralForFirstFunding } from "@/lib/referrals/service";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
 import { DEFAULT_POLICY } from "./policy";
@@ -230,6 +231,19 @@ async function maybeMarkFunded(params: {
     deposit_usdc: balanceUsdc,
     time_to_fund_seconds: timeToFundSeconds,
   });
+
+  try {
+    await awardReferralForFirstFunding({
+      referredUserId: userId,
+      fundedAt: now,
+    });
+  } catch (err) {
+    console.error("arena.profile.referral_award_failed", {
+      user_id: userId,
+      wallet_id: walletId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   return { fundedAt: now };
 }

@@ -521,6 +521,60 @@ export type Database = {
           },
         ]
       }
+      referrals: {
+        Row: {
+          award_month: string | null
+          award_points: number
+          awarded_at: string | null
+          first_funded_at: string | null
+          id: string
+          referred_at: string
+          referred_fid: number
+          referred_user_id: string
+          referrer_fid: number
+          referrer_user_id: string
+        }
+        Insert: {
+          award_month?: string | null
+          award_points?: number
+          awarded_at?: string | null
+          first_funded_at?: string | null
+          id?: string
+          referred_at?: string
+          referred_fid: number
+          referred_user_id: string
+          referrer_fid: number
+          referrer_user_id: string
+        }
+        Update: {
+          award_month?: string | null
+          award_points?: number
+          awarded_at?: string | null
+          first_funded_at?: string | null
+          id?: string
+          referred_at?: string
+          referred_fid?: number
+          referred_user_id?: string
+          referrer_fid?: number
+          referrer_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referrals_referred_user_id_fkey"
+            columns: ["referred_user_id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referrals_referrer_user_id_fkey"
+            columns: ["referrer_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reward_epochs: {
         Row: {
           airdrop_tx_hashes: Json

@@ -5,6 +5,7 @@ import { getAddress, isHash, type Address, type Hex } from "viem";
 import { basePublicClient } from "@/lib/chain/client";
 import { readUsdcBalance } from "@/lib/chain/erc20";
 import { DEFAULT_POLICY } from "@/lib/arena/policy";
+import { awardReferralForFirstFunding } from "@/lib/referrals/service";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import {
   FundingSourceValidationError,
@@ -120,6 +121,21 @@ export async function verifyAndSaveFundingSource(params: {
     throw new FundingSourceUnavailableError(
       `Failed to save funding wallet: ${updateErr.message}`,
     );
+  }
+
+  if (shouldMarkFunded) {
+    try {
+      await awardReferralForFirstFunding({
+        referredUserId: params.userId,
+        fundedAt: verifiedAt,
+      });
+    } catch (err) {
+      console.error("arena.referral_award_failed", {
+        user_id: params.userId,
+        tx_hash: params.txHash,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   console.info("arena.funding_source_verified", {

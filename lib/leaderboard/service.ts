@@ -26,12 +26,21 @@ export async function getCurrentMonthLeaderboard(): Promise<CurrentLeaderboardRe
   const month = utcCurrentMonthString();
   const { startIso, endIso } = utcMonthBounds(month);
 
-  const [{ data: scoringRows, error: scoringErr }, { data: execRows, error: execErr }] =
+  const [
+    { data: scoringRows, error: scoringErr },
+    { data: referralRows, error: referralErr },
+    { data: execRows, error: execErr },
+  ] =
     await Promise.all([
       supabaseAdmin
         .from("scoring_events")
         .select("user_id, points, created_at")
         .eq("month", month),
+      supabaseAdmin
+        .from("referrals")
+        .select("referrer_user_id, award_points, awarded_at")
+        .eq("award_month", month)
+        .not("awarded_at", "is", null),
       supabaseAdmin
         .from("trade_executions")
         .select("id, realized_pnl_usdc, confirmed_at, trade_intent_id")
@@ -42,6 +51,9 @@ export async function getCurrentMonthLeaderboard(): Promise<CurrentLeaderboardRe
 
   if (scoringErr) {
     throw new Error(`leaderboard: scoring_events ${scoringErr.message}`);
+  }
+  if (referralErr) {
+    throw new Error(`leaderboard: referrals ${referralErr.message}`);
   }
   if (execErr) {
     throw new Error(`leaderboard: trade_executions ${execErr.message}`);
@@ -57,6 +69,18 @@ export async function getCurrentMonthLeaderboard(): Promise<CurrentLeaderboardRe
     const prev = earliestTsByUser.get(uid);
     if (prev === undefined || ts < prev) {
       earliestTsByUser.set(uid, ts);
+    }
+  }
+
+  for (const row of referralRows ?? []) {
+    const uid = row.referrer_user_id;
+    pointsByUser.set(uid, (pointsByUser.get(uid) ?? 0) + Number(row.award_points ?? 0));
+    if (row.awarded_at) {
+      const ts = new Date(row.awarded_at).getTime();
+      const prev = earliestTsByUser.get(uid);
+      if (prev === undefined || ts < prev) {
+        earliestTsByUser.set(uid, ts);
+      }
     }
   }
 

@@ -14,9 +14,11 @@ const quickAuthClient = createClient();
 const DEFAULT_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export const POST = async (req: NextRequest) => {
-  const { token: farcasterToken } = (await req.json()) as {
+  const body = (await req.json()) as {
     token?: string;
+    referrerFid?: number;
   };
+  const farcasterToken = body.token;
 
   if (!farcasterToken) {
     return NextResponse.json(
@@ -57,7 +59,7 @@ export const POST = async (req: NextRequest) => {
 
   let userId: string;
   try {
-    userId = await resolveOrCreateFarcasterUser(fid, profile);
+    userId = await resolveOrCreateFarcasterUser(fid, profile, body.referrerFid);
   } catch (err) {
     console.error("Failed to persist Farcaster user", err);
     return NextResponse.json(

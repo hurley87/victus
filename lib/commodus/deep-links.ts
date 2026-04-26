@@ -26,6 +26,7 @@ export type MiniAppTabParams = {
   token?: string;
   amount?: number;
   mode?: "buy" | "sell";
+  referrerFid?: number;
 };
 
 /**
@@ -48,7 +49,20 @@ export function miniAppTabDeepLink(
   if (params?.mode) {
     search.set("mode", params.mode);
   }
+  if (
+    params?.referrerFid != null &&
+    Number.isFinite(params.referrerFid) &&
+    Number.isInteger(params.referrerFid) &&
+    params.referrerFid > 0
+  ) {
+    search.set("ref", String(params.referrerFid));
+  }
   return `${appBaseUrl()}/?${search.toString()}`;
+}
+
+export function referralDeepLink(fid: number): string {
+  assertValidFid(fid, "referralDeepLink");
+  return miniAppTabDeepLink("standings", { referrerFid: fid });
 }
 
 /**

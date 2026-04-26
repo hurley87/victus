@@ -13,8 +13,9 @@ import type {
   RecentActivityEntry,
   RecentActivityResult,
 } from "@/lib/leaderboard/service";
+import type { ReferralSummary } from "@/lib/referrals/types";
 import { cn, formatUsd } from "@/lib/utils";
-import { Crown, Swords } from "lucide-react";
+import { Crown, Swords, Users } from "lucide-react";
 
 const RANK_MEDALS: Record<number, string> = {
   1: "🏆",
@@ -44,6 +45,12 @@ export default function StandingsPage() {
   const { data: activity } = useApiQuery<RecentActivityResult>({
     queryKey: ["leaderboard-recent-activity"],
     url: "/api/leaderboard/recent-activity",
+    isProtected: true,
+    retry: false,
+  });
+  const { data: referrals } = useApiQuery<ReferralSummary>({
+    queryKey: ["referrals-me"],
+    url: "/api/referrals/me",
     isProtected: true,
     retry: false,
   });
@@ -113,6 +120,8 @@ export default function StandingsPage() {
         <p className="text-xs text-pnl-negative">{sharing.error}</p>
       )}
 
+      {referrals && <ReferralCard referrals={referrals} sharing={sharing} />}
+
       <div className="rounded-xl border border-imperial-border overflow-hidden bg-imperial-surface">
         <div className="grid grid-cols-[2.5rem_1fr_5rem_6rem] border-b border-imperial-border px-3 py-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-gold-muted">
@@ -149,6 +158,69 @@ export default function StandingsPage() {
       )}
 
       <ScoringTable />
+    </div>
+  );
+}
+
+function ReferralCard({
+  referrals,
+  sharing,
+}: {
+  referrals: ReferralSummary;
+  sharing: ShareController;
+}) {
+  const shareKey = "referrals";
+  const shareText = `Join Victus. Fund your arena wallet and climb the standings.\n\n${referrals.referralUrl}`;
+
+  return (
+    <section className="rounded-xl border border-imperial-border bg-imperial-surface p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex size-8 items-center justify-center rounded-lg border border-gold/30 bg-gold/10 text-gold">
+              <Users className="size-4" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Invite players</h2>
+              <p className="text-xs text-zinc-400">
+                Earn {referrals.awardPoints} pts when a referral funds.
+              </p>
+            </div>
+          </div>
+          <p className="truncate font-mono text-[11px] text-zinc-500">
+            {referrals.referralUrl}
+          </p>
+        </div>
+        {sharing.canCompose && (
+          <Button
+            type="button"
+            variant="imperial-outline"
+            className="min-h-11 shrink-0 gap-2 rounded-lg border-gold/40 text-sm text-gold hover:bg-gold/10"
+            disabled={sharing.pending !== null}
+            onClick={() => void sharing.share(shareKey, shareText)}
+          >
+            <ShareComposeGlyph isPending={sharing.pending === shareKey} />
+            Share
+          </Button>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <ReferralStat label="Signups" value={referrals.signups} />
+        <ReferralStat label="Funded" value={referrals.funded} />
+        <ReferralStat label="Points earned" value={referrals.monthlyPoints} />
+      </div>
+    </section>
+  );
+}
+
+function ReferralStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-imperial-border bg-black/20 px-2 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        {label}
+      </p>
+      <p className="font-mono text-lg font-semibold text-white">{value}</p>
     </div>
   );
 }
