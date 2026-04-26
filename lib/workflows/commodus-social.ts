@@ -1,9 +1,13 @@
+import { FatalError } from "workflow";
+
 import { env } from "@/lib/env";
 import { buildCommodusSocialContext } from "@/lib/commodus/social/context";
 import { generateCommodusSocialReply } from "@/lib/commodus/social/generate";
 import { evaluateSocialLimits, loadAuthorRelationship, loadSocialLimitState } from "@/lib/commodus/social/limits";
+import { publishCommodusSocialReplyOnce } from "@/lib/commodus/social/post";
 import { rankSocialCast, type SocialRankDecision } from "@/lib/commodus/social/rank";
 import { log } from "@/lib/logger";
+import { MissingSignerError } from "@/lib/neynar";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/types";
 
@@ -62,16 +66,19 @@ export async function handleSocialEngagement(ctx: SocialEngagementContext) {
   const { runId, runType, triggerHash, cast } = ctx;
   const decision = classifySocialCast(cast, env.COMMODUS_FID ?? null);
   const runBase = { runId, runType, triggerHash };
+  const filterReason = `filter:${decision.reason}`;
 
-  let reason: string;
-  let logEvent: "social_filter_skip" | "social_filter_match";
   let selectedHash: string | undefined;
   let rank: SocialRankDecision = {
     action: "ignore",
     score: 0,
-    reason: `filter:${decision.reason}`,
+    reason: filterReason,
     riskFlags: [],
   };
+  let reason = filterReason;
+  let logEvent: "social_filter_skip" | "social_filter_match" = "social_filter_skip";
+  let promptSnapshot: Json | undefined;
+  let modelOutput: Json | undefined;
 
   if (decision.match) {
     await persistInboundCast(cast, runId);
@@ -95,9 +102,6 @@ export async function handleSocialEngagement(ctx: SocialEngagementContext) {
     }
     reason = rank.reason;
     logEvent = "social_filter_match";
-  } else {
-    reason = `filter:${decision.reason}`;
-    logEvent = "social_filter_skip";
   }
 
   if (decision.match && rank.action === "reply") {
@@ -109,18 +113,22 @@ export async function handleSocialEngagement(ctx: SocialEngagementContext) {
       riskFlags: generation.riskFlags,
     };
     reason = generation.reason;
-    await landRun({
-      ...runBase,
-      selectedHash,
-      rank,
-      reason,
-      logEvent,
-      promptSnapshot: generation.promptSnapshot,
-      modelOutput: generation.modelOutput,
-    });
-  } else {
-    await landRun({ ...runBase, selectedHash, rank, reason, logEvent });
+    promptSnapshot = generation.promptSnapshot;
+    modelOutput = generation.modelOutput;
+    if (!env.COMMODUS_SOCIAL_DRY_RUN && generation.action === "reply" && generation.reply) {
+      await publishGeneratedReply(runId, cast, generation.reply);
+    }
   }
+
+  await landRun({
+    ...runBase,
+    selectedHash,
+    rank,
+    reason,
+    logEvent,
+    promptSnapshot,
+    modelOutput,
+  });
 
   return { status: "ranked" as const, action: rank.action, reason };
 }
@@ -163,18 +171,26 @@ async function generateSocialDraft(cast: SocialCastEvent) {
   "use step";
 
   const context = await buildCommodusSocialContext(cast);
-  const generation = await generateCommodusSocialReply(context);
+  return await generateCommodusSocialReply(context);
+}
 
-  if (!env.COMMODUS_SOCIAL_DRY_RUN && generation.action === "reply") {
-    return {
-      ...generation,
-      action: "ignore" as const,
-      reason: "dry_run_required",
-      riskFlags: ["dry_run_required"],
-    };
+async function publishGeneratedReply(
+  runId: string,
+  cast: SocialCastEvent,
+  replyText: string,
+) {
+  "use step";
+
+  try {
+    await publishCommodusSocialReplyOnce({
+      runId,
+      triggerCast: cast,
+      replyText,
+    });
+  } catch (err) {
+    if (err instanceof MissingSignerError) throw new FatalError(err.message);
+    throw err;
   }
-
-  return generation;
 }
 
 async function landRun(params: {

@@ -213,7 +213,7 @@ The new `handleSocialEngagement` workflow:
 
 **Phase 3 — Workflow dry run.** Implement `rank.ts` (heuristics), `context.ts`, `generate.ts`. Wire `handleSocialEngagement` into the existing webhook with `COMMODUS_SOCIAL_DRY_RUN=true`. Save events, decisions, and generated drafts. **No posting.** Add the local admin replay route; use Supabase directly for list/inspection until a full admin view is justified.
 
-**Phase 4 — Live posting.** Flip dry-run off with strict per-author / per-thread caps. Watch for 48h before widening.
+**Phase 4 — Live posting.** Flip `COMMODUS_SOCIAL_DRY_RUN=false` only after operator go-live, with strict per-author / per-thread caps. Keep a 48-hour watch with no cap or filter widening. Review checklist: [post-launch-review.md](./post-launch-review.md).
 
 **Phase 5 — Memory summarization.** Debounced thread/user summarization writing plain-text summaries.
 

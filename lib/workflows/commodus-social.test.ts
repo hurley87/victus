@@ -41,13 +41,23 @@ const socialGenerate = vi.hoisted(() => ({
     modelOutput: { selected: { shouldReply: true, reply: "I heard the arena cough." } },
   }),
 }));
+const socialPost = vi.hoisted(() => ({
+  publishCommodusSocialReplyOnce: vi.fn().mockResolvedValue({
+    postedCastHash: "0xreply",
+    published: true,
+  }),
+}));
+const envMock = vi.hoisted(() => ({
+  COMMODUS_FID: 999,
+  COMMODUS_SOCIAL_DRY_RUN: true,
+}));
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseAdmin: { from },
 }));
 
 vi.mock("@/lib/env", () => ({
-  env: { COMMODUS_FID: 999, COMMODUS_SOCIAL_DRY_RUN: true } as Record<string, unknown>,
+  env: envMock as Record<string, unknown>,
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -62,6 +72,7 @@ vi.mock("@/lib/logger", () => ({
 vi.mock("@/lib/commodus/social/limits", () => socialLimits);
 vi.mock("@/lib/commodus/social/context", () => socialContext);
 vi.mock("@/lib/commodus/social/generate", () => socialGenerate);
+vi.mock("@/lib/commodus/social/post", () => socialPost);
 
 import { deriveIdemKey } from "./commodus-social-idem";
 import {
@@ -105,6 +116,36 @@ function buildCast(overrides: Partial<SocialCastEvent> = {}): SocialCastEvent {
     embeds: [],
     ...overrides,
   };
+}
+
+function resetSocialWorkflowMocks() {
+  envMock.COMMODUS_SOCIAL_DRY_RUN = true;
+  upsert.mockClear().mockResolvedValue({ error: null });
+  from.mockClear().mockReturnValue({ upsert });
+  socialLimits.evaluateSocialLimits.mockReturnValue({ allowed: true });
+  socialLimits.loadAuthorRelationship.mockResolvedValue({
+    relationship: "unknown",
+    lastInteractionAt: null,
+  });
+  socialLimits.loadSocialLimitState.mockResolvedValue({
+    blocklisted: false,
+    threadMuted: false,
+    threadReplyCount: 0,
+    authorReplyCount24h: 0,
+  });
+  socialContext.buildCommodusSocialContext.mockClear();
+  socialGenerate.generateCommodusSocialReply.mockClear().mockResolvedValue({
+    action: "reply",
+    reason: "generated_reply",
+    reply: "I heard the arena cough.",
+    riskFlags: [],
+    promptSnapshot: { system: "voice+safety", prompt: "context" },
+    modelOutput: { selected: { shouldReply: true, reply: "I heard the arena cough." } },
+  });
+  socialPost.publishCommodusSocialReplyOnce.mockClear().mockResolvedValue({
+    postedCastHash: "0xreply",
+    published: true,
+  });
 }
 
 describe("classifySocialCast", () => {
@@ -172,28 +213,7 @@ describe("deriveIdemKey", () => {
 
 describe("handleSocialEngagement", () => {
   beforeEach(() => {
-    upsert.mockClear().mockResolvedValue({ error: null });
-    from.mockClear().mockReturnValue({ upsert });
-    socialLimits.evaluateSocialLimits.mockReturnValue({ allowed: true });
-    socialLimits.loadAuthorRelationship.mockResolvedValue({
-      relationship: "unknown",
-      lastInteractionAt: null,
-    });
-    socialLimits.loadSocialLimitState.mockResolvedValue({
-      blocklisted: false,
-      threadMuted: false,
-      threadReplyCount: 0,
-      authorReplyCount24h: 0,
-    });
-    socialContext.buildCommodusSocialContext.mockClear();
-    socialGenerate.generateCommodusSocialReply.mockClear().mockResolvedValue({
-      action: "reply",
-      reason: "generated_reply",
-      reply: "I heard the arena cough.",
-      riskFlags: [],
-      promptSnapshot: { system: "voice+safety", prompt: "context" },
-      modelOutput: { selected: { shouldReply: true, reply: "I heard the arena cough." } },
-    });
+    resetSocialWorkflowMocks();
   });
 
   it("persists cast and lands a ranked run for a reply to Commodus", async () => {
@@ -227,6 +247,25 @@ describe("handleSocialEngagement", () => {
     });
     expect(socialContext.buildCommodusSocialContext).toHaveBeenCalledWith(cast);
     expect(socialGenerate.generateCommodusSocialReply).toHaveBeenCalled();
+    expect(socialPost.publishCommodusSocialReplyOnce).not.toHaveBeenCalled();
+  });
+
+  it("publishes generated replies when dry run is disabled", async () => {
+    envMock.COMMODUS_SOCIAL_DRY_RUN = false;
+    const cast = buildCast();
+
+    const result = await handleSocialEngagement(buildSocialCtx(cast));
+
+    expect(result).toEqual({
+      status: "ranked",
+      action: "reply",
+      reason: "generated_reply",
+    });
+    expect(socialPost.publishCommodusSocialReplyOnce).toHaveBeenCalledWith({
+      runId: deriveIdemKey(cast.hash, "webhook"),
+      triggerCast: cast,
+      replyText: "I heard the arena cough.",
+    });
   });
 
   it("stores LLM vetoes as ignore rows with populated prompt and model output", async () => {
