@@ -1,7 +1,7 @@
 # PRD: Commodus as a Farcaster Social Agent (Reply-Only)
 
-> Target file in repo: `docs/commodus-social-agent.md`
-> Companion docs: `docs/commodus-voice.md`, `docs/commodus-lore.md`, `docs/commodus-safety-rules.md`, `docs/commodus-memory.md`
+> Target file in repo: `docs/commodus-agent/prd.md`
+> Companion docs: `docs/commodus-agent/voice.md`, `docs/commodus-agent/lore.md`, `docs/commodus-agent/safety-rules.md`, `docs/commodus-agent/memory.md`
 
 ## Context
 
@@ -132,7 +132,7 @@ Principle: **raw casts never get rewritten or merged**. Memory tables are derive
 3. **Persist** — upsert into `commodus_casts` with `source='webhook'` (idempotent on `hash`).
 4. **Rank (heuristics-only)** — `rank.ts` returns `{ action, score, reason }`. **No LLM call here.** Inputs: per-author + per-thread caps, blocklist, length/low-context filters (e.g., a bare emoji), keyword-based tragedy/harassment skip list, author-memory relationship (`muted`/`rival`/`ally`/`unknown`), recency of prior Commodus reply.
 5. **Limit gate** — `limits.ts`: ≤3 Commodus reply casts per thread (excluding the originating cast); ≤2 replies per author per rolling 24h, **no reset on user reply-back**; blocklist + thread-mute check.
-6. **Context** — `context.ts` assembles: triggering cast + last 5–10 thread messages, author memory summary (if any), thread memory summary (if any), static lore packet read from `docs/commodus-lore.md`, last ~10 Commodus social posts (anti-repetition; social-only, see Trade-path isolation), and the voice-guide markdown injected as a system prompt.
+6. **Context** — `context.ts` assembles: triggering cast + last 5–10 thread messages, author memory summary (if any), thread memory summary (if any), static lore packet read from `docs/commodus-agent/lore.md`, last ~10 Commodus social posts (anti-repetition; social-only, see Trade-path isolation), and the voice-guide markdown injected as a system prompt.
 7. **Generate (only LLM call in the pipeline)** — produce 3 drafts and self-judge, returning:
    ```json
    { "shouldReply": true, "reason": "...", "reply": "...", "tone": "theatrical", "riskFlags": [] }
@@ -150,9 +150,9 @@ Every step writes to `commodus_social_runs`. Ignores are first-class records.
 The social agent reads voice + safety rules **directly from markdown** at runtime. `lib/commodus/lore/persona.ts` (used by the autotrader) is intentionally untouched — see Trade-path isolation. The duplication is known debt and out of scope here.
 
 System prompt is assembled from:
-- `docs/commodus-voice.md` (canonical voice for the social agent)
-- A short distilled lore packet read from `docs/commodus-lore.md`
-- `docs/commodus-safety-rules.md` (hard rules)
+- `docs/commodus-agent/voice.md` (canonical voice for the social agent)
+- A short distilled lore packet read from `docs/commodus-agent/lore.md`
+- `docs/commodus-agent/safety-rules.md` (hard rules)
 
 User prompt includes:
 - Triggering cast text + author handle + relationship label
@@ -163,7 +163,7 @@ User prompt includes:
 
 **No vectorization at MVP.** Memory tables hold plain-text summaries keyed by `thread_hash` / `fid`. Lore is loaded as static markdown. Vector search is deferred to a later phase.
 
-## Voice (summary; full version goes in `docs/commodus-voice.md`)
+## Voice (summary; full version goes in `docs/commodus-agent/voice.md`)
 
 Commodus is: arrogant, theatrical, Roman, competitive, funny, self-aware, obsessed with the arena.
 Commodus is **not**: a helpful assistant, generic crypto influencer, engagement farmer, mean without wit, sexually explicit, threatening, racist/sexist/etc., a doxxing or harassment bot.
@@ -206,7 +206,7 @@ The new `handleSocialEngagement` workflow:
 
 ## Build Phases
 
-**Phase 1 — Docs.** Create `docs/commodus-social-agent.md` (this PRD), `docs/commodus-voice.md`, `docs/commodus-lore.md`, `docs/commodus-safety-rules.md`, `docs/commodus-memory.md`. Voice doc is the most important. `lib/commodus/lore/persona.ts` is **not** modified.
+**Phase 1 — Docs.** Create `docs/commodus-agent/prd.md` (this PRD), `docs/commodus-agent/voice.md`, `docs/commodus-agent/lore.md`, `docs/commodus-agent/safety-rules.md`, `docs/commodus-agent/memory.md`. Voice doc is the most important. `lib/commodus/lore/persona.ts` is **not** modified.
 
 **Phase 2 — Database.** Migration adding the 5 tables + blocklist, indexes, idempotency unique constraints. **No pgvector / no embedding columns.**
 
@@ -222,14 +222,14 @@ The new `handleSocialEngagement` workflow:
 
 1. **Quote casts**: not at launch. Replies + mentions only.
 2. **Embeddings**: none at MVP. Memory is plain text. Vector search deferred until corpus justifies it.
-3. **Lore source**: `lib/commodus/lore/season-1.ts` is unchanged and continues to feed autotrader narration. The social agent reads `docs/commodus-lore.md` directly. No shared loader at MVP.
+3. **Lore source**: `lib/commodus/lore/season-1.ts` is unchanged and continues to feed autotrader narration. The social agent reads `docs/commodus-agent/lore.md` directly. No shared loader at MVP.
 4. **Async model**: Vercel Workflow (`handleSocialEngagement`), mirroring `handleCommodusCommand`. Not inline.
 5. **Phase 3 validation**: `COMMODUS_SOCIAL_DRY_RUN=true` env flag plus admin list + replay routes. No shadow channel, no manual approve-to-post route.
 
 ## Acceptance Criteria
 
 - Migration applied; all 5 tables + blocklist exist with indexes. **No pgvector**, no embedding columns.
-- `docs/commodus-voice.md` exists and is loaded into every generation prompt.
+- `docs/commodus-agent/voice.md` exists and is loaded into every generation prompt.
 - Neynar webhook captures replies and mentions of `COMMODUS_FID` (quote casts not handled), persists them, and runs them through the decision pipeline via `handleSocialEngagement`.
 - With `DRY_RUN=true`, every qualifying event produces one `commodus_social_runs` row including ignores, with `prompt_snapshot` and `model_output` populated, and no cast is posted.
 - Disabling dry-run causes Commodus to post within caps: ≤2 per author / rolling 24h (no reply-back reset), ≤3 per thread excluding originating cast; idempotency prevents duplicates on Neynar retry.
