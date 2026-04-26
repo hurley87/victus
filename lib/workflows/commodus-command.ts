@@ -199,6 +199,7 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       policyRejectionMessage(policyOutcome.reason, {
         maxTradeUsdc: policyOutcome.policy?.maxTradeUsdc,
         walletCapUsdc: policyOutcome.policy?.walletCapUsdc,
+        minTradeUsdc: policyOutcome.seasonMinTradeUsdc,
       }),
       policyEmbeds,
     );

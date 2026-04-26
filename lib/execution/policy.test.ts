@@ -42,7 +42,7 @@ const activeSeason = {
   ends_at: "2026-04-27T00:00:00Z",
   starting_balance_usdc: 10,
   max_trades: 5,
-  min_trade_size_usdc: 2,
+  min_trade_size_usdc: 0.5,
   settled_at: null,
   created_at: "2026-04-20T00:00:00Z",
 };
@@ -250,9 +250,13 @@ describe("validatePolicy", () => {
     mockSeasonTables();
     (getActiveSeason as unknown as Mock).mockResolvedValue(activeSeason);
 
-    const result = await validatePolicy(buyIntent(1.99));
+    const result = await validatePolicy(buyIntent(0.49));
 
-    expect(result).toMatchObject({ ok: false, reason: "season_min_trade_size" });
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "season_min_trade_size",
+      seasonMinTradeUsdc: 0.5,
+    });
   });
 
   it("rejects season buys above virtual cash even when wallet policy allows it", async () => {

@@ -98,6 +98,13 @@ describe("POLICY_REJECTION_COPY", () => {
     expect(text).toContain("25");
   });
 
+  it("interpolates live floor for season_min_trade_size", () => {
+    const text = policyRejectionMessage("season_min_trade_size", {
+      minTradeUsdc: 0.5,
+    });
+    expect(text).toContain("0.5");
+  });
+
   it("uses competitive onboarding copy for no-wallet users", () => {
     expect(policyRejectionMessage("needs_wallet_funding")).toBe(
       NO_WALLET_ONBOARDING_REPLY,

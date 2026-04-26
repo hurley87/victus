@@ -49,6 +49,8 @@ export type PolicyResult =
       reason: PolicyRejectionReason;
       /** Present when `loadPolicy` ran — used for Roman policy-rejection copy with live caps. */
       policy?: PolicyContext["policy"];
+      /** Set for `season_min_trade_size` so cast copy can name the live floor. */
+      seasonMinTradeUsdc?: number;
     };
 
 export type SeasonPolicyContext = {
@@ -203,7 +205,12 @@ async function validateSeasonBuy(args: {
   const notional = params.intent.amount_value;
   const minTrade = Number(season.min_trade_size_usdc);
   if (notional + 1e-9 < minTrade) {
-    return { ok: false, reason: "season_min_trade_size", policy };
+    return {
+      ok: false,
+      reason: "season_min_trade_size",
+      policy,
+      seasonMinTradeUsdc: minTrade,
+    };
   }
 
   const cashRemaining = Number(entry.cash_remaining_usdc);

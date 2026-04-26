@@ -25,7 +25,7 @@ The existing month-based scoring model is replaced by a season-scoped ledger. Ex
 - Starting virtual arena balance: 10 USDC (always exactly 10, even if wallet has more)
 - Max trades per season: 5
 - Approved tokens per season: 6
-- Minimum trade size: 2 USDC
+- Minimum trade size: 0.5 USDC (column default; seasons may override)
 - Leaderboard / reward eligibility: ≥ 1 completed qualifying trade
 - No leverage, no shorts, spot buy/sell only
 - Only Victus-executed trades count
@@ -34,7 +34,7 @@ The existing month-based scoring model is replaced by a season-scoped ledger. Ex
 
 ### Eligibility examples
 
-**Valid (eligible):** Start 10 USDC → buy 2 USDC AERO → hold 8 USDC cash → settle.
+**Valid (eligible):** Start 10 USDC → buy 0.5 USDC AERO → hold 9.5 USDC cash → settle.
 
 **Invalid (not eligible):** Start 10 USDC → make no trades → settle. Holding the original 10 USDC without trading does not qualify for rewards.
 
@@ -52,7 +52,7 @@ New tables introduced; legacy month-scoring test data can be wiped.
 | ends_at | timestamptz | |
 | starting_balance_usdc | numeric | default 10 |
 | max_trades | int | default 5 |
-| min_trade_size_usdc | numeric | default 2 |
+| min_trade_size_usdc | numeric | default 0.5 |
 | settled_at | timestamptz | nullable |
 | created_at | timestamptz | |
 
@@ -158,7 +158,7 @@ Unique on (season_entry_id, token_symbol). On-chain wallet balances are never us
 - Action is spot `buy` or `sell` only — reject leverage, shorts, unsupported actions.
 
 ### 6.2 Buys
-- Notional ≥ `min_trade_size_usdc` (2 USDC).
+- Notional ≥ `min_trade_size_usdc` (default 0.5 USDC unless the season row sets another floor).
 - Notional ≤ `cash_remaining_usdc`.
 - **Live wallet USDC balance does not increase buying power.**
 
@@ -280,7 +280,7 @@ Triggered when `now() >= season.ends_at`:
 - Arena Balance: 10 USDC (fixed)
 - Cash Remaining
 - Trades Remaining (e.g. 3 / 5)
-- Minimum Trade Size: 2 USDC
+- Minimum Trade Size: 0.5 USDC (or the season’s configured floor)
 - Approved Tokens (chip list)
 - Current Portfolio Value
 - Current Return
@@ -296,7 +296,7 @@ The wallet card shows the live wallet balance. The arena card shows fixed 10 USD
 - "Every Victus week starts with the same 10 USDC arena balance."
 - "Your wallet may hold more funds, but extra funds do not increase your arena balance."
 - "Only trades made through Victus count toward your score."
-- "You must make at least one 2 USDC trade to qualify for weekly rewards."
+- "You must make at least one trade at the weekly minimum size (default 0.5 USDC) to qualify for weekly rewards."
 - "Deposits, withdrawals, and outside transfers do not affect your arena portfolio."
 - "Trades are limited moves. You do not earn points for using more trades."
 - "Your score is based on final portfolio value."
@@ -315,7 +315,7 @@ Anything that implies:
 | 1 | User deposits extra USDC | Ignored for game state and scoring. |
 | 2 | User receives external tokens | Ignored for game positions and scoring. |
 | 3 | Buy > virtual cash | Reject: "Insufficient arena balance." |
-| 4 | Buy < min trade size | Reject: "Minimum trade size is 2 USDC." |
+| 4 | Buy < min trade size | Reject with this week’s minimum (from `seasons.min_trade_size_usdc`). |
 | 5 | Sell > Victus position | Reject: "You can only sell tokens bought through Victus this season." |
 | 6 | Enough virtual cash but insufficient live wallet funds | Execution fails with clear message. Virtual balance is not increased. |
 | 7 | Swap fails | No trade ticket consumed. No game state change. |
@@ -325,7 +325,7 @@ Anything that implies:
 
 1. Add seasons / entries / tokens / trades / positions models.
 2. Make trade validation use `season_entry` and `season_positions`.
-3. Enforce minimum 2 USDC trade requirement.
+3. Enforce per-season minimum trade size (`min_trade_size_usdc`).
 4. Add `has_qualifying_trade` for leaderboard / reward eligibility.
 5. Switch leaderboard to Victus ledger state, not wallet balances.
 6. Add UI labels for arena balance vs wallet balance.

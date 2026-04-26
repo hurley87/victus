@@ -154,6 +154,7 @@ export function buildOutcomeReply(
 export type PolicyRejectionLimits = {
   maxTradeUsdc?: number;
   walletCapUsdc?: number;
+  minTradeUsdc?: number;
 };
 
 /**
@@ -199,8 +200,17 @@ export function policyRejectionMessage(
       return "All 5 of your weekly trade tickets are spent. The arena is closed for the week.";
     case "season_token_not_approved":
       return "That symbol is not in this week's arena. Pick one from the approved list.";
-    case "season_min_trade_size":
-      return "Minimum Victus trade is 2 USDC. Size it up.";
+    case "season_min_trade_size": {
+      const min =
+        limits?.minTradeUsdc != null
+          ? limits.minTradeUsdc.toLocaleString("en-US", {
+              maximumFractionDigits: 6,
+            })
+          : null;
+      return min != null
+        ? `Minimum Victus trade is ${min} USDC this week. Size it up.`
+        : "That order is below this week’s minimum trade size. Size it up.";
+    }
     case "season_insufficient_arena_balance":
       return "Not enough arena cash. Wallet funds do not increase your 10 USDC arena balance.";
     case "season_insufficient_position":
@@ -221,7 +231,9 @@ export const POLICY_REJECTION_COPY: Record<PolicyRejectionReason, string> = {
   season_entry_inactive: policyRejectionMessage("season_entry_inactive"),
   season_max_trades_reached: policyRejectionMessage("season_max_trades_reached"),
   season_token_not_approved: policyRejectionMessage("season_token_not_approved"),
-  season_min_trade_size: policyRejectionMessage("season_min_trade_size"),
+  season_min_trade_size: policyRejectionMessage("season_min_trade_size", {
+    minTradeUsdc: 0.5,
+  }),
   season_insufficient_arena_balance: policyRejectionMessage(
     "season_insufficient_arena_balance",
   ),

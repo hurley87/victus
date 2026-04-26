@@ -10,7 +10,7 @@ create table public.seasons (
   ends_at                timestamptz not null,
   starting_balance_usdc  numeric(38, 18) not null default 10,
   max_trades             int not null default 5,
-  min_trade_size_usdc    numeric(38, 18) not null default 2,
+  min_trade_size_usdc    numeric(38, 18) not null default 0.5,
   settled_at             timestamptz,
   created_at             timestamptz not null default now()
 );
