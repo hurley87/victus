@@ -1,4 +1,6 @@
 import { env } from "@/lib/env";
+import { buildCommodusSocialContext } from "@/lib/commodus/social/context";
+import { generateCommodusSocialReply } from "@/lib/commodus/social/generate";
 import { evaluateSocialLimits, loadAuthorRelationship, loadSocialLimitState } from "@/lib/commodus/social/limits";
 import { rankSocialCast, type SocialRankDecision } from "@/lib/commodus/social/rank";
 import { log } from "@/lib/logger";
@@ -76,19 +78,21 @@ export async function handleSocialEngagement(ctx: SocialEngagementContext) {
     selectedHash = cast.hash;
     const { limitState, authorMemory } = await loadSocialGateInputs(cast);
     const limitDecision = evaluateSocialLimits(limitState);
-    rank = limitDecision.allowed
-      ? rankSocialCast({
-          cast,
-          trigger: decision.reason,
-          relationship: authorMemory.relationship,
-          lastCommodusReplyAt: authorMemory.lastInteractionAt,
-        })
-      : {
-          action: "ignore",
-          score: 0,
-          reason: limitDecision.reason,
-          riskFlags: limitDecision.riskFlags,
-        };
+    if (limitDecision.allowed) {
+      rank = rankSocialCast({
+        cast,
+        trigger: decision.reason,
+        relationship: authorMemory.relationship,
+        lastCommodusReplyAt: authorMemory.lastInteractionAt,
+      });
+    } else {
+      rank = {
+        action: "ignore",
+        score: 0,
+        reason: limitDecision.reason,
+        riskFlags: limitDecision.riskFlags,
+      };
+    }
     reason = rank.reason;
     logEvent = "social_filter_match";
   } else {
@@ -96,7 +100,27 @@ export async function handleSocialEngagement(ctx: SocialEngagementContext) {
     logEvent = "social_filter_skip";
   }
 
-  await landRun({ ...runBase, selectedHash, rank, reason, logEvent });
+  if (decision.match && rank.action === "reply") {
+    const generation = await generateSocialDraft(cast);
+    rank = {
+      ...rank,
+      action: generation.action,
+      reason: generation.reason,
+      riskFlags: generation.riskFlags,
+    };
+    reason = generation.reason;
+    await landRun({
+      ...runBase,
+      selectedHash,
+      rank,
+      reason,
+      logEvent,
+      promptSnapshot: generation.promptSnapshot,
+      modelOutput: generation.modelOutput,
+    });
+  } else {
+    await landRun({ ...runBase, selectedHash, rank, reason, logEvent });
+  }
 
   return { status: "ranked" as const, action: rank.action, reason };
 }
@@ -118,7 +142,7 @@ async function persistInboundCast(cast: SocialCastEvent, runId: string) {
   const { error } = await supabaseAdmin.from("commodus_casts").upsert(
     {
       hash: cast.hash,
-      thread_hash: cast.thread_hash ?? null,
+      thread_hash: cast.thread_hash ?? cast.hash,
       parent_hash: cast.parent_hash,
       parent_author_fid: cast.parent_author?.fid ?? null,
       author_fid: cast.author.fid,
@@ -135,6 +159,24 @@ async function persistInboundCast(cast: SocialCastEvent, runId: string) {
   });
 }
 
+async function generateSocialDraft(cast: SocialCastEvent) {
+  "use step";
+
+  const context = await buildCommodusSocialContext(cast);
+  const generation = await generateCommodusSocialReply(context);
+
+  if (!env.COMMODUS_SOCIAL_DRY_RUN && generation.action === "reply") {
+    return {
+      ...generation,
+      action: "ignore" as const,
+      reason: "dry_run_required",
+      riskFlags: ["dry_run_required"],
+    };
+  }
+
+  return generation;
+}
+
 async function landRun(params: {
   runId: string;
   runType: SocialEngagementContext["runType"];
@@ -143,6 +185,8 @@ async function landRun(params: {
   rank: SocialRankDecision;
   reason: string;
   logEvent: "social_filter_skip" | "social_filter_match";
+  promptSnapshot?: Json;
+  modelOutput?: Json;
 }) {
   "use step";
 
@@ -156,6 +200,8 @@ async function landRun(params: {
       score: params.rank.score,
       reason: params.reason,
       risk_flags: params.rank.riskFlags as Json,
+      prompt_snapshot: params.promptSnapshot ?? {},
+      model_output: params.modelOutput ?? {},
     },
     { onConflict: "idem_key", ignoreDuplicates: true },
   );

@@ -38,7 +38,9 @@ skip. A missed reply is free; a bad reply is not.
 
 Even if the topic is fair game, the following content in the *generated reply*
 causes the safety filter to reject the draft. The pipeline logs the rejection
-and posts nothing.
+as `action='ignore'` with `risk_flags` populated, and posts nothing. `error`
+is reserved for system failures such as unavailable LLM credentials or invalid
+model output.
 
 - **Slurs.** Any racial, ethnic, religious, gender, sexual-orientation,
   disability, or national slur — reclaimed or not.

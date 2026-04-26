@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommodusAutotraderDecision, CommodusAnalysisForNarration } from "./types";
 
 const testEnv = vi.hoisted(() => ({
-  OPENAI_API_KEY: undefined as string | undefined,
   AI_GATEWAY_API_KEY: undefined as string | undefined,
 }));
 
@@ -86,29 +85,34 @@ describe("fallbackNarration", () => {
 
 describe("narrateCommodusOutcome", () => {
   beforeEach(() => {
-    testEnv.OPENAI_API_KEY = undefined;
     testEnv.AI_GATEWAY_API_KEY = undefined;
   });
 
   it("uses fallback when no LLM keys are configured", async () => {
-    const a: CommodusAnalysisForNarration = {
-      kind: "hold",
-      slotKey: "k",
-      slotDate: "2026-01-01",
-      decision: {
-        action: "hold",
-        reason: "weak_buy_signal",
-        bestBuy: null,
-        bestSell: null,
-      },
-      trace: "t",
-    };
-    const out = await narrateCommodusOutcome(a);
-    expect(out).toBe(fallbackNarration(a));
+    const prevOidc = process.env.VERCEL_OIDC_TOKEN;
+    delete process.env.VERCEL_OIDC_TOKEN;
+    try {
+      const a: CommodusAnalysisForNarration = {
+        kind: "hold",
+        slotKey: "k",
+        slotDate: "2026-01-01",
+        decision: {
+          action: "hold",
+          reason: "weak_buy_signal",
+          bestBuy: null,
+          bestSell: null,
+        },
+        trace: "t",
+      };
+      const out = await narrateCommodusOutcome(a);
+      expect(out).toBe(fallbackNarration(a));
+    } finally {
+      if (prevOidc !== undefined) process.env.VERCEL_OIDC_TOKEN = prevOidc;
+    }
   });
 
   it("does not leak runner-up tickers into the LLM prompt", async () => {
-    testEnv.OPENAI_API_KEY = "k-test";
+    testEnv.AI_GATEWAY_API_KEY = "k-test";
     const a: CommodusAnalysisForNarration = {
       kind: "buy",
       slotKey: "k",
@@ -148,7 +152,7 @@ describe("narrateCommodusOutcome", () => {
   });
 
   it("falls back when generateText keeps failing", async () => {
-    testEnv.OPENAI_API_KEY = "k-test";
+    testEnv.AI_GATEWAY_API_KEY = "k-test";
     const a: CommodusAnalysisForNarration = {
       kind: "hold",
       slotKey: "k",

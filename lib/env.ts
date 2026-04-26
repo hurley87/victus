@@ -52,11 +52,6 @@ export const env = createEnv({
     // the quote_swap pipeline step; optional at build so environments
     // without it still boot.
     ZEROX_API_KEY: z.string().min(1).optional(),
-    // OpenAI API key for direct-provider fallback. Kept for forward-compat
-    // with providers that haven't moved behind the gateway yet; the
-    // command parser (#9) routes via the AI Gateway. Optional at build,
-    // so unset environments still boot.
-    OPENAI_API_KEY: z.string().min(1).optional(),
     // Vercel AI Gateway API key used by the command parser's LLM fallback
     // (issue #9). Vercel deployments auto-authenticate via OIDC and don't
     // need it set; self-hosted envs do. Optional at build (the regex
@@ -69,6 +64,13 @@ export const env = createEnv({
     // future ops tooling). Bearer token in Authorization header. Required
     // at runtime by the admin reconciler route; optional at build.
     ADMIN_API_TOKEN: z.string().min(1).optional(),
+    // Safety kill switch for Commodus social generation. Defaults true so
+    // the social agent can draft/store outputs without publishing.
+    COMMODUS_SOCIAL_DRY_RUN: z
+      .enum(["true", "false", "1", "0"])
+      .optional()
+      .default("true")
+      .transform((v) => v === "true" || v === "1"),
     // Vercel-provisioned cron secret. Required at runtime by the cron
     // reconciler route; absent in dev.
     CRON_SECRET: z.string().min(1).optional(),

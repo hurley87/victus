@@ -85,7 +85,7 @@ All env vars are validated at build time in `lib/env.ts` via `@t3-oss/env-nextjs
 Key groupings:
 - **Public** — `NEXT_PUBLIC_URL`, `NEXT_PUBLIC_APP_ENV`, Supabase publishable key, Farcaster manifest vars
 - **Auth** — `JWT_SECRET`, `NEYNAR_API_KEY`, `NEYNAR_SIGNER_UUID`, `COMMODUS_FID`
-- **Infrastructure** — `SUPABASE_SERVICE_ROLE_KEY`, `PRIVY_APP_ID/SECRET`, `ZEROX_API_KEY`, `OPENAI_API_KEY`, `KV_REST_API_URL/TOKEN`
+- **Infrastructure** — `SUPABASE_SERVICE_ROLE_KEY`, `PRIVY_APP_ID/SECRET`, `ZEROX_API_KEY`, `AI_GATEWAY_API_KEY` (or Vercel OIDC for gateway), `KV_REST_API_URL/TOKEN`
 - **Admin/Cron** — `ADMIN_API_TOKEN`, `CRON_SECRET`
 
 ### Testing

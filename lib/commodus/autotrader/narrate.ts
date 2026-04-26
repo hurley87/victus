@@ -4,7 +4,7 @@ import { Output, generateText } from "ai";
 import { z } from "zod";
 
 import { DEFAULT_COMMAND_PARSER_MODEL } from "@/lib/execution/llm-parse";
-import { env } from "@/lib/env";
+import { isAiGatewayConfigured } from "@/lib/ai/is-gateway-configured";
 
 import type { CommodusAnalysisForNarration } from "./types";
 
@@ -69,7 +69,7 @@ export async function narrateCommodusOutcome(
   analysis: CommodusAnalysisForNarration,
   opts: { model?: string; generate?: typeof generateText } = {},
 ): Promise<string> {
-  if (!env.OPENAI_API_KEY && !env.AI_GATEWAY_API_KEY) {
+  if (!isAiGatewayConfigured()) {
     return fallbackNarration(analysis);
   }
 

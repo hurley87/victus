@@ -15,13 +15,39 @@ const socialLimits = vi.hoisted(() => ({
     authorReplyCount24h: 0,
   }),
 }));
+const socialContext = vi.hoisted(() => ({
+  buildCommodusSocialContext: vi.fn().mockResolvedValue({
+    triggerCast: {
+      hash: "0xinbound",
+      text: "hello @commodus",
+      authorFid: 42,
+      authorUsername: "trader",
+      threadHash: "0xroot",
+    },
+    threadMessages: [],
+    authorMemory: null,
+    threadMemory: null,
+    recentSelfPosts: [],
+    docs: { lore: "lore", voice: "voice", safety: "safety" },
+  }),
+}));
+const socialGenerate = vi.hoisted(() => ({
+  generateCommodusSocialReply: vi.fn().mockResolvedValue({
+    action: "reply",
+    reason: "generated_reply",
+    reply: "I heard the arena cough.",
+    riskFlags: [],
+    promptSnapshot: { system: "voice+safety", prompt: "context" },
+    modelOutput: { selected: { shouldReply: true, reply: "I heard the arena cough." } },
+  }),
+}));
 
 vi.mock("@/lib/supabase/server", () => ({
   supabaseAdmin: { from },
 }));
 
 vi.mock("@/lib/env", () => ({
-  env: { COMMODUS_FID: 999 } as Record<string, unknown>,
+  env: { COMMODUS_FID: 999, COMMODUS_SOCIAL_DRY_RUN: true } as Record<string, unknown>,
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -34,6 +60,8 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 vi.mock("@/lib/commodus/social/limits", () => socialLimits);
+vi.mock("@/lib/commodus/social/context", () => socialContext);
+vi.mock("@/lib/commodus/social/generate", () => socialGenerate);
 
 import { deriveIdemKey } from "./commodus-social-idem";
 import {
@@ -157,6 +185,15 @@ describe("handleSocialEngagement", () => {
       threadReplyCount: 0,
       authorReplyCount24h: 0,
     });
+    socialContext.buildCommodusSocialContext.mockClear();
+    socialGenerate.generateCommodusSocialReply.mockClear().mockResolvedValue({
+      action: "reply",
+      reason: "generated_reply",
+      reply: "I heard the arena cough.",
+      riskFlags: [],
+      promptSnapshot: { system: "voice+safety", prompt: "context" },
+      modelOutput: { selected: { shouldReply: true, reply: "I heard the arena cough." } },
+    });
   });
 
   it("persists cast and lands a ranked run for a reply to Commodus", async () => {
@@ -166,7 +203,7 @@ describe("handleSocialEngagement", () => {
     expect(result).toEqual({
       status: "ranked",
       action: "reply",
-      reason: "ranked_reply",
+      reason: "generated_reply",
     });
 
     expect(upsertedTables()).toEqual(["commodus_casts", "commodus_social_runs"]);
@@ -183,8 +220,39 @@ describe("handleSocialEngagement", () => {
       run_type: "webhook",
       trigger_cast_hash: cast.hash,
       selected_cast_hash: cast.hash,
-      reason: "ranked_reply",
+      reason: "generated_reply",
       risk_flags: [],
+      prompt_snapshot: { system: "voice+safety", prompt: "context" },
+      model_output: { selected: { shouldReply: true, reply: "I heard the arena cough." } },
+    });
+    expect(socialContext.buildCommodusSocialContext).toHaveBeenCalledWith(cast);
+    expect(socialGenerate.generateCommodusSocialReply).toHaveBeenCalled();
+  });
+
+  it("stores LLM vetoes as ignore rows with populated prompt and model output", async () => {
+    socialGenerate.generateCommodusSocialReply.mockResolvedValue({
+      action: "ignore",
+      reason: "llm_veto:too little signal",
+      reply: null,
+      riskFlags: ["low_context"],
+      promptSnapshot: { system: "voice+safety", prompt: "context" },
+      modelOutput: { selected: { shouldReply: false, reason: "too little signal" } },
+    });
+
+    const cast = buildCast();
+    const result = await handleSocialEngagement(buildSocialCtx(cast));
+
+    expect(result).toEqual({
+      status: "ranked",
+      action: "ignore",
+      reason: "llm_veto:too little signal",
+    });
+    expect(upsertRow(1)).toMatchObject({
+      action: "ignore",
+      reason: "llm_veto:too little signal",
+      risk_flags: ["low_context"],
+      prompt_snapshot: { system: "voice+safety", prompt: "context" },
+      model_output: { selected: { shouldReply: false, reason: "too little signal" } },
     });
   });
 

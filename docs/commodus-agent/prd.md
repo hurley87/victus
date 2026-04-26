@@ -61,7 +61,7 @@ Reuses:
 - `lib/execution/reply-guard.ts` pattern for publish-once semantics
 - `lib/logger.ts` Pino child logger (`logger.child({ runId, source })`)
 - Webhook auth pattern from `app/api/webhook/route.ts` and `app/api/webhooks/neynar/route.ts`
-- `NEYNAR_API_KEY`, `NEYNAR_SIGNER_UUID`, `COMMODUS_FID`, `OPENAI_API_KEY`, `ADMIN_API_TOKEN` (already in `lib/env.ts`)
+- `NEYNAR_API_KEY`, `NEYNAR_SIGNER_UUID`, `COMMODUS_FID`, `AI_GATEWAY_API_KEY`, `ADMIN_API_TOKEN` (already in `lib/env.ts`)
 
 ### Trade-path isolation (invariant)
 

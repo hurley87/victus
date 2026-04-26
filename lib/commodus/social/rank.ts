@@ -1,6 +1,6 @@
 import type { SocialCastEvent } from "@/lib/workflows/commodus-social";
 
-export type SocialAction = "reply" | "ignore" | "save_only";
+export type SocialAction = "reply" | "ignore" | "save_only" | "error";
 export type SocialRelationship = "ally" | "rival" | "unknown" | "muted";
 
 export interface SocialRankDecision {
@@ -70,10 +70,11 @@ export function rankSocialCast(input: SocialRankInput): SocialRankDecision {
   if (/[?$]/.test(text)) score += 6;
   if (/\b(commodus|victus|rank|trade|arena|score|portfolio)\b/i.test(text)) score += 8;
 
+  const shouldReply = score >= MIN_REPLY_SCORE;
   return {
-    action: score >= MIN_REPLY_SCORE ? "reply" : "save_only",
+    action: shouldReply ? "reply" : "save_only",
     score,
-    reason: score >= MIN_REPLY_SCORE ? "ranked_reply" : "weak_signal",
+    reason: shouldReply ? "ranked_reply" : "weak_signal",
     riskFlags: [],
   };
 }

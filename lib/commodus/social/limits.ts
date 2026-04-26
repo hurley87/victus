@@ -60,12 +60,14 @@ export async function loadAuthorRelationship(
 
   if (error) throw new Error(`commodus_user_memory read failed: ${error.message}`);
 
-  const relationship = data?.relationship;
+  const raw = data?.relationship;
+  let relationship: "ally" | "rival" | "unknown" | "muted" = "unknown";
+  if (raw === "ally" || raw === "rival" || raw === "muted") {
+    relationship = raw;
+  }
+
   return {
-    relationship:
-      relationship === "ally" || relationship === "rival" || relationship === "muted"
-        ? relationship
-        : "unknown",
+    relationship,
     lastInteractionAt: data?.last_interaction_at ?? null,
   };
 }
