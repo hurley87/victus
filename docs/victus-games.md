@@ -340,3 +340,11 @@ Anything that implies:
 - Trade-volume rewards.
 - Rewarding players who never traded.
 - Allowing externally transferred tokens to count as game inventory.
+
+## 💰 Bounty Contribution
+
+- **Task:** Victus Games: season foundation + entry flow
+- **Reward:** $12
+- **Source:** GitHub-Paid
+- **Date:** 2026-04-27
+
