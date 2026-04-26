@@ -1,6 +1,7 @@
 "use client";
 
 import { ApiError } from "@/lib/api-error";
+import { USER_QUERY_KEY } from "@/lib/auth/user-query-key";
 import type { AuthenticatedUser } from "@/lib/auth/types";
 import type { MiniAppContext } from "@farcaster/miniapp-core/dist/context";
 import sdk from "@farcaster/miniapp-sdk";
@@ -18,8 +19,6 @@ import {
   useMemo,
 } from "react";
 import { useFarcaster } from "./farcaster-context";
-
-const USER_QUERY_KEY = ["user-query"] as const;
 
 type UserContextValue = {
   user: {
@@ -67,7 +66,8 @@ export const UserProvider = ({
     queryKey: USER_QUERY_KEY,
     enabled: !autoSignIn || Boolean(context),
     retry: false,
-    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const me = await fetchMe();
       if (me.ok) return me.user;

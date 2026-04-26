@@ -1,6 +1,8 @@
-import { useMutation, UseMutationOptions } from "@tanstack/react-query";
+import { useMutation, useQueryClient, UseMutationOptions } from "@tanstack/react-query";
 
 import { ApiError } from "@/lib/api-error";
+import { fetchWithOptional401SessionRefresh } from "@/lib/auth/fetch-with-session-refresh";
+import { isSessionRefreshEligibleApiUrl } from "@/lib/auth/user-query-key";
 
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
@@ -15,6 +17,7 @@ interface UseApiMutationOptions<TData, TVariables>
 export const useApiMutation = <TData, TVariables = unknown>(
   options: UseApiMutationOptions<TData, TVariables>
 ) => {
+  const queryClient = useQueryClient();
   const {
     url,
     method = "POST",
@@ -27,16 +30,24 @@ export const useApiMutation = <TData, TVariables = unknown>(
     mutationFn: async (variables) => {
       const resolvedUrl = typeof url === "function" ? url(variables) : url;
       const resolvedBody = options.body ? options.body(variables) : null;
-      const response = await fetch(resolvedUrl, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        ...(isProtected && {
-          credentials: "include",
-        }),
-        ...(resolvedBody ? { body: JSON.stringify(resolvedBody) } : {}),
-      });
+
+      const runFetch = () =>
+        fetch(resolvedUrl, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+          },
+          ...(isProtected && {
+            credentials: "include",
+          }),
+          ...(resolvedBody ? { body: JSON.stringify(resolvedBody) } : {}),
+        });
+
+      const response = await fetchWithOptional401SessionRefresh(
+        queryClient,
+        isProtected && isSessionRefreshEligibleApiUrl(resolvedUrl),
+        runFetch,
+      );
 
       if (!response.ok) {
         throw await ApiError.fromResponse(response);
