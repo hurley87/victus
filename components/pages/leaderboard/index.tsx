@@ -308,7 +308,7 @@ function ReferralCard({
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">Invite players</h2>
           <p className="text-xs text-black/60">
-            Earn {referrals.awardPoints} pts when a referral funds.
+            Earn {referrals.bonusPointsPerFunding} pts when a referral funds.
           </p>
           <p className="mt-1 truncate font-mono text-[11px] text-black/50">
             {referrals.referralUrl}
@@ -330,7 +330,7 @@ function ReferralCard({
       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
         <ReferralStat label="Signups" value={referrals.signups} />
         <ReferralStat label="Funded" value={referrals.funded} />
-        <ReferralStat label="Points" value={referrals.monthlyPoints} />
+        <ReferralStat label="Season bonus" value={referrals.seasonBonusPoints} />
       </div>
     </section>
   );

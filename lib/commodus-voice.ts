@@ -257,22 +257,26 @@ export function buildAcceptedReply(amount: number, symbol: string): string {
 export function buildStatusReplyText(params: {
   displayHandle: string;
   rank: number | null;
-  points: number;
-  portfolioUsdc: number;
+  arenaValueUsdc: number;
+  performanceReturn: number;
   dailySlotsRemaining: number;
 }): string {
   const rankPart =
-    params.rank != null ? `rank ${params.rank}` : "no rank yet on the monthly board";
-  const pts = params.points.toLocaleString("en-US");
-  const usd = params.portfolioUsdc.toLocaleString("en-US", {
+    params.rank != null ? `rank ${params.rank}` : "no rank yet this season";
+  const usd = params.arenaValueUsdc.toLocaleString("en-US", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
+  });
+  const ret = params.performanceReturn.toLocaleString("en-US", {
+    style: "percent",
+    maximumFractionDigits: 1,
+    signDisplay: "exceptZero",
   });
   const slots = params.dailySlotsRemaining.toLocaleString("en-US");
   const name = params.displayHandle.trim();
   const opener = name.length > 0 ? `${name} — ` : "";
   return (
-    `${opener}${rankPart}, ${pts} monthly points, ${usd} USDC in the arena wallet, ` +
+    `${opener}${rankPart}, ${usd} USDC arena balance, ${ret} return, ` +
     `${slots} trade${params.dailySlotsRemaining === 1 ? "" : "s"} left today. ` +
     "The scoreboard only respects execution."
   );

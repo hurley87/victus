@@ -1,12 +1,12 @@
 import "server-only";
 
 import { referralDeepLink } from "@/lib/commodus/deep-links";
-import { utcCurrentMonthString, utcMonthFromTimestamp } from "@/lib/scoring/dates";
+import { getLeaderboardSeason } from "@/lib/seasons/service";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import type { ReferralSummary } from "./types";
 
 export { type ReferralRecentUser, type ReferralSummary } from "./types";
-export const REFERRAL_AWARD_POINTS = 5;
+export const REFERRAL_BONUS_POINTS = 5;
 
 type ReferralRow = {
   referrer_user_id: string;
@@ -15,8 +15,8 @@ type ReferralRow = {
   referred_at: string;
   first_funded_at: string | null;
   awarded_at: string | null;
-  award_month: string | null;
-  award_points: number;
+  award_season_id: string | null;
+  season_bonus_points: number;
 };
 
 export async function recordReferralSignup(params: {
@@ -59,14 +59,14 @@ export async function awardReferralForFirstFunding(params: {
   referredUserId: string;
   fundedAt: string;
 }): Promise<void> {
-  const month = utcMonthFromTimestamp(params.fundedAt);
+  const season = await getLeaderboardSeason();
   const { error } = await supabaseAdmin
     .from("referrals")
     .update({
       first_funded_at: params.fundedAt,
       awarded_at: params.fundedAt,
-      award_month: month,
-      award_points: REFERRAL_AWARD_POINTS,
+      award_season_id: season?.id ?? null,
+      season_bonus_points: season ? REFERRAL_BONUS_POINTS : 0,
     })
     .eq("referred_user_id", params.referredUserId)
     .is("awarded_at", null);
@@ -80,11 +80,11 @@ export async function getReferralSummary(params: {
   userId: string;
   fid: number;
 }): Promise<ReferralSummary> {
-  const month = utcCurrentMonthString();
+  const season = await getLeaderboardSeason();
   const { data, error } = await supabaseAdmin
     .from("referrals")
     .select(
-      "referrer_user_id, referred_user_id, referred_fid, referred_at, first_funded_at, awarded_at, award_month, award_points",
+      "referrer_user_id, referred_user_id, referred_fid, referred_at, first_funded_at, awarded_at, award_season_id, season_bonus_points",
     )
     .eq("referrer_user_id", params.userId)
     .order("referred_at", { ascending: false });
@@ -102,10 +102,13 @@ export async function getReferralSummary(params: {
     referralUrl: referralDeepLink(params.fid),
     signups: rows.length,
     funded: rows.filter((row) => row.first_funded_at != null).length,
-    monthlyPoints: rows
-      .filter((row) => row.award_month === month && row.awarded_at != null)
-      .reduce((sum, row) => sum + Number(row.award_points ?? 0), 0),
-    awardPoints: REFERRAL_AWARD_POINTS,
+    seasonBonusPoints: rows
+      .filter(
+        (row) =>
+          row.award_season_id === season?.id && row.awarded_at != null,
+      )
+      .reduce((sum, row) => sum + Number(row.season_bonus_points ?? 0), 0),
+    bonusPointsPerFunding: REFERRAL_BONUS_POINTS,
     recent: recentRows.map((row) => ({
       fid: row.referred_fid,
       username: usernameByFid.get(row.referred_fid) ?? null,

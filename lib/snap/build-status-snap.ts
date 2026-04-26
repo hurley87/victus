@@ -19,8 +19,16 @@ function fmtUsd(n: number): string {
   });
 }
 
+function fmtPercent(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "percent",
+    maximumFractionDigits: 1,
+    signDisplay: "exceptZero",
+  });
+}
+
 /**
- * Builds a Snap 2.0 JSON payload for the monthly status card.
+ * Builds a Snap 2.0 JSON payload for the season status card.
  * Tree stays within Snap structural limits (≤64 nodes, depth ≤4, ≤6 children per stack).
  */
 export function buildStatusSnapResponse(
@@ -43,13 +51,13 @@ export function buildStatusSnapResponse(
     snapItem("i_rank", rankTitle, "Rank"),
     snapItem(
       "i_pts",
-      ctx.points.toLocaleString("en-US"),
-      "Points",
+      fmtPercent(ctx.performanceReturn),
+      "Return",
     ),
     snapItem(
       "i_port",
-      `${fmtUsd(ctx.portfolioUsdc)} USDC`,
-      "Value",
+      `${fmtUsd(ctx.arenaValueUsdc)} USDC`,
+      "Arena Balance",
     ),
     snapItem(
       "i_slots",

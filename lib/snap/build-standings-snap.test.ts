@@ -17,12 +17,12 @@ describe("buildStandingsSnapResponse", () => {
     const ctx: StandingsSnapContext = {
       displayHandle: "Maximus",
       entries: [
-        { rank: 1, label: "Aurelius", points: 100, isUser: false },
-        { rank: 2, label: "Lucilla", points: 90, isUser: false },
-        { rank: 3, label: "Cassius", points: 80, isUser: false },
-        { rank: 4, label: "Crispus", points: 70, isUser: false },
-        { rank: 5, label: "Nerva", points: 60, isUser: false },
-        { rank: 12, label: "Maximus", points: 40, isUser: true },
+        { rank: 1, label: "Aurelius", arenaValueUsdc: 100, performanceReturn: 0.1, isUser: false },
+        { rank: 2, label: "Lucilla", arenaValueUsdc: 90, performanceReturn: 0.09, isUser: false },
+        { rank: 3, label: "Cassius", arenaValueUsdc: 80, performanceReturn: 0.08, isUser: false },
+        { rank: 4, label: "Crispus", arenaValueUsdc: 70, performanceReturn: 0.07, isUser: false },
+        { rank: 5, label: "Nerva", arenaValueUsdc: 60, performanceReturn: 0.06, isUser: false },
+        { rank: 12, label: "Maximus", arenaValueUsdc: 40, performanceReturn: -0.6, isUser: true },
       ],
     };
 
@@ -43,8 +43,8 @@ describe("buildStandingsSnapResponse", () => {
       {
         displayHandle: "Maximus",
         entries: [
-          { rank: 1, label: "Aurelius", points: 100, isUser: false },
-          { rank: 2, label: "Maximus", points: 90, isUser: true },
+          { rank: 1, label: "Aurelius", arenaValueUsdc: 100, performanceReturn: 0.1, isUser: false },
+          { rank: 2, label: "Maximus", arenaValueUsdc: 90, performanceReturn: 0.09, isUser: true },
         ],
       },
       links,
@@ -77,8 +77,8 @@ describe("buildStandingsSnapResponse", () => {
       {
         displayHandle: "Maximus",
         entries: [
-          { rank: 1, label: "Aurelius", points: 100, isUser: false },
-          { rank: 2, label: "Maximus", points: 90, isUser: true },
+          { rank: 1, label: "Aurelius", arenaValueUsdc: 100, performanceReturn: 0.1, isUser: false },
+          { rank: 2, label: "Maximus", arenaValueUsdc: 90, performanceReturn: 0.09, isUser: true },
         ],
       },
       links,

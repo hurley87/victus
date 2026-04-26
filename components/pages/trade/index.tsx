@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { Send } from "lucide-react";
-import { ScoringTable } from "@/components/shared/ui/scoring-table";
 import { Button } from "@/components/shared/ui/button";
 import { useFarcaster } from "@/contexts/farcaster-context";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -275,8 +274,6 @@ function TradeContent({ rules }: { rules: ArenaRules }) {
         </div>
 
       </section>
-
-      <ScoringTable />
 
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-gold">

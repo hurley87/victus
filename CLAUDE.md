@@ -58,7 +58,7 @@ The `commodus-command.ts` Vercel Workflow is the core game loop. Cast hash + use
 4. **Execute** — Privy server-wallet signs and broadcasts swap (`lib/privy/server.ts`)
 5. **Decode logs** — Extract execution price from Uniswap V3/V4 logs (`lib/execution/swap-logs.ts`)
 6. **Fee transfer** — 0.5% collected to operator treasury (`lib/execution/fee-transfer.ts`)
-7. **Score & reply** — Points calculated, Neynar reply cast published (`lib/execution/templates.ts`, `lib/scoring/score-trade.ts`)
+7. **Season ledger & reply** — Season trade state updated, Neynar reply cast published (`lib/execution/templates.ts`, `lib/seasons/apply-trade.ts`)
 
 Supporting modules: FIFO lot accounting (`lot-persistence.ts`, `lot-accounting.ts`), publish-once deduplication (`reply-guard.ts`).
 
@@ -70,7 +70,7 @@ Supporting modules: FIFO lot accounting (`lot-persistence.ts`, `lot-accounting.t
 | `/api/webhook` | Neynar `cast.created` events → durable workflow trigger |
 | `/api/arena/me` | Arena wallet funding status + balance |
 | `/api/users/me` | Authenticated user profile (Neynar) |
-| `/api/leaderboard/current` | Monthly top 10 |
+| `/api/leaderboard/season` | Season standings |
 | `/api/snaps/status/[fid]` | Public Snap card (bypasses JWT, CORS headers instead) |
 | `/api/cron/reconcile` | Vercel Cron every 5 min — reconciliation + housekeeping |
 

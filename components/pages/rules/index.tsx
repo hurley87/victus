@@ -5,16 +5,6 @@ import Link from "next/link";
 import { useEnvironment } from "@/contexts/environment-context";
 import { useApiQuery } from "@/hooks/use-api-query";
 import type { ArenaRules } from "@/lib/arena/types";
-import {
-  POINTS_PROFITABLE_CLOSE,
-  POINTS_RETURN_10_BONUS,
-  POINTS_RETURN_25_BONUS,
-  POINTS_TRADE_EXECUTED,
-  PROFITABLE_CLOSE_MIN_USDC,
-  RETURN_BONUS_10_PCT,
-  RETURN_BONUS_25_PCT,
-  SCORING_CASTS_PER_UTC_DAY,
-} from "@/lib/scoring/constants";
 import { Button } from "@/components/shared/ui/button";
 import { Website } from "../website";
 
@@ -263,47 +253,16 @@ function RulesBody({ rules }: { rules: ArenaRules }) {
         </section>
 
         <section className="rounded-xl border border-black/10 p-4 space-y-3">
-          <h2 className="text-sm font-semibold">Scoring</h2>
+          <h2 className="text-sm font-semibold">Season scoring</h2>
           <p className="text-xs text-muted-foreground">
-            Points are for leaderboard rank only. At most{" "}
-            {SCORING_CASTS_PER_UTC_DAY} executed casts per UTC day earn scoring
-            weight; the table resets each calendar month (UTC).
+            The leaderboard uses the season ledger only: starting arena cash plus
+            marked positions. Wallet deposits, withdrawals, and external transfers do
+            not change rank.
           </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-black/10 text-left">
-                  <th className="py-1 pr-2 font-semibold">Event</th>
-                  <th className="py-1 font-semibold">Points</th>
-                </tr>
-              </thead>
-              <tbody className="text-black/85">
-                <tr className="border-b border-black/5">
-                  <td className="py-1 pr-2">Executed trade (counts toward daily slot)</td>
-                  <td className="font-mono">+{POINTS_TRADE_EXECUTED}</td>
-                </tr>
-                <tr className="border-b border-black/5">
-                  <td className="py-1 pr-2">
-                    Profitable close ({">="}
-                    ${PROFITABLE_CLOSE_MIN_USDC.toFixed(2)} realized PnL after fees)
-                  </td>
-                  <td className="font-mono">+{POINTS_PROFITABLE_CLOSE}</td>
-                </tr>
-                <tr className="border-b border-black/5">
-                  <td className="py-1 pr-2">Return bonus — ≥ {RETURN_BONUS_10_PCT}%</td>
-                  <td className="font-mono">+{POINTS_RETURN_10_BONUS}</td>
-                </tr>
-                <tr>
-                  <td className="py-1 pr-2">Return bonus — ≥ {RETURN_BONUS_25_PCT}%</td>
-                  <td className="font-mono">+{POINTS_RETURN_25_BONUS}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
           <p className="text-xs text-black/80">
-            The profitable-close bonus only applies when realized PnL on the sell is at
-            least ${PROFITABLE_CLOSE_MIN_USDC.toFixed(2)} after fees — dust wins do not
-            count.
+            To qualify for rewards, make at least one season trade and remain eligible
+            through settlement. Final season points are derived from rank, survival,
+            and the Beat Commodus bonus after the season closes.
           </p>
         </section>
 

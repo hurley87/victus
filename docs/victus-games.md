@@ -4,7 +4,7 @@
 
 **Victus Games** is a weekly fantasy-style token trading contest built on top of the existing Victus Imperium execution pipeline. Every player starts each season with the same virtual **10 USDC arena balance**, **5 trade tickets**, and access to **6 approved tokens**. The wallet is used only to execute trades on-chain; the **Victus game ledger** is the sole source of truth for scoring.
 
-The existing month-based `scoring_events` / `leaderboard_snapshots` model is replaced by a season-scoped ledger. Existing rows in those tables are test data and can be dropped.
+The existing month-based scoring model is replaced by a season-scoped ledger. Existing legacy scoring rows are test data and can be dropped.
 
 ## 2. Mental Model
 
@@ -40,7 +40,7 @@ The existing month-based `scoring_events` / `leaderboard_snapshots` model is rep
 
 ## 4. Data Model
 
-New tables introduced; existing `scoring_events` / `leaderboard_snapshots` test data can be wiped.
+New tables introduced; legacy month-scoring test data can be wiped.
 
 ### 4.1 `seasons`
 | Column | Type | Notes |
@@ -222,6 +222,13 @@ performance_return =
 ```
 final_score = performance_points + survival_bonus + commodus_bonus
 ```
+
+Referral awards are season-scoped. First funding still triggers the referral
+conversion, but the bonus is recorded against the current leaderboard season as
+`season_bonus_points`; it no longer participates in the retired month-based
+leaderboard path. Human reviewers should explicitly sign off that referral
+bonus points belong in the season reward model before this destructive cleanup
+merges.
 
 ### 9.1 Performance points (up to 90)
 Rank eligible players by settled portfolio value (or performance return). v0 award table:

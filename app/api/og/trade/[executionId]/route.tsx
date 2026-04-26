@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 
 import { appBaseUrl } from "@/lib/commodus/deep-links";
-import { loadGoogleFont, loadImage } from "@/lib/og-utils";
+import { formatOgSignedUsd, loadGoogleFont, loadImage } from "@/lib/og-utils";
 import { getTradeShareCard } from "@/lib/sharing/trade-card";
 
 export const dynamic = "force-dynamic";
@@ -15,12 +15,6 @@ const BG_PANEL = "#141414";
 const TEXT_DIM = "#9ca3af";
 const PNL_POSITIVE = "#5ee07a";
 const PNL_NEGATIVE = "#ef6a6a";
-
-function formatUsd(value: number): string {
-  const sign = value >= 0 ? "+" : "-";
-  const abs = Math.abs(value);
-  return `${sign}$${abs.toFixed(abs >= 100 ? 0 : 2)}`;
-}
 
 export async function GET(
   _request: Request,
@@ -41,13 +35,12 @@ export async function GET(
     const actionLabel = card.action === "buy" ? "BUY" : "SELL";
     const symbolLabel = card.symbol ? `$${card.symbol.toUpperCase()}` : "";
     const headerLine = `${playerLabel} · ${actionLabel} ${symbolLabel}`;
-    const pointsLine = card.points > 0 ? `+${card.points} pts` : `${card.points} pts`;
     const pnl = card.realized_pnl_usdc;
     const showPnl = card.action === "sell" && pnl != null;
 
-    const fontText = `VICTUS ${headerLine} ${pointsLine} POINTS NOTIONAL PNL ${
-      card.notional_usdc != null ? formatUsd(card.notional_usdc) : ""
-    } ${showPnl && pnl != null ? formatUsd(pnl) : ""}`;
+    const fontText = `VICTUS ${headerLine} NOTIONAL PNL ${
+      card.notional_usdc != null ? formatOgSignedUsd(card.notional_usdc) : ""
+    } ${showPnl && pnl != null ? formatOgSignedUsd(pnl) : ""}`;
     const fontData = await loadGoogleFont("Press+Start+2P", fontText);
 
     const pnlPositive = pnl != null && pnl >= 0;
@@ -116,9 +109,13 @@ export async function GET(
               }}
             >
               <div style={{ fontSize: 10, color: TEXT_DIM, letterSpacing: 1 }}>
-                POINTS
+                NOTIONAL
               </div>
-              <div style={{ fontSize: 44, color: GOLD }}>{pointsLine}</div>
+              <div style={{ fontSize: 44, color: GOLD }}>
+                {card.notional_usdc != null
+                  ? formatOgSignedUsd(card.notional_usdc)
+                  : "—"}
+              </div>
             </div>
             <div
               style={{
@@ -141,7 +138,7 @@ export async function GET(
                       color: pnlPositive ? PNL_POSITIVE : PNL_NEGATIVE,
                     }}
                   >
-                    {formatUsd(pnl)}
+                    {formatOgSignedUsd(pnl)}
                   </div>
                 </>
               ) : (
@@ -149,13 +146,9 @@ export async function GET(
                   <div
                     style={{ fontSize: 10, color: TEXT_DIM, letterSpacing: 1 }}
                   >
-                    NOTIONAL
+                    STATUS
                   </div>
-                  <div style={{ fontSize: 22, color: "white" }}>
-                    {card.notional_usdc != null
-                      ? formatUsd(card.notional_usdc)
-                      : "—"}
-                  </div>
+                  <div style={{ fontSize: 22, color: "white" }}>Confirmed</div>
                 </>
               )}
             </div>

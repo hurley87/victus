@@ -13,7 +13,8 @@ import {
 export type StandingsSnapEntry = {
   rank: number | null;
   label: string;
-  points: number;
+  arenaValueUsdc: number;
+  performanceReturn: number;
   isUser: boolean;
 };
 
@@ -37,6 +38,21 @@ function rowTitle(entry: StandingsSnapEntry): string {
   return `${rankLabel(entry.rank)} ${label}${entry.isUser ? " (you)" : ""}`;
 }
 
+function fmtUsd(n: number): string {
+  return n.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
+function fmtPercent(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "percent",
+    maximumFractionDigits: 1,
+    signDisplay: "exceptZero",
+  });
+}
+
 export function buildStandingsSnapResponse(
   ctx: StandingsSnapContext,
   links: SnapActionLinks,
@@ -56,7 +72,7 @@ export function buildStandingsSnapResponse(
       snapItem(
         `i_${index}`,
         rowTitle(entry),
-        `${entry.points.toLocaleString("en-US")} points`,
+        `${fmtUsd(entry.arenaValueUsdc)} USDC · ${fmtPercent(entry.performanceReturn)}`,
       ),
     ),
     ...snapStandingsNavEntries(links),

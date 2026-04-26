@@ -53,7 +53,6 @@ import {
 } from "@/lib/execution/reserve";
 import { applyLotsAndPositionsForExecution } from "@/lib/execution/lot-persistence";
 import { applySeasonBuy, applySeasonSell } from "@/lib/seasons/apply-trade";
-import { scoreTradeAfterExecution } from "@/lib/scoring/score-trade";
 import {
   decodeSwapReceipt,
   findDisallowedWalletTokens,
@@ -121,7 +120,7 @@ export interface CommandContext {
  *   load_command → parse → policy_validate → compute_fee → quote_swap →
  *   publish_intent_reply → ensure_allowance → submit_swap → verify_tx →
  *   decode_swap_log → transfer_fee → score_time_enforcement →
- *   update_lots_and_positions → score_trade → publish_outcome_reply
+ *   update_lots_and_positions → apply_season_* → publish_outcome_reply
  *
  * Every step is `'use step'` and either pure or idempotent check-then-
  * act. Replays land on the same `execution_id` reservation and pick up
@@ -348,14 +347,6 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       });
     }
 
-    await scoreTradeStep({
-      castHash: ctx.castHash,
-      castCommandId: loaded.id,
-      userId: walletLookup.userId,
-      tradeExecutionId: sellReservation.tradeExecutionId,
-      intentAction: "sell",
-    });
-
     await markStatus(ctx.castHash, "executed");
     await publishOutcomeReply(
       ctx.castHash,
@@ -526,14 +517,6 @@ export async function handleCommodusCommand(ctx: CommandContext) {
       walletId: policyCtx.walletId,
     });
   }
-  await scoreTradeStep({
-    castHash: ctx.castHash,
-    castCommandId: loaded.id,
-    userId: walletLookup.userId,
-    tradeExecutionId: reservation.tradeExecutionId,
-    intentAction: "buy",
-  });
-
   await markStatus(ctx.castHash, "executed");
   await publishOutcomeReply(
     ctx.castHash,
@@ -642,8 +625,8 @@ async function executeStatusBranch(ctx: CommandContext): Promise<void> {
       const text = buildStatusReplyText({
         displayHandle: view.displayHandle,
         rank: view.rank,
-        points: view.points,
-        portfolioUsdc: view.portfolioUsdc,
+        arenaValueUsdc: view.arenaValueUsdc,
+        performanceReturn: view.performanceReturn,
         dailySlotsRemaining: view.dailySlotsRemaining,
       });
       await publishReplyOnceRethrowMissingSigner({
@@ -1472,25 +1455,6 @@ async function updateLotsAndPositions(params: {
       realizedPnlUsdc:
         data?.realized_pnl_usdc != null ? Number(data.realized_pnl_usdc) : null,
     };
-  });
-}
-
-async function scoreTradeStep(params: {
-  castHash: string;
-  castCommandId: string;
-  userId: string;
-  tradeExecutionId: string;
-  intentAction: "buy" | "sell";
-}): Promise<void> {
-  "use step";
-
-  return logStep(params.castHash, "score_trade", async () => {
-    await scoreTradeAfterExecution({
-      castCommandId: params.castCommandId,
-      userId: params.userId,
-      tradeExecutionId: params.tradeExecutionId,
-      intentAction: params.intentAction,
-    });
   });
 }
 

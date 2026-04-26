@@ -7,7 +7,7 @@ import {
 } from "@/lib/chain/balances";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
-import { utcCurrentMonthString, utcMonthBounds } from "@/lib/scoring/dates";
+import { utcCurrentMonthString, utcMonthBounds } from "@/lib/time/utc";
 
 export type PortfolioHolding = {
   symbol: string;

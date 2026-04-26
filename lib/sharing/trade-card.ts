@@ -10,7 +10,6 @@ export type TradeShareCard = {
   symbol: string;
   notional_usdc: number | null;
   realized_pnl_usdc: number | null;
-  points: number;
   confirmed_at: string | null;
 };
 
@@ -66,19 +65,6 @@ export async function getTradeShareCard(
   }
   if (!account) return null;
 
-  const { data: scoreRows, error: scoreErr } = await supabaseAdmin
-    .from("scoring_events")
-    .select("points")
-    .eq("execution_id", id);
-  if (scoreErr) {
-    throw new Error(`getTradeShareCard: scoring_events ${scoreErr.message}`);
-  }
-
-  const points = (scoreRows ?? []).reduce(
-    (sum, r) => sum + Number(r.points ?? 0),
-    0,
-  );
-
   return {
     execution_id: id,
     fid: account.fid,
@@ -91,7 +77,6 @@ export async function getTradeShareCard(
       execution.realized_pnl_usdc != null
         ? Number(execution.realized_pnl_usdc)
         : null,
-    points,
     confirmed_at: execution.confirmed_at,
   };
 }

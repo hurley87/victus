@@ -12,8 +12,8 @@ const links = {
 const baseCtx: TradeSnapContext = {
   displayHandle: "Maximus",
   rank: 2,
-  points: 40,
-  portfolioUsdc: 100,
+  arenaValueUsdc: 100,
+  performanceReturn: 0.12,
   dailySlotsRemaining: 3,
   trade: {
     action: "buy",
@@ -43,8 +43,8 @@ describe("buildTradeSnapResponse", () => {
       "i_slots",
     ]);
     expect(elements.i_rank?.props?.title).toBe("#2");
-    expect(elements.i_pts?.props?.description).toBe("Points");
-    expect(elements.i_port?.props?.description).toBe("Value");
+    expect(elements.i_pts?.props?.description).toBe("Return");
+    expect(elements.i_port?.props?.description).toBe("Arena Balance");
     expect(elements.i_slots?.props?.description).toBe("Trades left today");
     expect(elements.i_trade).toBeUndefined();
     expect(elements.i_proof).toBeUndefined();

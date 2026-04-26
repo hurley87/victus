@@ -1,8 +1,8 @@
 import "server-only";
 
-import { getCurrentMonthLeaderboard } from "@/lib/leaderboard/service";
 import { getArenaProfile } from "@/lib/arena/service";
 import { getPortfolioByFid } from "@/lib/portfolio/service";
+import { getSeasonLeaderboard } from "@/lib/seasons/leaderboard";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
 export type StatusViewContext = {
@@ -10,11 +10,9 @@ export type StatusViewContext = {
   /** Title line for the Snap header — @username, display name, or fid fallback. */
   displayHandle: string;
   rank: number | null;
-  points: number;
-  portfolioUsdc: number;
+  arenaValueUsdc: number;
+  performanceReturn: number;
   dailySlotsRemaining: number;
-  /** Points held by rank 10, or the lowest rank in the month if fewer than 10 fighters. */
-  topTenCutoffPoints: number;
 };
 
 function truncateLabel(raw: string, maxChars: number): string {
@@ -25,8 +23,8 @@ function truncateLabel(raw: string, maxChars: number): string {
 
 /**
  * Shared read model for `@commodus status` Snap JSON and templated reply text.
- * Reuses {@link getPortfolioByFid}, {@link getCurrentMonthLeaderboard}, and
- * {@link getArenaProfile} — the same surfaces as the Mini App/API.
+ * Reuses the season leaderboard and arena profile — the same surfaces as the
+ * Mini App/API.
  */
 export async function loadStatusViewContext(
   fid: number,
@@ -49,22 +47,14 @@ export async function loadStatusViewContext(
     return null;
   }
 
-  const [lb, arena] = await Promise.all([
-    getCurrentMonthLeaderboard(),
+  const [leaderboard, arena] = await Promise.all([
+    getSeasonLeaderboard(),
     getArenaProfile(account.user_id, fid),
   ]);
 
-  const entries = lb.entries;
+  const entries = [...leaderboard.entries, ...leaderboard.ineligible];
   const self = entries.find((e) => e.fid === fid);
   const rank = self?.rank ?? null;
-  const points = self?.points ?? 0;
-
-  let topTenCutoffPoints = 1;
-  if (entries.length >= 10) {
-    topTenCutoffPoints = Math.max(1, entries[9]?.points ?? 1);
-  } else if (entries.length > 0) {
-    topTenCutoffPoints = Math.max(1, entries[entries.length - 1]?.points ?? 1);
-  }
 
   const handle =
     (portfolio.username ? `@${portfolio.username}` : null) ||
@@ -75,9 +65,8 @@ export async function loadStatusViewContext(
     fid,
     displayHandle: truncateLabel(handle, 100),
     rank,
-    points,
-    portfolioUsdc: portfolio.total_portfolio_value_usdc,
+    arenaValueUsdc: self?.portfolio_value_usdc ?? 0,
+    performanceReturn: self?.performance_return ?? 0,
     dailySlotsRemaining: arena.daily_slots_remaining,
-    topTenCutoffPoints,
   };
 }

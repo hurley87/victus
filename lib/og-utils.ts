@@ -26,3 +26,24 @@ export async function loadImage(url: string): Promise<ArrayBuffer> {
 
   return await logoImageRes.arrayBuffer();
 }
+
+/** Absolute USDC for OG card numbers (no +/-). */
+export function formatOgUsd(value: number): string {
+  const abs = Math.abs(value);
+  return `$${abs.toFixed(abs >= 100 ? 0 : 2)}`;
+}
+
+/** Signed USDC for PnL / notional lines on trade OG cards. */
+export function formatOgSignedUsd(value: number): string {
+  const sign = value >= 0 ? "+" : "-";
+  const abs = Math.abs(value);
+  return `${sign}$${abs.toFixed(abs >= 100 ? 0 : 2)}`;
+}
+
+export function formatOgPercent(value: number): string {
+  return value.toLocaleString("en-US", {
+    style: "percent",
+    maximumFractionDigits: 1,
+    signDisplay: "exceptZero",
+  });
+}

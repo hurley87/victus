@@ -1,9 +1,9 @@
 import "server-only";
 
 import {
-  getCurrentMonthLeaderboard,
-  type LeaderboardEntry,
-} from "@/lib/leaderboard/service";
+  getSeasonLeaderboard,
+  type SeasonLeaderboardEntry,
+} from "@/lib/seasons/leaderboard";
 import { loadStatusViewContext } from "@/lib/status/load-context";
 
 import type {
@@ -11,7 +11,7 @@ import type {
   StandingsSnapEntry,
 } from "./build-standings-snap";
 
-function displayName(entry: LeaderboardEntry): string {
+function displayName(entry: SeasonLeaderboardEntry): string {
   if (entry.is_commodus) {
     return "Commodus (Emperor)";
   }
@@ -22,13 +22,14 @@ function displayName(entry: LeaderboardEntry): string {
 }
 
 function toSnapEntry(
-  entry: LeaderboardEntry,
+  entry: SeasonLeaderboardEntry,
   fid: number,
 ): StandingsSnapEntry {
   return {
     rank: entry.rank,
     label: displayName(entry),
-    points: entry.points,
+    arenaValueUsdc: entry.portfolio_value_usdc,
+    performanceReturn: entry.performance_return,
     isUser: entry.fid === fid,
   };
 }
@@ -38,7 +39,7 @@ export async function loadStandingsSnapContext(
 ): Promise<StandingsSnapContext | null> {
   const [status, leaderboard] = await Promise.all([
     loadStatusViewContext(fid),
-    getCurrentMonthLeaderboard(),
+    getSeasonLeaderboard(),
   ]);
 
   if (!status) return null;
@@ -56,7 +57,8 @@ export async function loadStandingsSnapContext(
         : {
             rank: status.rank,
             label: status.displayHandle,
-            points: status.points,
+            arenaValueUsdc: status.arenaValueUsdc,
+            performanceReturn: status.performanceReturn,
             isUser: true,
           },
     );
@@ -66,7 +68,8 @@ export async function loadStandingsSnapContext(
     entries.push({
       rank: status.rank,
       label: status.displayHandle,
-      points: status.points,
+      arenaValueUsdc: status.arenaValueUsdc,
+      performanceReturn: status.performanceReturn,
       isUser: true,
     });
   }

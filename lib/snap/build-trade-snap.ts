@@ -13,8 +13,8 @@ import {
 export type TradeSnapContext = {
   displayHandle: string;
   rank: number | null;
-  points: number;
-  portfolioUsdc: number;
+  arenaValueUsdc: number;
+  performanceReturn: number;
   dailySlotsRemaining: number;
   trade: {
     action: "buy" | "sell";
@@ -33,6 +33,14 @@ function fmtUsd(n: number | null, options?: { sign?: boolean }): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
     ...(options?.sign ? { signDisplay: "exceptZero" as const } : {}),
+  });
+}
+
+function fmtPercent(n: number): string {
+  return n.toLocaleString("en-US", {
+    style: "percent",
+    maximumFractionDigits: 1,
+    signDisplay: "exceptZero",
   });
 }
 
@@ -63,13 +71,13 @@ export function buildTradeSnapResponse(
     snapItem("i_rank", rankTitle, "Rank"),
     snapItem(
       "i_pts",
-      ctx.points.toLocaleString("en-US"),
-      "Points",
+      fmtPercent(ctx.performanceReturn),
+      "Return",
     ),
     snapItem(
       "i_port",
-      `${fmtUsd(ctx.portfolioUsdc)} USDC`,
-      "Value",
+      `${fmtUsd(ctx.arenaValueUsdc)} USDC`,
+      "Arena Balance",
     ),
     snapItem(
       "i_slots",

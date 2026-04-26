@@ -12,7 +12,6 @@ import { deriveExecutionId } from "@/lib/execution/ids";
 import type { PolicyContext } from "@/lib/execution/policy";
 import { reserveOrLoadExecution, type ReservedExecution } from "@/lib/execution/reserve";
 import { applyLotsAndPositionsForExecution } from "@/lib/execution/lot-persistence";
-import { scoreTradeAfterExecution } from "@/lib/scoring/score-trade";
 import {
   decodeSwapReceipt,
   findDisallowedWalletTokens,
@@ -210,12 +209,6 @@ async function runBuyPath(params: {
   }
 
   await applyLotsAndPositionsForExecution(tradeExecutionId);
-  await scoreTradeAfterExecution({
-    castCommandId,
-    userId,
-    tradeExecutionId,
-    intentAction: "buy",
-  });
 
   await markStatus(castHash, "executed");
   return {
@@ -338,12 +331,6 @@ async function runSellPath(params: {
   }
 
   await applyLotsAndPositionsForExecution(tradeExecutionId);
-  await scoreTradeAfterExecution({
-    castCommandId,
-    userId,
-    tradeExecutionId,
-    intentAction: "sell",
-  });
 
   await markStatus(castHash, "executed");
   return {

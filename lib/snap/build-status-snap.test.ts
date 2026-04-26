@@ -8,10 +8,9 @@ const baseCtx: StatusViewContext = {
   fid: 123,
   displayHandle: "Maximus",
   rank: 2,
-  points: 40,
-  portfolioUsdc: 100,
+  arenaValueUsdc: 100,
+  performanceReturn: 0.12,
   dailySlotsRemaining: 3,
-  topTenCutoffPoints: 80,
 };
 
 const links = {
@@ -38,8 +37,8 @@ describe("buildStatusSnapResponse", () => {
 
     expect(elements.i_rank?.props?.title).toBe("#2");
     expect(elements.i_rank?.props?.description).toBe("Rank");
-    expect(elements.i_pts?.props?.description).toBe("Points");
-    expect(elements.i_port?.props?.description).toBe("Value");
+    expect(elements.i_pts?.props?.description).toBe("Return");
+    expect(elements.i_port?.props?.description).toBe("Arena Balance");
     expect(elements.i_slots?.props?.description).toBe("Trades left today");
     expect(elements.act_trade?.on?.press).toEqual({
       action: "open_snap",

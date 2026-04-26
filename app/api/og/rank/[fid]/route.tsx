@@ -1,8 +1,8 @@
 import { ImageResponse } from "next/og";
 
 import { appBaseUrl } from "@/lib/commodus/deep-links";
-import { getCurrentMonthLeaderboard } from "@/lib/leaderboard/service";
-import { loadGoogleFont, loadImage } from "@/lib/og-utils";
+import { getSeasonLeaderboard } from "@/lib/seasons/leaderboard";
+import { formatOgPercent, formatOgUsd, loadGoogleFont, loadImage } from "@/lib/og-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +16,6 @@ const TEXT_DIM = "#9ca3af";
 const PNL_POSITIVE = "#5ee07a";
 const PNL_NEGATIVE = "#ef6a6a";
 
-function formatUsd(value: number): string {
-  const sign = value >= 0 ? "+" : "-";
-  const abs = Math.abs(value);
-  return `${sign}$${abs.toFixed(abs >= 100 ? 0 : 2)}`;
-}
-
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ fid: string }> },
@@ -33,7 +27,7 @@ export async function GET(
       return new Response("invalid fid", { status: 400 });
     }
 
-    const { entries } = await getCurrentMonthLeaderboard();
+    const { entries } = await getSeasonLeaderboard();
     const player = entries.find((e) => e.fid === fid && !e.is_commodus);
     if (!player) {
       return new Response("not on board", { status: 404 });
@@ -44,21 +38,19 @@ export async function GET(
     const logoBuf = await loadImage(`${appUrl}/images/icon.png`);
     const logoSrc = `data:image/png;base64,${Buffer.from(logoBuf).toString("base64")}`;
 
-    const pnl = player.realized_pnl_usdc;
     const playerLabel = player.username ? `@${player.username}` : `fid ${player.fid}`;
     const headerLine = `${playerLabel} · #${player.rank} in the arena`;
     let benchmarkLine: string;
     if (!commodus) {
       benchmarkLine = "Beat Commodus";
-    } else if (player.points > commodus.points) {
-      benchmarkLine = `Ahead of Commodus (${commodus.points} pts)`;
+    } else if (player.portfolio_value_usdc > commodus.portfolio_value_usdc) {
+      benchmarkLine = `Ahead of Commodus (${formatOgUsd(commodus.portfolio_value_usdc)})`;
     } else {
-      benchmarkLine = `${commodus.points - player.points + 1} pts to pass Commodus`;
+      benchmarkLine = `${formatOgUsd(commodus.portfolio_value_usdc - player.portfolio_value_usdc + 0.01)} to pass Commodus`;
     }
-    const fontText = `VICTUS ${headerLine} ${benchmarkLine} pts ptsmonthly PnL ${formatUsd(pnl)}`;
+    const returnLine = formatOgPercent(player.performance_return);
+    const fontText = `VICTUS ${headerLine} ${benchmarkLine} arena balance return ${formatOgUsd(player.portfolio_value_usdc)} ${returnLine}`;
     const fontData = await loadGoogleFont("Press+Start+2P", fontText);
-
-    const pnlPositive = pnl >= 0;
 
     return new ImageResponse(
       (
@@ -149,12 +141,12 @@ export async function GET(
                   letterSpacing: 1,
                 }}
               >
-                POINTS
+                ARENA BALANCE
               </div>
               <div
                 style={{ display: "flex", fontSize: 44, color: GOLD }}
               >
-                {player.points}
+                {formatOgUsd(player.portfolio_value_usdc)}
               </div>
             </div>
             <div
@@ -173,16 +165,17 @@ export async function GET(
                   letterSpacing: 1,
                 }}
               >
-                MONTHLY PNL
+                RETURN
               </div>
               <div
                 style={{
                   display: "flex",
                   fontSize: 22,
-                  color: pnlPositive ? PNL_POSITIVE : PNL_NEGATIVE,
+                  color:
+                    player.performance_return >= 0 ? PNL_POSITIVE : PNL_NEGATIVE,
                 }}
               >
-                {formatUsd(pnl)}
+                {returnLine}
               </div>
             </div>
           </div>

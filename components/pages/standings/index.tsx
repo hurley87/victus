@@ -1,6 +1,5 @@
 "use client";
 
-import { ScoringTable } from "@/components/shared/ui/scoring-table";
 import { Button } from "@/components/shared/ui/button";
 import { ShareComposeGlyph } from "@/components/shared/ui/share-compose-glyph";
 import { useUser } from "@/contexts/user-context";
@@ -10,12 +9,10 @@ import { miniAppTabDeepLink } from "@/lib/commodus/deep-links";
 import type {
   RecentActivityEntry,
   RecentActivityResult,
-} from "@/lib/leaderboard/service";
-import type { ReferralSummary } from "@/lib/referrals/types";
-import type {
   SeasonLeaderboardEntry,
   SeasonLeaderboardResult,
 } from "@/lib/seasons/leaderboard";
+import type { ReferralSummary } from "@/lib/referrals/types";
 import { cn, formatUsd } from "@/lib/utils";
 import { Crown, Swords, Users } from "lucide-react";
 
@@ -163,7 +160,6 @@ export default function StandingsPage() {
         <RecentActivityCard activity={activity} />
       )}
 
-      <ScoringTable />
     </div>
   );
 }
@@ -189,7 +185,7 @@ function ReferralCard({
             <div>
               <h2 className="text-sm font-semibold text-white">Invite players</h2>
               <p className="text-xs text-zinc-400">
-                Earn {referrals.awardPoints} pts when a referral funds.
+                Earn {referrals.bonusPointsPerFunding} pts when a referral funds.
               </p>
             </div>
           </div>
@@ -214,7 +210,7 @@ function ReferralCard({
       <div className="mt-3 grid grid-cols-3 gap-2">
         <ReferralStat label="Signups" value={referrals.signups} />
         <ReferralStat label="Funded" value={referrals.funded} />
-        <ReferralStat label="Points earned" value={referrals.monthlyPoints} />
+        <ReferralStat label="Season bonus" value={referrals.seasonBonusPoints} />
       </div>
     </section>
   );
@@ -523,7 +519,8 @@ function RecentActivityRow({ entry }: { entry: RecentActivityEntry }) {
   const playerLabel = farcasterUserLabel(entry.username, entry.fid);
   const symbol = entry.symbol ? `$${entry.symbol.toUpperCase()}` : "";
   const ago = relativeTimeShort(entry.confirmed_at);
-  const points = entry.points;
+  const arenaValue =
+    entry.portfolio_value_usdc != null ? formatUsd(entry.portfolio_value_usdc) : null;
   return (
     <li className="flex items-center justify-between gap-2 text-xs">
       <div className="min-w-0 truncate text-zinc-200">
@@ -532,15 +529,8 @@ function RecentActivityRow({ entry }: { entry: RecentActivityEntry }) {
         <span className="font-mono">{symbol}</span>
       </div>
       <div className="shrink-0 flex items-center gap-2">
-        {points !== 0 && (
-          <span
-            className={cn(
-              "font-mono",
-              points > 0 ? "text-pnl-positive" : "text-zinc-400",
-            )}
-          >
-            {points > 0 ? `+${points}` : points} pts
-          </span>
+        {arenaValue && (
+          <span className="font-mono text-gold">{arenaValue}</span>
         )}
         <span className="text-zinc-500">{ago}</span>
       </div>

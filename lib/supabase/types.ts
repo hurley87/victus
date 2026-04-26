@@ -500,50 +500,6 @@ export type Database = {
           },
         ]
       }
-      leaderboard_snapshots: {
-        Row: {
-          captured_at: string | null
-          created_at: string
-          id: string
-          month: string
-          points: number
-          rank: number | null
-          realized_pnl_usdc: number
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          captured_at?: string | null
-          created_at?: string
-          id?: string
-          month: string
-          points?: number
-          rank?: number | null
-          realized_pnl_usdc?: number
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          captured_at?: string | null
-          created_at?: string
-          id?: string
-          month?: string
-          points?: number
-          rank?: number | null
-          realized_pnl_usdc?: number
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "leaderboard_snapshots_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       lot_closures: {
         Row: {
           avg_cost_usdc_at_close: number
@@ -697,8 +653,7 @@ export type Database = {
       }
       referrals: {
         Row: {
-          award_month: string | null
-          award_points: number
+          award_season_id: string | null
           awarded_at: string | null
           first_funded_at: string | null
           id: string
@@ -707,10 +662,10 @@ export type Database = {
           referred_user_id: string
           referrer_fid: number
           referrer_user_id: string
+          season_bonus_points: number
         }
         Insert: {
-          award_month?: string | null
-          award_points?: number
+          award_season_id?: string | null
           awarded_at?: string | null
           first_funded_at?: string | null
           id?: string
@@ -719,10 +674,10 @@ export type Database = {
           referred_user_id: string
           referrer_fid: number
           referrer_user_id: string
+          season_bonus_points?: number
         }
         Update: {
-          award_month?: string | null
-          award_points?: number
+          award_season_id?: string | null
           awarded_at?: string | null
           first_funded_at?: string | null
           id?: string
@@ -731,6 +686,7 @@ export type Database = {
           referred_user_id?: string
           referrer_fid?: number
           referrer_user_id?: string
+          season_bonus_points?: number
         }
         Relationships: [
           {
@@ -784,64 +740,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
-      }
-      scoring_events: {
-        Row: {
-          cast_command_id: string
-          counted_in_daily_slot: boolean
-          created_at: string
-          event_type: string
-          execution_id: string | null
-          id: string
-          month: string
-          points: number
-          user_id: string
-        }
-        Insert: {
-          cast_command_id: string
-          counted_in_daily_slot?: boolean
-          created_at?: string
-          event_type: string
-          execution_id?: string | null
-          id?: string
-          month: string
-          points: number
-          user_id: string
-        }
-        Update: {
-          cast_command_id?: string
-          counted_in_daily_slot?: boolean
-          created_at?: string
-          event_type?: string
-          execution_id?: string | null
-          id?: string
-          month?: string
-          points?: number
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "scoring_events_cast_command_id_fkey"
-            columns: ["cast_command_id"]
-            isOneToOne: false
-            referencedRelation: "cast_commands"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "scoring_events_execution_id_fkey"
-            columns: ["execution_id"]
-            isOneToOne: false
-            referencedRelation: "trade_executions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "scoring_events_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       season_entries: {
         Row: {

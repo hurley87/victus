@@ -126,7 +126,7 @@ The pipeline relies on database-level uniqueness for idempotency. Do not add cod
 | ----------- | ---------------------------------------------------------------------------------- |
 | Webhook     | `cast_commands.cast_hash` UNIQUE                                                   |
 | Chain       | `trade_executions.tx_hash` UNIQUE (supplied by the user's signed tx via swapToken) |
-| Reply       | `scoring_events (cast_command_id, event_type)` UNIQUE                              |
+| Reply       | `cast_replies (cast_hash, reply_kind)` UNIQUE                                      |
 | Lot linkage | `lots.opening_execution_id` UNIQUE                                                 |
 
 

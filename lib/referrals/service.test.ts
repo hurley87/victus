@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { supabaseAdmin } from "@/lib/supabase/server";
 
 import {
-  REFERRAL_AWARD_POINTS,
+  REFERRAL_BONUS_POINTS,
   awardReferralForFirstFunding,
   recordReferralSignup,
 } from "./service";
@@ -15,9 +15,8 @@ vi.mock("@/lib/commodus/deep-links", () => ({
   referralDeepLink: (fid: number) => `https://app.test/?tab=standings&ref=${fid}`,
 }));
 
-vi.mock("@/lib/scoring/dates", () => ({
-  utcCurrentMonthString: () => "2026-04",
-  utcMonthFromTimestamp: () => "2026-04",
+vi.mock("@/lib/seasons/service", () => ({
+  getLeaderboardSeason: vi.fn(async () => ({ id: "season-1" })),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -101,8 +100,8 @@ describe("referral service", () => {
     expect(update).toHaveBeenCalledWith({
       first_funded_at: "2026-04-25T12:00:00.000Z",
       awarded_at: "2026-04-25T12:00:00.000Z",
-      award_month: "2026-04",
-      award_points: REFERRAL_AWARD_POINTS,
+      award_season_id: "season-1",
+      season_bonus_points: REFERRAL_BONUS_POINTS,
     });
     expect(eq).toHaveBeenCalledWith("referred_user_id", "user-200");
     expect(isGuard).toHaveBeenCalledWith("awarded_at", null);

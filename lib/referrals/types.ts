@@ -14,7 +14,7 @@ export type ReferralSummary = {
   referralUrl: string;
   signups: number;
   funded: number;
-  monthlyPoints: number;
-  awardPoints: number;
+  seasonBonusPoints: number;
+  bonusPointsPerFunding: number;
   recent: ReferralRecentUser[];
 };

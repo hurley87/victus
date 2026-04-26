@@ -455,14 +455,14 @@ MVP optimizes for **leaderboard clarity and a clean custodial trading loop**, no
 
 ### What “rewards” mean in MVP
 
-- Top 10 finishers are **frozen in `leaderboard_snapshots`** and surfaced in `/admin/rewards/:epoch`.
+- Top finishers are frozen from the settled season ledger and surfaced in `/admin/rewards/:epoch`.
 - Any prize (USDC, merch, shout-outs, etc.) is **operator-defined** and **fulfilled off-app**. The product copy and Rules page **do not** promise a specific token.
 
 ### Operator workflow (suggested)
 
 1. **00:00 UTC, day 1 of each month** — a Vercel cron job:
   - inserts a `reward_epochs` row with `status='snapshot_ready'`
-  - freezes `leaderboard_snapshots` for the closed month (top 10 locked)
+  - freezes the closed season ledger for rewards review
 2. Operator opens `/admin/rewards/:epoch`:
   - table of top 10 with FID, username, rank, points, realized PnL, resolved recipient address
   - **"Download CSV"** — exports payout rows (e.g. `address, reward_amount`) as the operator configures
@@ -649,7 +649,7 @@ Vercel Workflow process-trade-command
           │
           ├─ update_lots_and_positions            FIFO bookkeeping, deterministic from execution
           │
-          ├─ score_trade                          append scoring_events, respecting daily cap
+          ├─ apply_season_trade                   update the season ledger
           │
           └─ publish_outcome_reply_cast           templated; unique on (cast_hash, reply_kind='outcome')
                                                   → cast_commands.status = 'executed' | 'failed'
@@ -830,27 +830,11 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 - avg_cost_usdc
 - updated_at
 
-### `scoring_events`
+### Season ledger
 
-- id
-- user_id
-- cast_command_id
-- execution_id (nullable for compound events)
-- event_type ('trade_executed' | 'profitable_close' | 'return_10_bonus' | 'return_25_bonus')
-- points
-- month (YYYY-MM)
-- counted_in_daily_slot (boolean — false for events past the 5/day cap)
-- created_at
-
-### `leaderboard_snapshots`
-
-- id
-- user_id
-- month (YYYY-MM, unique with user_id)
-- points
-- realized_pnl_usdc
-- rank
-- captured_at (null until frozen at month-end)
+Season scoring is stored in `seasons`, `season_entries`, `season_trades`, and
+`season_positions`. The leaderboard is derived from virtual arena cash plus
+marked season positions, not wallet balances.
 
 ### `user_stats` *(all-time, not shown in MVP UI)*
 
@@ -901,7 +885,7 @@ Tables in Supabase. All `id` columns are `uuid` unless noted. `created_at`/`upda
 
 ### Leaderboard (read-side)
 
-- `GET /api/leaderboard/current` — current month standings
+- `GET /api/leaderboard/season` — current season standings
 - `GET /api/leaderboard/me` — user's rank + stats
 - `GET /api/leaderboard/trades/recent` — recent public executions
 - `GET /api/users/:fid/portfolio` — holdings + recent trades

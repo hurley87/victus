@@ -257,57 +257,6 @@ create trigger positions_set_updated_at
   for each row execute function public.set_updated_at();
 
 -- =========================================================================
--- scoring_events
--- =========================================================================
-
-create table public.scoring_events (
-  id                       uuid primary key default gen_random_uuid(),
-  user_id                  uuid not null references public.users(id) on delete cascade,
-  cast_command_id          uuid not null references public.cast_commands(id) on delete cascade,
-  execution_id             uuid references public.trade_executions(id) on delete set null,
-  event_type               text not null
-                           check (event_type in ('trade_executed',
-                                                 'profitable_close',
-                                                 'return_10_bonus',
-                                                 'return_25_bonus')),
-  points                   integer not null,
-  month                    text not null check (month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
-  counted_in_daily_slot    boolean not null default true,
-  created_at               timestamptz not null default now(),
-  constraint scoring_events_cast_event_unique
-    unique (cast_command_id, event_type)
-);
-
-create index scoring_events_user_month_idx
-  on public.scoring_events(user_id, month, created_at);
-create index scoring_events_month_points_idx
-  on public.scoring_events(month, points);
-
--- =========================================================================
--- leaderboard_snapshots (frozen at month-end)
--- =========================================================================
-
-create table public.leaderboard_snapshots (
-  id                  uuid primary key default gen_random_uuid(),
-  user_id             uuid not null references public.users(id) on delete cascade,
-  month               text not null check (month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
-  points              integer not null default 0,
-  realized_pnl_usdc   numeric(38, 18) not null default 0,
-  rank                integer,
-  captured_at         timestamptz,
-  created_at          timestamptz not null default now(),
-  updated_at          timestamptz not null default now(),
-  constraint leaderboard_snapshots_user_month_unique unique (user_id, month)
-);
-
-create index leaderboard_snapshots_month_rank_idx
-  on public.leaderboard_snapshots(month, rank);
-
-create trigger leaderboard_snapshots_set_updated_at
-  before update on public.leaderboard_snapshots
-  for each row execute function public.set_updated_at();
-
--- =========================================================================
 -- user_stats (all-time, not shown in MVP UI)
 -- =========================================================================
 
@@ -363,8 +312,6 @@ alter table public.trade_executions        enable row level security;
 alter table public.lots                    enable row level security;
 alter table public.lot_closures            enable row level security;
 alter table public.positions               enable row level security;
-alter table public.scoring_events          enable row level security;
-alter table public.leaderboard_snapshots   enable row level security;
 alter table public.user_stats              enable row level security;
 alter table public.reward_epochs           enable row level security;
 

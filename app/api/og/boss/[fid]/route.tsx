@@ -1,8 +1,8 @@
 import { ImageResponse } from "next/og";
 
 import { appBaseUrl } from "@/lib/commodus/deep-links";
-import { getCurrentMonthLeaderboard } from "@/lib/leaderboard/service";
-import { loadGoogleFont, loadImage } from "@/lib/og-utils";
+import { getSeasonLeaderboard } from "@/lib/seasons/leaderboard";
+import { formatOgUsd, loadGoogleFont, loadImage } from "@/lib/og-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -25,13 +25,13 @@ export async function GET(
       return new Response("invalid fid", { status: 400 });
     }
 
-    const { entries } = await getCurrentMonthLeaderboard();
+    const { entries } = await getSeasonLeaderboard();
     const player = entries.find((e) => e.fid === fid && !e.is_commodus);
     const commodus = entries.find((e) => e.is_commodus);
     if (!player || !commodus) {
       return new Response("not eligible", { status: 404 });
     }
-    if (player.points <= commodus.points) {
+    if (player.portfolio_value_usdc <= commodus.portfolio_value_usdc) {
       return new Response("not ahead of commodus", { status: 404 });
     }
 
@@ -41,10 +41,10 @@ export async function GET(
 
     const playerLabel = player.username ? `@${player.username}` : `fid ${player.fid}`;
     const headline = `${playerLabel} has beaten Commodus`;
-    const lead = player.points - commodus.points;
-    const leadLine = `${lead} pt${lead === 1 ? "" : "s"} ahead of the emperor`;
+    const lead = player.portfolio_value_usdc - commodus.portfolio_value_usdc;
+    const leadLine = `${formatOgUsd(lead)} ahead of the emperor`;
 
-    const fontText = `VICTUS ${headline} ${leadLine} POINTS RANK ${player.points} ${player.rank}`;
+    const fontText = `VICTUS ${headline} ${leadLine} ARENA BALANCE RANK ${formatOgUsd(player.portfolio_value_usdc)} ${player.rank}`;
     const fontData = await loadGoogleFont("Press+Start+2P", fontText);
 
     return new ImageResponse(
@@ -111,9 +111,11 @@ export async function GET(
               }}
             >
               <div style={{ fontSize: 10, color: TEXT_DIM, letterSpacing: 1 }}>
-                POINTS
+                ARENA BALANCE
               </div>
-              <div style={{ fontSize: 44, color: GOLD }}>{player.points}</div>
+              <div style={{ fontSize: 44, color: GOLD }}>
+                {formatOgUsd(player.portfolio_value_usdc)}
+              </div>
             </div>
             <div
               style={{

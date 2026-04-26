@@ -88,8 +88,8 @@ export async function loadTradeSnapContext(
   return {
     displayHandle: status.displayHandle,
     rank: status.rank,
-    points: status.points,
-    portfolioUsdc: status.portfolioUsdc,
+    arenaValueUsdc: status.arenaValueUsdc,
+    performanceReturn: status.performanceReturn,
     dailySlotsRemaining: status.dailySlotsRemaining,
     trade: {
       action: intent.action,
