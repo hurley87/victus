@@ -7,6 +7,8 @@ import type { Database } from "@/lib/supabase/types";
 
 type SupabaseAdmin = SupabaseClient<Database>;
 
+export { hasSufficientEntryFunding } from "./entry-funding";
+
 export type Season = Database["public"]["Tables"]["seasons"]["Row"];
 export type SeasonToken = Database["public"]["Tables"]["season_tokens"]["Row"];
 export type SeasonEntry =
@@ -32,18 +34,6 @@ export function serializeSeason(season: Season): SeasonSummary {
     starts_at: season.starts_at,
     ends_at: season.ends_at,
   };
-}
-
-/**
- * Floor check for season entry. The wallet's live USDC must clear the
- * season's `starting_balance_usdc` (10 USDC by default). Tiny float
- * epsilon avoids rounding-noise rejections at exactly the threshold.
- */
-export function hasSufficientEntryFunding(
-  walletUsdc: number,
-  startingBalanceUsdc: number,
-): boolean {
-  return walletUsdc + 1e-9 >= startingBalanceUsdc;
 }
 
 export async function getActiveSeason(

@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  getOrCreateSeasonEntry,
-  hasSufficientEntryFunding,
-  type Season,
-  type SeasonEntry,
-} from "./service";
+import { hasSufficientEntryFunding } from "./entry-funding";
+import { getOrCreateSeasonEntry, type Season, type SeasonEntry } from "./service";
 
 function buildSeason(overrides: Partial<Season> = {}): Season {
   return {
@@ -43,30 +39,28 @@ function buildEntry(overrides: Partial<SeasonEntry> = {}): SeasonEntry {
   };
 }
 
-type ReadCall = { table: "season_entries"; result: SeasonEntry | null };
-type InsertCall = {
-  table: "season_entries";
-  result: { data: SeasonEntry | null; error: { code?: string; message: string } | null };
+type SelectRow = { type: "select"; row: SeasonEntry | null };
+type InsertRow = {
+  type: "insert";
+  res: { data: SeasonEntry | null; error: { code?: string; message: string } | null };
 };
 
-function makeClient(steps: Array<ReadCall | InsertCall>) {
+function makeClient(steps: Array<SelectRow | InsertRow>) {
   let i = 0;
   const from = vi.fn(() => {
     const step = steps[i++];
     if (!step) throw new Error("unexpected supabase call");
-    if ("result" in step && step.result && "data" in step.result) {
-      const insert = step as InsertCall;
+    if (step.type === "insert") {
       return {
         insert: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue(insert.result),
+        single: vi.fn().mockResolvedValue(step.res),
       };
     }
-    const read = step as ReadCall;
     return {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
-      maybeSingle: vi.fn().mockResolvedValue({ data: read.result, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: step.row, error: null }),
     };
   });
   return { from } as unknown as Parameters<typeof getOrCreateSeasonEntry>[1];
@@ -89,9 +83,7 @@ describe("hasSufficientEntryFunding", () => {
 describe("getOrCreateSeasonEntry", () => {
   it("returns the existing entry without inserting (idempotent)", async () => {
     const existing = buildEntry();
-    const client = makeClient([
-      { table: "season_entries", result: existing },
-    ]);
+    const client = makeClient([{ type: "select", row: existing }]);
 
     const out = await getOrCreateSeasonEntry(
       { season: buildSeason(), userId: "user-1", walletId: "wallet-1" },
@@ -104,11 +96,8 @@ describe("getOrCreateSeasonEntry", () => {
   it("inserts a new entry seeded from the season's starting balance", async () => {
     const inserted = buildEntry();
     const client = makeClient([
-      { table: "season_entries", result: null },
-      {
-        table: "season_entries",
-        result: { data: inserted, error: null },
-      },
+      { type: "select", row: null },
+      { type: "insert", res: { data: inserted, error: null } },
     ]);
 
     const out = await getOrCreateSeasonEntry(
@@ -123,15 +112,15 @@ describe("getOrCreateSeasonEntry", () => {
   it("recovers from a unique-violation race by re-reading the winner's row", async () => {
     const winner = buildEntry({ id: "entry-winner" });
     const client = makeClient([
-      { table: "season_entries", result: null },
+      { type: "select", row: null },
       {
-        table: "season_entries",
-        result: {
+        type: "insert",
+        res: {
           data: null,
           error: { code: "23505", message: "duplicate key value" },
         },
       },
-      { table: "season_entries", result: winner },
+      { type: "select", row: winner },
     ]);
 
     const out = await getOrCreateSeasonEntry(

@@ -52,6 +52,7 @@ import {
   type ReservedExecution,
 } from "@/lib/execution/reserve";
 import { applyLotsAndPositionsForExecution } from "@/lib/execution/lot-persistence";
+import { applySeasonBuy } from "@/lib/seasons/apply-trade";
 import { scoreTradeAfterExecution } from "@/lib/scoring/score-trade";
 import {
   decodeSwapReceipt,
@@ -507,6 +508,15 @@ export async function handleCommodusCommand(ctx: CommandContext) {
     tradeExecutionId: reservation.tradeExecutionId,
     intentAction: "buy",
   });
+  if (policyCtx.season) {
+    await applySeasonBuyStep({
+      castHash: ctx.castHash,
+      tradeExecutionId: reservation.tradeExecutionId,
+      season: policyCtx.season,
+      userId: walletLookup.userId,
+      walletId: policyCtx.walletId,
+    });
+  }
   await scoreTradeStep({
     castHash: ctx.castHash,
     castCommandId: loaded.id,
@@ -1471,6 +1481,36 @@ async function scoreTradeStep(params: {
       userId: params.userId,
       tradeExecutionId: params.tradeExecutionId,
       intentAction: params.intentAction,
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Step: apply_season_buy
+//
+// Books the buy into the Victus Games ledger: inserts season_trades,
+// decrements virtual cash, consumes a trade ticket, and upserts the
+// season position. Idempotent on `trade_execution_id`.
+// ---------------------------------------------------------------------------
+
+async function applySeasonBuyStep(params: {
+  castHash: string;
+  tradeExecutionId: string;
+  season: NonNullable<PolicyContext["season"]>;
+  userId: string;
+  walletId: string;
+}): Promise<void> {
+  "use step";
+
+  return logStep(params.castHash, "apply_season_buy", async () => {
+    await applySeasonBuy({
+      tradeExecutionId: params.tradeExecutionId,
+      seasonId: params.season.seasonId,
+      seasonEntryId: params.season.seasonEntryId,
+      userId: params.userId,
+      walletId: params.walletId,
+      tokenSymbol: params.season.tokenSymbol,
+      tokenAddress: params.season.tokenAddress,
     });
   });
 }

@@ -916,6 +916,157 @@ export type Database = {
           },
         ]
       }
+      season_positions: {
+        Row: {
+          average_entry_price: number
+          id: string
+          season_entry_id: string
+          season_id: string
+          token_address: string
+          token_amount: number
+          token_symbol: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          average_entry_price?: number
+          id?: string
+          season_entry_id: string
+          season_id: string
+          token_address: string
+          token_amount?: number
+          token_symbol: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          average_entry_price?: number
+          id?: string
+          season_entry_id?: string
+          season_id?: string
+          token_address?: string
+          token_amount?: number
+          token_symbol?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "season_positions_season_entry_id_fkey"
+            columns: ["season_entry_id"]
+            isOneToOne: false
+            referencedRelation: "season_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "season_positions_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "season_positions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      season_trades: {
+        Row: {
+          action: string
+          created_at: string
+          execution_price: number
+          fees_usdc: number
+          id: string
+          notional_usdc: number
+          season_entry_id: string
+          season_id: string
+          status: string
+          token_address: string
+          token_amount: number
+          token_symbol: string
+          trade_execution_id: string
+          tx_hash: string | null
+          user_id: string
+          wallet_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          execution_price: number
+          fees_usdc?: number
+          id?: string
+          notional_usdc: number
+          season_entry_id: string
+          season_id: string
+          status?: string
+          token_address: string
+          token_amount: number
+          token_symbol: string
+          trade_execution_id: string
+          tx_hash?: string | null
+          user_id: string
+          wallet_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          execution_price?: number
+          fees_usdc?: number
+          id?: string
+          notional_usdc?: number
+          season_entry_id?: string
+          season_id?: string
+          status?: string
+          token_address?: string
+          token_amount?: number
+          token_symbol?: string
+          trade_execution_id?: string
+          tx_hash?: string | null
+          user_id?: string
+          wallet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "season_trades_season_entry_id_fkey"
+            columns: ["season_entry_id"]
+            isOneToOne: false
+            referencedRelation: "season_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "season_trades_season_id_fkey"
+            columns: ["season_id"]
+            isOneToOne: false
+            referencedRelation: "seasons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "season_trades_trade_execution_id_fkey"
+            columns: ["trade_execution_id"]
+            isOneToOne: true
+            referencedRelation: "trade_executions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "season_trades_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "season_trades_wallet_id_fkey"
+            columns: ["wallet_id"]
+            isOneToOne: false
+            referencedRelation: "arena_wallets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       season_tokens: {
         Row: {
           chain_id: number

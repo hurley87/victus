@@ -83,6 +83,14 @@ describe("POLICY_REJECTION_COPY", () => {
     expect(POLICY_REJECTION_COPY.max_trade_usdc).toBeTruthy();
     expect(POLICY_REJECTION_COPY.wallet_cap_usdc).toBeTruthy();
     expect(POLICY_REJECTION_COPY.insufficient_balance).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.no_active_season).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.no_season_entry).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.season_entry_inactive).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.season_max_trades_reached).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.season_token_not_approved).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.season_min_trade_size).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.season_insufficient_arena_balance).toBeTruthy();
+    expect(POLICY_REJECTION_COPY.season_insufficient_position).toBeTruthy();
   });
 
   it("interpolates live caps for max_trade_usdc", () => {

@@ -17,6 +17,12 @@ export type PortfolioHolding = {
   value_usdc: number;
 };
 
+export type SeasonPositionView = {
+  symbol: string;
+  token_amount: number;
+  average_entry_price: number;
+};
+
 export type PortfolioTrade = {
   id: string;
   action: "buy" | "sell";
@@ -38,6 +44,8 @@ export type PortfolioResult = {
   realized_pnl_month_usdc: number;
   realized_pnl_all_time_usdc: number;
   recent_trades: PortfolioTrade[];
+  /** Current Victus Games positions (active season only). Empty when no season is open. */
+  season_positions: SeasonPositionView[];
 };
 
 async function loadTradableAssets(): Promise<TradableAsset[]> {
@@ -58,6 +66,50 @@ async function loadTradableAssets(): Promise<TradableAsset[]> {
     name: r.name,
     address: r.address,
     decimals: r.decimals,
+  }));
+}
+
+async function loadSeasonPositionsForUser(
+  userId: string,
+): Promise<SeasonPositionView[]> {
+  const { data: season, error: seasonErr } = await supabaseAdmin
+    .from("seasons")
+    .select("id")
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (seasonErr) {
+    throw new Error(`portfolio: active season ${seasonErr.message}`);
+  }
+  if (!season) return [];
+
+  const { data: entry, error: entryErr } = await supabaseAdmin
+    .from("season_entries")
+    .select("id")
+    .eq("season_id", season.id)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (entryErr) {
+    throw new Error(`portfolio: season entry ${entryErr.message}`);
+  }
+  if (!entry) return [];
+
+  const { data: positions, error: positionsErr } = await supabaseAdmin
+    .from("season_positions")
+    .select("token_symbol, token_amount, average_entry_price")
+    .eq("season_entry_id", entry.id)
+    .gt("token_amount", 0)
+    .order("token_symbol");
+
+  if (positionsErr) {
+    throw new Error(`portfolio: season positions ${positionsErr.message}`);
+  }
+
+  return (positions ?? []).map((p) => ({
+    symbol: p.token_symbol,
+    token_amount: Number(p.token_amount),
+    average_entry_price: Number(p.average_entry_price),
   }));
 }
 
@@ -106,6 +158,7 @@ export async function getPortfolioByFid(fid: number): Promise<PortfolioResult | 
       realized_pnl_month_usdc: 0,
       realized_pnl_all_time_usdc: 0,
       recent_trades: [],
+      season_positions: [],
     };
   }
 
@@ -121,6 +174,7 @@ export async function getPortfolioByFid(fid: number): Promise<PortfolioResult | 
     { data: monthExecs, error: monthErr },
     { data: allSellExecs, error: allErr },
     { data: recentExecs, error: recentErr },
+    seasonPositions,
   ] = await Promise.all([
     supabaseAdmin
       .from("positions")
@@ -155,6 +209,7 @@ export async function getPortfolioByFid(fid: number): Promise<PortfolioResult | 
       .eq("trade_intents.wallet_id", walletId)
       .order("confirmed_at", { ascending: false })
       .limit(10),
+    loadSeasonPositionsForUser(userId),
   ]);
 
   if (monthErr) {
@@ -235,5 +290,6 @@ export async function getPortfolioByFid(fid: number): Promise<PortfolioResult | 
     realized_pnl_month_usdc: realizedMonth,
     realized_pnl_all_time_usdc: realizedAll,
     recent_trades,
+    season_positions: seasonPositions,
   };
 }

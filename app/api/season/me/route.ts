@@ -26,12 +26,11 @@ export async function GET(request: NextRequest) {
   try {
     const season = await getActiveSeason();
     if (!season) {
-      const empty: SeasonMeResponse = {
+      return NextResponse.json<SeasonMeResponse>({
         season: null,
         entry: null,
         tokens: [],
-      };
-      return NextResponse.json(empty);
+      });
     }
 
     const [entry, tokens] = await Promise.all([

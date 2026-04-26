@@ -176,6 +176,38 @@ function PortfolioContent({
 
         <section className="rounded-xl border border-black/10 p-4 space-y-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-black/60">
+            Victus week positions
+          </h2>
+          {data.season_positions.length === 0 ? (
+            <p className="text-sm text-black/60">No season positions.</p>
+          ) : (
+            <ul className="divide-y divide-black/10">
+              {data.season_positions.map((p) => (
+                <li
+                  key={p.symbol}
+                  className="py-2 flex justify-between gap-2 text-sm"
+                >
+                  <div>
+                    <span className="font-mono font-medium">{p.symbol}</span>
+                    <span className="block text-[11px] text-black/50">
+                      {p.token_amount.toLocaleString(undefined, {
+                        maximumFractionDigits: 6,
+                      })}{" "}
+                      · avg {formatUsd(p.average_entry_price)}
+                    </span>
+                  </div>
+                  <div className="text-right font-mono text-xs">
+                    <div>{formatUsd(p.token_amount * p.average_entry_price)}</div>
+                    <div className="text-[10px] text-black/45">ledger cost</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-black/10 p-4 space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-black/60">
             Holdings
           </h2>
           {data.holdings.length === 0 ? (

@@ -13,11 +13,10 @@ import type {
   ProvisionArenaWalletResponse,
   PositionBalance,
 } from "@/lib/arena/types";
-import type {
-  SeasonEnterResponse,
-} from "@/app/api/season/enter/route";
+import type { SeasonEnterResponse } from "@/app/api/season/enter/route";
 import type { SeasonMeResponse } from "@/app/api/season/me/route";
 import { ApiError } from "@/lib/api-error";
+import { hasSufficientEntryFunding } from "@/lib/seasons/entry-funding";
 import { cn, copyToClipboard, formatUsd, formatWalletAddress } from "@/lib/utils";
 import { Button } from "@/components/shared/ui/button";
 import Link from "next/link";
@@ -75,9 +74,6 @@ export default function ArenaPage() {
 }
 
 function ArenaContent() {
-  // Poll while pending_funding so the server-side self-heal surfaces on
-  // the next tick. 5s is aggressive enough for demo UX and rounds to
-  // ~zero cost at MVP scale.
   const { data, isLoading, error, refetch } = useApiQuery<ArenaProfile>({
     queryKey: ARENA_QUERY_KEY,
     url: "/api/arena/me",
@@ -177,6 +173,8 @@ function SeasonSection({ walletUsdc }: { walletUsdc: number }) {
     url: "/api/season/me",
     isProtected: true,
     retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.entry?.status === "active" ? 5_000 : false,
   });
 
   const refetchSeason = useCallback(() => {
@@ -194,7 +192,10 @@ function SeasonSection({ walletUsdc }: { walletUsdc: number }) {
   if (isLoading || !data?.season) return null;
 
   const { season, entry, tokens } = data;
-  const hasFunding = walletUsdc + 1e-9 >= season.starting_balance_usdc;
+  const hasFunding = hasSufficientEntryFunding(
+    walletUsdc,
+    season.starting_balance_usdc,
+  );
 
   if (!entry) {
     return (
@@ -307,19 +308,22 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+const qualificationBadgeBase =
+  "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium";
+
 function QualificationBadge({ qualified }: { qualified: boolean }) {
-  const label = qualified ? "Qualified" : "Not qualified";
-  const cls = qualified
-    ? "bg-green-100 text-green-800"
-    : "bg-black/5 text-black/60";
+  if (qualified) {
+    return (
+      <span
+        className={cn(qualificationBadgeBase, "bg-green-100 text-green-800")}
+      >
+        Qualified
+      </span>
+    );
+  }
   return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-        cls,
-      )}
-    >
-      {label}
+    <span className={cn(qualificationBadgeBase, "bg-black/5 text-black/60")}>
+      Not qualified
     </span>
   );
 }

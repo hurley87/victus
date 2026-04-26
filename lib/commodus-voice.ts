@@ -189,6 +189,22 @@ export function policyRejectionMessage(
     }
     case "insufficient_balance":
       return "Not enough balance. Size it down or fund the arena wallet.";
+    case "no_active_season":
+      return "No Victus week is open right now. Wait for the next arena bell.";
+    case "no_season_entry":
+      return "Enter the Victus week first. Open the Mini App and tap Enter.";
+    case "season_entry_inactive":
+      return "Your week is settled or disqualified. Wait for the next arena bell.";
+    case "season_max_trades_reached":
+      return "All 5 of your weekly trade tickets are spent. The arena is closed for the week.";
+    case "season_token_not_approved":
+      return "That symbol is not in this week's arena. Pick one from the approved list.";
+    case "season_min_trade_size":
+      return "Minimum Victus trade is 2 USDC. Size it up.";
+    case "season_insufficient_arena_balance":
+      return "Not enough arena cash. Wallet funds do not increase your 10 USDC arena balance.";
+    case "season_insufficient_position":
+      return "You can only sell tokens bought through Victus this week.";
   }
 }
 
@@ -200,6 +216,18 @@ export const POLICY_REJECTION_COPY: Record<PolicyRejectionReason, string> = {
   max_trade_usdc: policyRejectionMessage("max_trade_usdc", { maxTradeUsdc: 0 }),
   wallet_cap_usdc: policyRejectionMessage("wallet_cap_usdc", { walletCapUsdc: 0 }),
   insufficient_balance: policyRejectionMessage("insufficient_balance"),
+  no_active_season: policyRejectionMessage("no_active_season"),
+  no_season_entry: policyRejectionMessage("no_season_entry"),
+  season_entry_inactive: policyRejectionMessage("season_entry_inactive"),
+  season_max_trades_reached: policyRejectionMessage("season_max_trades_reached"),
+  season_token_not_approved: policyRejectionMessage("season_token_not_approved"),
+  season_min_trade_size: policyRejectionMessage("season_min_trade_size"),
+  season_insufficient_arena_balance: policyRejectionMessage(
+    "season_insufficient_arena_balance",
+  ),
+  season_insufficient_position: policyRejectionMessage(
+    "season_insufficient_position",
+  ),
 };
 
 /**
