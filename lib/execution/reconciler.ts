@@ -9,6 +9,7 @@ import {
   type PrivyTransaction,
 } from "@/lib/privy/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { log } from "@/lib/logger";
 
 /**
  * Best-effort reconciler for trade_executions stuck in a non-terminal
@@ -26,9 +27,10 @@ import { supabaseAdmin } from "@/lib/supabase/server";
  *   2. `submitted` row with `tx_hash` but no `confirmed_at`: read the
  *      Base receipt; on success flip to `confirmed`, on revert flip to
  *      `reverted`.
- *   3. `pending` row (no Privy handle, never submitted): log loudly.
- *      The only clean recovery is to restart the workflow for that
- *      cast, which is out-of-band — a TODO follow-up.
+ *   3. Stale `pending`/`submitted` row with no `privy_transaction_id`
+ *      and no `tx_hash` (e.g. workflow failed before sign, or Privy
+ *      misconfig): no recovery path. Mark `failed` with
+ *      `failure_reason` so the row leaves the reconciler queue.
  *
  * A broader on-chain-scan fallback is deliberately deferred. The
  * scenarios that require it (Privy handle lost + tx hash lost) are
@@ -131,12 +133,26 @@ async function reconcileOne(row: StuckRow): Promise<boolean> {
     return false;
   }
 
-  // Case 3: reserved but never submitted. Log — operator follow-up.
-  console.warn("reconciler.pending_with_no_privy_handle", {
-    execution_id: row.execution_id,
-    created_at: row.created_at,
+  // Case 3: no chain hash and no Privy id — cannot poll either layer.
+  const { error: failError } = await supabaseAdmin
+    .from("trade_executions")
+    .update({
+      status: "failed",
+      failure_reason:
+        "reconciler: no Privy transaction id and no tx hash after SLA (abandoned reserve)",
+    })
+    .eq("id", row.id);
+
+  if (failError) {
+    throw new Error(`reconciler: mark failed (no privy handle): ${failError.message}`);
+  }
+
+  log.info("reconciler.pending_with_no_privy_handle_marked_failed", {
+    executionId: row.execution_id,
+    tradeExecutionId: row.id,
+    createdAt: row.created_at,
   });
-  return false;
+  return true;
 }
 
 async function verifyAndMark(
