@@ -11,6 +11,7 @@ import { USDC_BASE_ADDRESS, USDC_DECIMALS } from "@/lib/chain/addresses";
 import { basePublicClient } from "@/lib/chain/client";
 import {
   onboardingSnapUrlForFid,
+  seasonEnterSnapUrlForFid,
   statusSnapUrlForFid,
   tradeSnapUrlForExecution,
 } from "@/lib/commodus/deep-links";
@@ -189,12 +190,17 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   });
   if (!policyOutcome.ok) {
     await markRejected(ctx.castHash, policyOutcome.reason);
+    const policyEmbeds =
+      policyOutcome.reason === "no_season_entry"
+        ? [{ url: seasonEnterSnapUrlForFid(ctx.authorFid) }]
+        : undefined;
     await publishOutcomeReply(
       ctx.castHash,
       policyRejectionMessage(policyOutcome.reason, {
         maxTradeUsdc: policyOutcome.policy?.maxTradeUsdc,
         walletCapUsdc: policyOutcome.policy?.walletCapUsdc,
       }),
+      policyEmbeds,
     );
     return { status: "rejected" as const, reason: policyOutcome.reason };
   }

@@ -110,6 +110,13 @@ export function walletDeepLink(): string {
 }
 
 /**
+ * HTTPS URL that opens the Mini App arena page (Victus week entry + status).
+ */
+export function arenaDeepLink(): string {
+  return `${appBaseUrl()}/arena`;
+}
+
+/**
  * Public HTTPS URL for the `@commodus status` Snap JSON (embed on the reply cast).
  */
 export function statusSnapUrlForFid(fid: number): string {
@@ -139,4 +146,12 @@ export function onboardingSnapUrlForFid(fid: number, taunt = false): string {
   assertValidFid(fid, "onboardingSnapUrlForFid");
   const url = `${appBaseUrl()}/api/snaps/onboarding/${fid}`;
   return taunt ? `${url}?taunt=1` : url;
+}
+
+/**
+ * Public HTTPS URL for the "enter Victus week" Snap (embed on trade replies when not entered).
+ */
+export function seasonEnterSnapUrlForFid(fid: number): string {
+  assertValidFid(fid, "seasonEnterSnapUrlForFid");
+  return `${appBaseUrl()}/api/snaps/season-enter/${fid}`;
 }
