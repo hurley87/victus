@@ -42,6 +42,14 @@ function buildSocialCtx(
 
 const COMMODUS_FID = 999;
 
+function upsertedTables() {
+  return from.mock.calls.map(([table]) => table);
+}
+
+function upsertRow(index: number) {
+  return upsert.mock.calls[index][0];
+}
+
 function buildCast(overrides: Partial<SocialCastEvent> = {}): SocialCastEvent {
   return {
     hash: "0xinbound",
@@ -131,21 +139,16 @@ describe("handleSocialEngagement", () => {
 
     expect(result).toEqual({ status: "ignored", reason: "reply_to_commodus" });
 
-    expect(from.mock.calls.map(([table]) => table)).toEqual([
-      "commodus_casts",
-      "commodus_social_runs",
-    ]);
+    expect(upsertedTables()).toEqual(["commodus_casts", "commodus_social_runs"]);
 
-    const castRow = upsert.mock.calls[0][0];
-    expect(castRow).toMatchObject({
+    expect(upsertRow(0)).toMatchObject({
       hash: cast.hash,
       author_fid: cast.author.fid,
       parent_author_fid: COMMODUS_FID,
       source: "webhook",
     });
 
-    const runRow = upsert.mock.calls[1][0];
-    expect(runRow).toMatchObject({
+    expect(upsertRow(1)).toMatchObject({
       action: "ignore",
       run_type: "webhook",
       trigger_cast_hash: cast.hash,
@@ -164,8 +167,8 @@ describe("handleSocialEngagement", () => {
 
     expect(result).toEqual({ status: "ignored", reason: "unrelated" });
 
-    expect(from.mock.calls.map(([table]) => table)).toEqual(["commodus_social_runs"]);
-    expect(upsert.mock.calls[0][0]).toMatchObject({
+    expect(upsertedTables()).toEqual(["commodus_social_runs"]);
+    expect(upsertRow(0)).toMatchObject({
       action: "ignore",
       reason: "filter:unrelated",
     });
@@ -180,8 +183,8 @@ describe("handleSocialEngagement", () => {
 
     await handleSocialEngagement(buildSocialCtx(cast));
 
-    expect(from.mock.calls.map(([table]) => table)).toEqual(["commodus_social_runs"]);
-    expect(upsert.mock.calls[0][0]).toMatchObject({ reason: "filter:quote_cast" });
+    expect(upsertedTables()).toEqual(["commodus_social_runs"]);
+    expect(upsertRow(0)).toMatchObject({ reason: "filter:quote_cast" });
   });
 
   it("uses idem_key based on trigger hash so retries collapse", async () => {

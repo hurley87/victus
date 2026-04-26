@@ -130,7 +130,14 @@ export async function handleCommodusCommand(ctx: CommandContext) {
   if (!parseOutcome.ok) {
     const rejection = parseRejectionFor(parseOutcome.reason);
     await markRejected(ctx.castHash, rejection.errorReason);
-    await publishOutcomeReply(ctx.castHash, rejection.reply);
+    // Conversational replies / mentions land here too (LLM classifier
+    // → `invalid` → `grammar_error`). Replying "Bad command" to every
+    // casual cast is noise. The social agent (issue #36+) is the
+    // surface that responds to non-trade casts. Asset errors keep
+    // their reply because the user clearly attempted a trade.
+    if (parseOutcome.reason !== "grammar_error") {
+      await publishOutcomeReply(ctx.castHash, rejection.reply);
+    }
     return { status: "rejected" as const, reason: rejection.errorReason };
   }
 

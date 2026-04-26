@@ -59,21 +59,21 @@ export async function handleSocialEngagement(ctx: SocialEngagementContext) {
   const decision = classifySocialCast(cast, env.COMMODUS_FID ?? null);
   const runBase = { runId, runType, triggerHash };
 
-  if (!decision.match) {
-    await landRun({
-      ...runBase,
-      reason: `filter:${decision.reason}`,
-      logEvent: "social_filter_skip",
-    });
-  } else {
+  let reason: string;
+  let logEvent: "social_filter_skip" | "social_filter_match";
+  let selectedHash: string | undefined;
+
+  if (decision.match) {
     await persistInboundCast(cast, runId);
-    await landRun({
-      ...runBase,
-      selectedHash: cast.hash,
-      reason: `accepted:${decision.reason}`,
-      logEvent: "social_filter_match",
-    });
+    selectedHash = cast.hash;
+    reason = `accepted:${decision.reason}`;
+    logEvent = "social_filter_match";
+  } else {
+    reason = `filter:${decision.reason}`;
+    logEvent = "social_filter_skip";
   }
+
+  await landRun({ ...runBase, selectedHash, reason, logEvent });
 
   return { status: "ignored" as const, reason: decision.reason };
 }
